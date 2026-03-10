@@ -1,0 +1,11 @@
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discord-heatmap-bot
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./data/heatmaps:/app/data/heatmaps

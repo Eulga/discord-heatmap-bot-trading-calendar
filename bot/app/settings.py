@@ -15,6 +15,10 @@ if not TOKEN:
 _default_forum_channel_id = os.getenv("DEFAULT_FORUM_CHANNEL_ID", "").strip()
 DEFAULT_FORUM_CHANNEL_ID = int(_default_forum_channel_id) if _default_forum_channel_id.isdigit() else None
 CACHE_TTL_SECONDS = 3600
+_global_admin_ids = os.getenv("DISCORD_GLOBAL_ADMIN_USER_IDS", "").strip()
+DISCORD_GLOBAL_ADMIN_USER_IDS: set[int] = {
+    int(x.strip()) for x in _global_admin_ids.split(",") if x.strip().isdigit()
+}
 
 try:
     TIMEZONE = ZoneInfo("Asia/Seoul")

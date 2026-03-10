@@ -1,4 +1,9 @@
-from typing import NotRequired, TypedDict
+from typing import TypedDict
+
+try:
+    from typing import NotRequired
+except ImportError:  # Python < 3.11
+    from typing_extensions import NotRequired
 
 
 class ImageCacheEntry(TypedDict):
@@ -18,7 +23,10 @@ class CommandState(TypedDict):
 
 
 class GuildConfig(TypedDict):
-    forum_channel_id: int
+    forum_channel_id: NotRequired[int]
+    auto_screenshot_enabled: NotRequired[bool]
+    last_auto_runs: NotRequired[dict[str, str]]
+    last_auto_skips: NotRequired[dict[str, dict[str, str]]]
 
 
 class AppState(TypedDict):

@@ -13,11 +13,30 @@ Copy-Item .env.example .env
 
 Set your bot token in `.env`.
 Per-server forum posting uses `/setforumchannel` (optional fallback: `DEFAULT_FORUM_CHANNEL_ID` in `.env`).
+If you want specific accounts to run admin commands in any server, set `DISCORD_GLOBAL_ADMIN_USER_IDS` (comma-separated user IDs).
 
 ## 2) Run
 
 ```powershell
 python bot/main.py
+```
+
+Docker (background):
+
+```powershell
+docker compose up -d --build
+```
+
+Logs:
+
+```powershell
+docker compose logs -f discord-bot
+```
+
+Stop:
+
+```powershell
+docker compose down
 ```
 
 ## 3) Architecture
@@ -34,12 +53,20 @@ In your Discord server, send `!ping` and bot replies `pong`.
 
 Also run slash commands `/kheatmap` and `/usheatmap`.
 - Set each server's forum channel first with `/setforumchannel`.
+- Toggle auto schedule per server with `/autoscreenshot mode:on|off`.
 - The bot stores forum channel per server and posts to that server's configured channel.
 - Per command, it keeps one daily post and edits the first message on repeated runs.
 - Post titles:
   - `[YYYY-MM-DD 한국장 히트맵]` for `kheatmap`
   - `[YYYY-MM-DD 미국장 히트맵]` for `usheatmap`
 - Heatmap images are saved locally and reused for up to 1 hour.
+- When auto schedule is ON, it runs on KST:
+  - `15:35` -> `kheatmap`
+  - `06:05` -> `usheatmap`
+- Auto schedule executes only on trading days:
+  - `kheatmap` runs only when KRX (`XKRX`) is open.
+  - `usheatmap` runs only when NYSE (`XNYS`) is open (based on New York local date).
+  - If calendar check fails, it logs the reason and skips that run.
 
 ## 5) Discord permissions
 

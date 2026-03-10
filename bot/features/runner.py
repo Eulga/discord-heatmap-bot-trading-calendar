@@ -15,31 +15,22 @@ BodyBuilder = Callable[[str, list[str], list[str]], str]
 TitleBuilder = Callable[[], str]
 
 
-async def run_heatmap_command(
-    interaction: discord.Interaction,
+async def execute_heatmap_for_guild(
     client: discord.Client,
+    guild_id: int,
     command_key: str,
     targets: dict[str, str],
     capture_func: CaptureFunc,
     title_builder: TitleBuilder,
     body_builder: BodyBuilder,
-) -> None:
-    await interaction.response.defer(thinking=True)
-    guild_id = interaction.guild_id
-    if guild_id is None:
-        await interaction.followup.send("이 명령어는 서버 채널에서만 사용할 수 있습니다.")
-        return
-
+) -> tuple[bool, str]:
     state: AppState = load_state()
     forum_channel_id = get_guild_forum_channel_id(state, guild_id)
     if forum_channel_id is None:
         forum_channel_id = DEFAULT_FORUM_CHANNEL_ID
 
     if forum_channel_id is None:
-        await interaction.followup.send(
-            "이 서버의 포럼 채널이 설정되지 않았습니다. `/setforumchannel`로 먼저 설정해 주세요."
-        )
-        return
+        return False, "이 서버의 포럼 채널이 설정되지 않았습니다. `/setforumchannel`로 먼저 설정해 주세요."
 
     image_paths, failed, source_map = await get_or_capture_images(
         state=state,
@@ -51,11 +42,7 @@ async def run_heatmap_command(
 
     if not image_paths and failed:
         detail = "\n".join(f"- {line}" for line in failed)
-        await interaction.followup.send(
-            "이미지 생성에 실패해서 포럼 포스트를 업데이트하지 못했습니다.\n"
-            f"{detail}"
-        )
-        return
+        return False, f"이미지 생성에 실패해서 포럼 포스트를 업데이트하지 못했습니다.\n{detail}"
 
     src_lines: list[str] = []
     for market_label in targets.keys():
@@ -81,25 +68,48 @@ async def run_heatmap_command(
         )
         save_state(state)
     except discord.Forbidden:
-        await interaction.followup.send(
+        return False, (
             "포럼 채널에 글 작성/수정 권한이 없습니다. "
             "봇에 forum posting, send messages, attach files 권한을 확인해 주세요."
         )
-        return
     except discord.HTTPException as exc:
-        await interaction.followup.send(f"포럼 포스트 업서트 중 Discord API 오류가 발생했습니다: {exc}")
-        return
+        return False, f"포럼 포스트 업서트 중 Discord API 오류가 발생했습니다: {exc}"
     except Exception as exc:
-        await interaction.followup.send(f"포럼 포스트 업서트 중 오류가 발생했습니다: {exc}")
-        return
+        return False, f"포럼 포스트 업서트 중 오류가 발생했습니다: {exc}"
 
     action_text = "생성" if action == "created" else "수정"
-    await interaction.followup.send(
-        "\n".join(
-            [
-                f"{command_key} 포스트 {action_text} 완료: {thread.jump_url}",
-                f"- 성공 이미지: {len(image_paths)}",
-                f"- 실패 항목: {len(failed)}",
-            ]
-        )
+    message = "\n".join(
+        [
+            f"{command_key} 포스트 {action_text} 완료: {thread.jump_url}",
+            f"- 성공 이미지: {len(image_paths)}",
+            f"- 실패 항목: {len(failed)}",
+        ]
     )
+    return True, message
+
+
+async def run_heatmap_command(
+    interaction: discord.Interaction,
+    client: discord.Client,
+    command_key: str,
+    targets: dict[str, str],
+    capture_func: CaptureFunc,
+    title_builder: TitleBuilder,
+    body_builder: BodyBuilder,
+) -> None:
+    await interaction.response.defer(thinking=True)
+    guild_id = interaction.guild_id
+    if guild_id is None:
+        await interaction.followup.send("이 명령어는 서버 채널에서만 사용할 수 있습니다.")
+        return
+
+    ok, message = await execute_heatmap_for_guild(
+        client=client,
+        guild_id=guild_id,
+        command_key=command_key,
+        targets=targets,
+        capture_func=capture_func,
+        title_builder=title_builder,
+        body_builder=body_builder,
+    )
+    await interaction.followup.send(message)
