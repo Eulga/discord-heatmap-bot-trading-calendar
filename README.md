@@ -101,3 +101,39 @@ git commit -m "chore: bootstrap python discord bot"
 ```
 
 `git init` is already done. `.gitignore` excludes venv/cache/.env.
+
+
+## 8) MVP 확장 기능 (뉴스/장마감/watch)
+
+신규 슬래시 명령어:
+- `/watch add symbol:<종목코드>`
+- `/watch remove symbol:<종목코드>`
+- `/watch list`
+- `/health`
+- `/last-run`
+- `/source-status`
+- `/setnewsforum`
+- `/seteodforum`
+- `/setwatchchannel`
+
+신규 스케줄:
+- KST `07:30` 아침 뉴스 브리핑 (`NEWS_BRIEFING_TIME`)
+- KST `16:20` 장마감 요약 (`EOD_SUMMARY_TIME`, KRX 거래일에만)
+- watchlist 폴링 (`WATCH_POLL_INTERVAL_SECONDS`, 기본 60초)
+
+### 환경변수
+- `NEWS_BRIEFING_ENABLED=true|false`
+- `NEWS_BRIEFING_TIME=07:30`
+- `NEWS_BRIEFING_TRADING_DAYS_ONLY=true|false`
+- `EOD_SUMMARY_ENABLED=true|false`
+- `EOD_SUMMARY_TIME=16:20`
+- `WATCH_POLL_ENABLED=true|false`
+- `WATCH_POLL_INTERVAL_SECONDS=60`
+- `WATCH_ALERT_THRESHOLD_PCT=3.0`
+- `WATCH_ALERT_COOLDOWN_MINUTES=10`
+- `ADMIN_STATUS_CHANNEL_ID=<optional>`
+- `NEWS_TARGET_FORUM_ID=<optional>`
+- `EOD_TARGET_FORUM_ID=<optional>`
+- `WATCH_ALERT_CHANNEL_ID=<optional>`
+
+현재 MVP의 데이터 소스는 provider 교체 가능한 mock 구현입니다. 운영 전 실제 API provider로 교체하세요.

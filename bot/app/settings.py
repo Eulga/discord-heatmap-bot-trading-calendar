@@ -7,6 +7,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    return int(raw) if raw.isdigit() else default
+
+
+def _env_channel_id(name: str) -> int | None:
+    raw = os.getenv(name, "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
@@ -43,3 +72,20 @@ US_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
+
+NEWS_BRIEFING_ENABLED = _env_bool("NEWS_BRIEFING_ENABLED", True)
+NEWS_BRIEFING_TIME = os.getenv("NEWS_BRIEFING_TIME", "07:30").strip() or "07:30"
+NEWS_BRIEFING_TRADING_DAYS_ONLY = _env_bool("NEWS_BRIEFING_TRADING_DAYS_ONLY", False)
+
+EOD_SUMMARY_ENABLED = _env_bool("EOD_SUMMARY_ENABLED", True)
+EOD_SUMMARY_TIME = os.getenv("EOD_SUMMARY_TIME", "16:20").strip() or "16:20"
+
+WATCH_POLL_ENABLED = _env_bool("WATCH_POLL_ENABLED", True)
+WATCH_POLL_INTERVAL_SECONDS = _env_int("WATCH_POLL_INTERVAL_SECONDS", 60)
+WATCH_ALERT_THRESHOLD_PCT = _env_float("WATCH_ALERT_THRESHOLD_PCT", 3.0)
+WATCH_ALERT_COOLDOWN_MINUTES = _env_int("WATCH_ALERT_COOLDOWN_MINUTES", 10)
+
+ADMIN_STATUS_CHANNEL_ID = _env_channel_id("ADMIN_STATUS_CHANNEL_ID")
+NEWS_TARGET_FORUM_ID = _env_channel_id("NEWS_TARGET_FORUM_ID")
+EOD_TARGET_FORUM_ID = _env_channel_id("EOD_TARGET_FORUM_ID")
+WATCH_ALERT_CHANNEL_ID = _env_channel_id("WATCH_ALERT_CHANNEL_ID")
