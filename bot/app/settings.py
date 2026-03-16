@@ -36,6 +36,11 @@ def _env_float(name: str, default: float) -> float:
     except ValueError:
         return default
 
+
+def _env_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    return Path(raw) if raw else default
+
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
@@ -56,6 +61,9 @@ except Exception:
 
 DATA_ROOT = Path("data/heatmaps")
 STATE_FILE = DATA_ROOT / "state.json"
+LOG_FILE_PATH = _env_path("LOG_FILE_PATH", Path("data/logs/bot.log"))
+LOG_RETENTION_DAYS = _env_int("LOG_RETENTION_DAYS", 7)
+LOG_CONSOLE_ENABLED = _env_bool("LOG_CONSOLE_ENABLED", True)
 
 KOREA_MARKET_URLS: dict[str, str] = {
     "kospi": "https://markets.hankyung.com/marketmap/kospi",

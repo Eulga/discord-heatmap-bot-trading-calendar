@@ -33,6 +33,8 @@ Logs:
 docker compose logs -f discord-bot
 ```
 
+Runtime logs are also written to `data/logs/bot.log` by default.
+
 Stop:
 
 ```powershell
@@ -131,6 +133,9 @@ git commit -m "chore: bootstrap python discord bot"
 - `WATCH_POLL_INTERVAL_SECONDS=60`
 - `WATCH_ALERT_THRESHOLD_PCT=3.0`
 - `WATCH_ALERT_COOLDOWN_MINUTES=10`
+- `LOG_FILE_PATH=data/logs/bot.log`
+- `LOG_RETENTION_DAYS=7`
+- `LOG_CONSOLE_ENABLED=true`
 - `ADMIN_STATUS_CHANNEL_ID=<optional>`
 - `NEWS_TARGET_FORUM_ID=<optional>`
 - `EOD_TARGET_FORUM_ID=<optional>`

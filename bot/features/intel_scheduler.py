@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime
 
 import discord
@@ -44,6 +45,8 @@ from bot.intel.providers.market import MockEodSummaryProvider, MockMarketDataPro
 from bot.intel.providers.news import MockNewsProvider, NewsItem
 from bot.markets.trading_calendar import safe_check_krx_trading_day
 
+logger = logging.getLogger(__name__)
+
 news_provider = MockNewsProvider()
 eod_provider = MockEodSummaryProvider()
 quote_provider = MockMarketDataProvider()
@@ -75,7 +78,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         set_provider_status(state, "news_provider", False, str(exc))
         set_job_last_run(state, "news_briefing", "failed", str(exc))
         save_state(state)
-        print(f"[intel] news fetch failed: {exc}")
+        logger.exception("[intel] news fetch failed: %s", exc)
         return
 
     deduped: list[NewsItem] = []
@@ -116,7 +119,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             )
             set_guild_last_auto_run_date(state, guild_id, "newsbriefing", run_date)
         except Exception as exc:
-            print(f"[intel] news post failed guild={guild_id}: {exc}")
+            logger.exception("[intel] news post failed guild=%s: %s", guild_id, exc)
 
     set_job_last_run(state, "news_briefing", "ok", f"domestic={len(domestic)} global={len(global_items)}")
     save_state(state)
@@ -138,7 +141,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         set_provider_status(state, "eod_provider", False, str(exc))
         set_job_last_run(state, "eod_summary", "failed", str(exc))
         save_state(state)
-        print(f"[intel] eod summary failed: {exc}")
+        logger.exception("[intel] eod summary failed: %s", exc)
         return
 
     run_date = date_key(now)
@@ -168,7 +171,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
             )
             set_guild_last_auto_run_date(state, guild_id, "eodsummary", run_date)
         except Exception as exc:
-            print(f"[intel] eod post failed guild={guild_id}: {exc}")
+            logger.exception("[intel] eod post failed guild=%s: %s", guild_id, exc)
 
     set_job_last_run(state, "eod_summary", "ok", f"date={summary.date_text}")
     save_state(state)
@@ -244,5 +247,5 @@ async def intel_scheduler(client: discord.Client) -> None:
             state = load_state()
             set_job_last_run(state, "intel_scheduler", "failed", str(exc))
             save_state(state)
-            print(f"[intel] scheduler error: {exc}")
+            logger.exception("[intel] scheduler error: %s", exc)
         await asyncio.sleep(15)

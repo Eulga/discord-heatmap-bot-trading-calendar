@@ -16,6 +16,7 @@ venv/
 .ruff_cache/
 .mypy_cache/
 data/heatmaps/
+data/logs/
 
 # IDE/editor
 .vscode/
