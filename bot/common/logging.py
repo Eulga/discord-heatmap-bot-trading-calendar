@@ -33,6 +33,13 @@ def _is_marked(handler: logging.Handler) -> bool:
     return bool(getattr(handler, _HANDLER_MARKER, False))
 
 
+def _remove_managed_handlers(root_logger: logging.Logger) -> None:
+    managed_handlers = [handler for handler in root_logger.handlers if _is_marked(handler)]
+    root_logger.handlers = [handler for handler in root_logger.handlers if not _is_marked(handler)]
+    for handler in managed_handlers:
+        handler.close()
+
+
 def setup_logging(
     log_file_path: Path = LOG_FILE_PATH,
     retention_days: int = LOG_RETENTION_DAYS,
@@ -46,7 +53,7 @@ def setup_logging(
     if current_config == desired_config and any(_is_marked(handler) for handler in root_logger.handlers):
         return root_logger
 
-    root_logger.handlers = [handler for handler in root_logger.handlers if not _is_marked(handler)]
+    _remove_managed_handlers(root_logger)
 
     formatter = _build_formatter()
     log_file_path.parent.mkdir(parents=True, exist_ok=True)
