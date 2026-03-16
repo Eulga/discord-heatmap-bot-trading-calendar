@@ -33,6 +33,8 @@ Logs:
 docker compose logs -f discord-bot
 ```
 
+Runtime logs are also written to `data/logs/bot.log` by default.
+
 Stop:
 
 ```powershell

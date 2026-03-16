@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Callable
 from datetime import datetime
 
@@ -21,6 +22,8 @@ from bot.forum.repository import (
 from bot.markets.providers.korea import capture as capture_korea
 from bot.markets.providers.us import capture as capture_us
 from bot.markets.trading_calendar import safe_check_krx_trading_day, safe_check_nyse_trading_day
+
+logger = logging.getLogger(__name__)
 
 TradingDayCheck = Callable[[datetime], tuple[bool | None, str | None]]
 
@@ -79,9 +82,13 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
                 if last_skip_date != current_date:
                     set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
                     save_state(state)
-                print(
-                    f"[auto-screenshot] skipped guild={guild_id} command={command_key} "
-                    f"at={h:02d}:{m:02d} reason={reason}"
+                logger.warning(
+                    "[auto-screenshot] skipped guild=%s command=%s at=%02d:%02d reason=%s",
+                    guild_id,
+                    command_key,
+                    h,
+                    m,
+                    reason,
                 )
                 continue
 
@@ -91,9 +98,13 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
                 if last_skip_date != current_date:
                     set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
                     save_state(state)
-                print(
-                    f"[auto-screenshot] skipped guild={guild_id} command={command_key} "
-                    f"at={h:02d}:{m:02d} reason={reason}"
+                logger.info(
+                    "[auto-screenshot] skipped guild=%s command=%s at=%02d:%02d reason=%s",
+                    guild_id,
+                    command_key,
+                    h,
+                    m,
+                    reason,
                 )
                 continue
 
@@ -110,14 +121,22 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
             if ok:
                 set_guild_last_auto_run_date(state, guild_id, command_key, current_date)
                 save_state(state)
-                print(
-                    f"[auto-screenshot] success guild={guild_id} command={command_key} "
-                    f"at={h:02d}:{m:02d} msg={message}"
+                logger.info(
+                    "[auto-screenshot] success guild=%s command=%s at=%02d:%02d msg=%s",
+                    guild_id,
+                    command_key,
+                    h,
+                    m,
+                    message,
                 )
             else:
-                print(
-                    f"[auto-screenshot] failed guild={guild_id} command={command_key} "
-                    f"at={h:02d}:{m:02d} reason={message}"
+                logger.error(
+                    "[auto-screenshot] failed guild=%s command=%s at=%02d:%02d reason=%s",
+                    guild_id,
+                    command_key,
+                    h,
+                    m,
+                    message,
                 )
 
 
@@ -127,5 +146,5 @@ async def auto_screenshot_scheduler(client) -> None:
             await process_auto_screenshot_tick(client=client)
             await asyncio.sleep(30)
         except Exception as exc:
-            print(f"[auto-screenshot] scheduler error: {exc}")
+            logger.exception("[auto-screenshot] scheduler error: %s", exc)
             await asyncio.sleep(30)

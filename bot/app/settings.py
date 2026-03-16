@@ -7,6 +7,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    return int(raw) if raw.isdigit() else default
+
+
+def _env_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    return Path(raw) if raw else default
+
+
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
@@ -27,6 +47,9 @@ except Exception:
 
 DATA_ROOT = Path("data/heatmaps")
 STATE_FILE = DATA_ROOT / "state.json"
+LOG_FILE_PATH = _env_path("LOG_FILE_PATH", Path("data/logs/bot.log"))
+LOG_RETENTION_DAYS = _env_int("LOG_RETENTION_DAYS", 7)
+LOG_CONSOLE_ENABLED = _env_bool("LOG_CONSOLE_ENABLED", True)
 
 KOREA_MARKET_URLS: dict[str, str] = {
     "kospi": "https://markets.hankyung.com/marketmap/kospi",
