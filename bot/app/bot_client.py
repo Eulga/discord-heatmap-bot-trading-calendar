@@ -3,6 +3,7 @@ import asyncio
 import discord
 from discord import app_commands
 
+from bot.app.command_sync import format_command_sync_error, record_command_sync
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
 from bot.features.kheatmap.command import register as register_kheatmap
@@ -32,9 +33,16 @@ class BotApp:
         @self.client.event
         async def on_ready() -> None:
             if not self._synced:
-                synced_commands = await self.tree.sync()
-                print(f"Synced {len(synced_commands)} global commands: {[c.name for c in synced_commands]}")
-                self._synced = True
+                try:
+                    synced_commands = await self.tree.sync()
+                except Exception as exc:
+                    detail = format_command_sync_error(exc)
+                    record_command_sync("failed", detail)
+                    print(f"[command-sync] {detail}")
+                else:
+                    print(f"Synced {len(synced_commands)} global commands: {[c.name for c in synced_commands]}")
+                    record_command_sync("ok", f"{len(synced_commands)} commands synced")
+                    self._synced = True
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 print("Auto screenshot scheduler started.")

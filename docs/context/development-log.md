@@ -1,6 +1,59 @@
 # Development Log
 
 ## 2026-03-17
+- Context: PR `#3`의 Codex Connector 리뷰 코멘트를 반영하는 작업
+- Change:
+1. `record_command_sync`를 `bot/app/command_sync.py`로 옮겨 공용 함수로 정리했다.
+2. 상태 파일 저장 실패 시 예외를 부트 흐름 밖으로 전파하지 않고 로그만 남기도록 수정했다.
+3. 상태 저장 성공/실패 케이스를 검증하는 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/unit/test_command_sync.py` 통과
+2. `.\.venv\Scripts\python -m pytest` 통과
+- Next:
+1. 수정 커밋을 PR `#3`에 푸시하고 추가 리뷰 사항이 있는지 확인
+- Status: done
+
+## 2026-03-17
+- Context: 슬래시 커맨드 동기화 실패를 더 잘 진단할 수 있게 만드는 작업
+- Change:
+1. `bot/app/command_sync.py`에 Discord 동기화 예외를 사람이 읽기 쉬운 한국어 안내로 바꾸는 헬퍼를 추가했다.
+2. `bot/app/bot_client.py`에서 `tree.sync()` 실패를 잡아 `system.job_last_runs.command-sync`에 성공/실패 상태를 저장하도록 연결했다.
+3. 관련 단위 테스트 `tests/unit/test_command_sync.py`를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/unit/test_command_sync.py` 통과
+2. `.\.venv\Scripts\python -m pytest` 통과
+- Next:
+1. PR 생성 후 Codex Connector 리뷰 코멘트를 확인하고 필요 시 수정 반영
+- Status: done
+
+## 2026-03-17
+- Context: `codex/context-summary` 브랜치의 PR 흐름을 끝까지 완료한 작업
+- Change:
+1. PR `#2`를 `develop` 대상으로 생성했다.
+2. PR을 squash merge로 반영했다.
+3. merge 후 원격 브랜치 `codex/context-summary`를 삭제했다.
+- Verification:
+1. PR `#2`가 `merged=true` 상태인지 확인했다.
+2. 원격 heads 조회에서 `codex/context-summary`가 삭제됐는지 확인했다.
+- Next:
+1. 남아 있는 로컬 미커밋 변경은 별도 흐름으로 정리한다.
+- Status: done
+
+## 2026-03-17
+- Context: 현재 브랜치 변경을 재검토하고 `develop` PR 흐름으로 넘기려는 작업
+- Change:
+1. `codex/context-summary`를 원격에 푸시해 최신 HEAD(`3a5bdfd`)를 반영했다.
+2. 원격 compare 기준 실제 PR diff가 `docs/reports/sunday-kheatmap-investigation-2026-03-12.md` 1파일임을 확인했다.
+3. GitHub compare 페이지와 로컬 코드를 대조해 문서 리포트의 상태 키와 조사 메모를 재검토했다.
+- Verification:
+1. 원격 compare 페이지에서 `Able to merge` 상태를 확인했다.
+2. `git diff develop HEAD` 기준 현재 트리 차이는 조사 리포트 1파일뿐임을 확인했다.
+- Next:
+1. GitHub 인증 가능한 환경에서 PR 생성
+2. PR 체크 통과 후 merge 및 브랜치 삭제
+- Status: done
+
+## 2026-03-17
 - Context: 바이브 코딩 규칙 초안을 실제 운영 규칙으로 편입하는 작업
 - Change:
 1. `AGENTS.md` 읽기 순서에 `docs/prompts/vibe-coding-rule-prompt.md`를 추가했다.
