@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-17
+- Context: PR `#3`에서 Codex Connector 리뷰 1건을 반영했다.
+- Current state:
+1. 지적 내용은 command sync 상태 저장 실패가 봇 시작을 깨뜨릴 수 있다는 점이었다.
+2. 현재 구현은 상태 저장 실패를 fail-open으로 바꿨고, 관련 테스트도 추가됐다.
+3. 수정 후 전체 기본 테스트는 다시 통과했다.
+- Next:
+1. 수정 커밋을 PR `#3`에 푸시
+2. 추가 리뷰가 없으면 머지 및 원격 브랜치 삭제
+- Status: open
+
+## 2026-03-17
 - Context: 슬래시 커맨드 동기화 실패 진단 메시지와 상태 기록 기능을 브랜치에서 정리 중이다.
 - Current state:
 1. `bot/app/bot_client.py`는 command sync 실패를 잡아 상태 파일에 `command-sync` 마지막 실행 결과를 기록한다.

@@ -1,9 +1,24 @@
 import discord
 from discord import app_commands
 
+from bot.forum.repository import load_state, save_state, set_job_last_run
+
+
+def _compact_exception_text(exc: Exception) -> str:
+    return " ".join(str(exc).split()) or exc.__class__.__name__
+
+
+def record_command_sync(status: str, detail: str) -> None:
+    try:
+        state = load_state()
+        set_job_last_run(state, "command-sync", status, detail)
+        save_state(state)
+    except Exception as exc:
+        print(f"[command-sync] 상태 저장 실패: {_compact_exception_text(exc)}")
+
 
 def format_command_sync_error(exc: Exception) -> str:
-    detail = " ".join(str(exc).split()) or exc.__class__.__name__
+    detail = _compact_exception_text(exc)
     detail_lower = detail.lower()
     hints: list[str] = []
 

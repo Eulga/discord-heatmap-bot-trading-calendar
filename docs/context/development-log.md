@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-03-17
+- Context: PR `#3`의 Codex Connector 리뷰 코멘트를 반영하는 작업
+- Change:
+1. `record_command_sync`를 `bot/app/command_sync.py`로 옮겨 공용 함수로 정리했다.
+2. 상태 파일 저장 실패 시 예외를 부트 흐름 밖으로 전파하지 않고 로그만 남기도록 수정했다.
+3. 상태 저장 성공/실패 케이스를 검증하는 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/unit/test_command_sync.py` 통과
+2. `.\.venv\Scripts\python -m pytest` 통과
+- Next:
+1. 수정 커밋을 PR `#3`에 푸시하고 추가 리뷰 사항이 있는지 확인
+- Status: done
+
+## 2026-03-17
 - Context: 슬래시 커맨드 동기화 실패를 더 잘 진단할 수 있게 만드는 작업
 - Change:
 1. `bot/app/command_sync.py`에 Discord 동기화 예외를 사람이 읽기 쉬운 한국어 안내로 바꾸는 헬퍼를 추가했다.

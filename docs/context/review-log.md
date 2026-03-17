@@ -1,6 +1,18 @@
 # Review Log
 
 ## 2026-03-17
+- Context: PR `#3`에서 `chatgpt-codex-connector[bot]` 리뷰 코멘트를 반영하는 작업
+- Finding: `record_command_sync`가 상태 저장 실패를 그대로 전파해 부트 흐름을 깨뜨릴 수 있다는 지적은 유효했고 수정했다.
+- Resolution:
+1. 상태 기록을 `bot/app/command_sync.py` 공용 함수로 이동했다.
+2. 상태 파일 I/O 실패는 로그만 남기고 삼키도록 fail-open 처리했다.
+3. 상태 저장 성공/실패 동작을 검증하는 단위 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/unit/test_command_sync.py` 통과
+2. `.\.venv\Scripts\python -m pytest` 통과
+- Status: done
+
+## 2026-03-17
 - Context: 슬래시 커맨드 동기화 실패 시 원인 메시지와 상태 기록을 추가하는 변경 검토
 - Finding: 블로킹 이슈는 찾지 못했다.
 - Residual risk:
