@@ -3,6 +3,7 @@ import asyncio
 import discord
 from discord import app_commands
 
+from bot.app.command_sync import format_command_sync_error
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
 from bot.features.kheatmap.command import register as register_kheatmap
@@ -10,6 +11,7 @@ from bot.features.status.command import register as register_status
 from bot.features.usheatmap.command import register as register_usheatmap
 from bot.features.watch.command import register as register_watch
 from bot.features.intel_scheduler import intel_scheduler
+from bot.forum.repository import load_state, save_state, set_job_last_run
 
 
 class BotApp:
@@ -29,12 +31,24 @@ class BotApp:
         register_kheatmap(self.tree, self.client)
         register_usheatmap(self.tree, self.client)
 
+        def record_command_sync(status: str, detail: str) -> None:
+            state = load_state()
+            set_job_last_run(state, "command-sync", status, detail)
+            save_state(state)
+
         @self.client.event
         async def on_ready() -> None:
             if not self._synced:
-                synced_commands = await self.tree.sync()
-                print(f"Synced {len(synced_commands)} global commands: {[c.name for c in synced_commands]}")
-                self._synced = True
+                try:
+                    synced_commands = await self.tree.sync()
+                except Exception as exc:
+                    detail = format_command_sync_error(exc)
+                    record_command_sync("failed", detail)
+                    print(f"[command-sync] {detail}")
+                else:
+                    print(f"Synced {len(synced_commands)} global commands: {[c.name for c in synced_commands]}")
+                    record_command_sync("ok", f"{len(synced_commands)} commands synced")
+                    self._synced = True
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 print("Auto screenshot scheduler started.")
