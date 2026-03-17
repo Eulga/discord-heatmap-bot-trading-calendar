@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-17
+- Context: 최신 리뷰에서 나온 운영 가시성과 문서 정합성 이슈를 `codex/review-fixes` 브랜치에서 정리했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 뉴스 dedup을 fetch 단위로만 처리하고, 뉴스/장마감 job status를 실제 게시 결과 기준으로 `skipped`/`failed`/`ok`로 구분한다.
+2. `docker-compose.yml`은 `data/logs`도 볼륨 마운트해 런타임 로그 파일이 컨테이너 재생성 후에도 남는다.
+3. `README.md`와 `AGENTS.md`는 `python -m bot.main`, `/health` 중심 quick test, PowerShell 활성화 경로로 갱신됐다.
+4. 관련 회귀를 포함한 전체 기본 테스트는 `.\.venv\Scripts\python -m pytest` 기준 `38 passed, 2 deselected`다.
+- Next:
+1. `codex/review-fixes` 브랜치로 PR을 열어 리뷰에서 지적된 이슈가 모두 닫혔는지 확인한다.
+- Status: open
+
+## 2026-03-17
 - Context: 현재 브랜치의 `bot/app/bot_client.py` 병합 충돌을 정리했다.
 - Current state:
 1. 충돌은 command sync 상태 기록 변경과 로깅 전환 변경이 같은 구간을 건드리면서 발생했다.

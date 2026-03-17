@@ -1,6 +1,34 @@
 # Review Log
 
 ## 2026-03-17
+- Context: 최신 `develop` 리뷰에서 나온 intel scheduler/문서 정합성 이슈를 후속 수정으로 반영했다.
+- Finding: 이전 리뷰에서 지적한 뉴스 dedup 선소비, job status 거짓 양성, Docker 로그 비영속, README/handoff 부정확성은 모두 유효했고 수정됐다.
+- Resolution:
+1. 뉴스 브리핑은 fetch 단위에서만 dedup하고, 게시 성공 전에는 전역 dedup 상태를 소비하지 않도록 변경했다.
+2. `news_briefing`/`eod_summary`는 실제 게시 결과에 따라 `skipped`/`failed`/`ok`를 구분해 기록하도록 바꿨다.
+3. Docker에 `data/logs` 볼륨을 추가했고, README/AGENTS/Session Handoff를 현재 동작과 현재 저장소 상태에 맞게 고쳤다.
+4. 재시도 가능성과 status 기록을 검증하는 통합 테스트를 보강했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest` 통과 (`38 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-17
+- Context: 원격과 동기화된 최신 `develop` 기준으로 새로 추가된 코드/문서를 전체 리뷰했고, 특히 `md` 문서와 실제 구현의 정합성을 대조했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`의 뉴스 dedup 키를 포스트 성공 전에 먼저 기록해, 포럼 미설정이나 Discord posting 실패가 난 날에는 같은 날짜 재시도에서 뉴스 항목이 영구히 빠질 수 있다.
+2. `bot/features/intel_scheduler.py`의 `news_briefing`/`eod_summary`는 실제 게시가 하나도 되지 않아도 `job_last_runs`를 `ok`로 기록해 `/health`와 `/last-run`이 거짓 양성을 낼 수 있다.
+3. `docker-compose.yml`은 `data/heatmaps`만 볼륨 마운트하고 있어 새로 추가한 `data/logs/bot.log`가 컨테이너 재생성 시 보존되지 않는다.
+4. `README.md`는 `python bot/main.py` 실행과 `!ping` quick test를 안내하지만, 현재 패키지 import 구조와 `message_content=False` 설정 기준으로 둘 다 실제 기본 실행 경로와 맞지 않는다.
+5. `docs/context/session-handoff.md` 최상단 엔트리들은 merge/push 이전 상태를 그대로 유지해, 다음 세션 시작 문서로는 현재 저장소 상태를 잘못 안내한다.
+- Evidence:
+1. 뉴스 dedup은 `mark_news_dedup_seen(...)`가 `upsert_daily_post(...)`보다 먼저 호출된다.
+2. 뉴스/장마감 job은 guild loop 결과와 무관하게 마지막에 `set_job_last_run(..., "ok", ...)`를 호출한다.
+3. Docker 설정의 볼륨은 `./data/heatmaps:/app/data/heatmaps` 하나뿐이다.
+4. `sys.path`를 `python bot/main.py`와 같은 형태로 맞춰 `bot/main.py`를 실행하면 `ModuleNotFoundError: No module named 'bot'`가 재현된다.
+5. 현재 HEAD는 merge/push까지 끝난 상태인데 handoff는 여전히 "커밋", "PR 생성", "push"를 다음 액션으로 적고 있다.
+- Status: done
+
+## 2026-03-17
 - Context: PR `#3`에서 `chatgpt-codex-connector[bot]` 리뷰 코멘트를 반영하는 작업
 - Finding: `record_command_sync`가 상태 저장 실패를 그대로 전파해 부트 흐름을 깨뜨릴 수 있다는 지적은 유효했고 수정했다.
 - Resolution:

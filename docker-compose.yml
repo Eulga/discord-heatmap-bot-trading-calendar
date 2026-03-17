@@ -9,3 +9,4 @@ services:
     restart: unless-stopped
     volumes:
       - ./data/heatmaps:/app/data/heatmaps
+      - ./data/logs:/app/data/logs

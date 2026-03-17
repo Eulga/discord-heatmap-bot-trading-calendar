@@ -28,12 +28,9 @@ from bot.forum.repository import (
     get_guild_news_forum_channel_id,
     get_guild_watch_alert_channel_id,
     get_watch_baseline,
-    is_news_dedup_seen,
     list_guild_ids,
     list_watch_symbols,
     load_state,
-    mark_news_dedup_seen,
-    cleanup_news_dedup,
     save_state,
     set_guild_last_auto_run_date,
     set_job_last_run,
@@ -63,6 +60,28 @@ def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
 async def _run_news_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
+    pending_guilds: list[tuple[int, int]] = []
+    missing_forum = 0
+
+    for guild_id in list_guild_ids(state):
+        if get_guild_last_auto_run_date(state, guild_id, "newsbriefing") == run_date:
+            continue
+        forum_channel_id = (
+            get_guild_news_forum_channel_id(state, guild_id)
+            or NEWS_TARGET_FORUM_ID
+            or get_guild_forum_channel_id(state, guild_id)
+        )
+        if forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, forum_channel_id))
+
+    if not pending_guilds:
+        if missing_forum > 0:
+            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
+        return
+
     if NEWS_BRIEFING_TRADING_DAYS_ONLY:
         is_trading_day, err = safe_check_krx_trading_day(now)
         if is_trading_day is not True:
@@ -82,30 +101,21 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         return
 
     deduped: list[NewsItem] = []
+    seen_keys: set[str] = set()
     for item in items:
         key = item.dedup_key()
-        if is_news_dedup_seen(state, key, run_date):
+        if key in seen_keys:
             continue
+        seen_keys.add(key)
         deduped.append(item)
-        mark_news_dedup_seen(state, key, run_date)
-
-    cleanup_news_dedup(state)
 
     domestic = [x for x in deduped if x.region == "domestic"][:5]
     global_items = [x for x in deduped if x.region == "global"][:5]
     body = build_news_body(timestamp_text(now), domestic, global_items)
+    posted = 0
+    failed = 0
 
-    for guild_id in list_guild_ids(state):
-        last_run = get_guild_last_auto_run_date(state, guild_id, "newsbriefing")
-        if last_run == run_date:
-            continue
-        forum_channel_id = (
-            get_guild_news_forum_channel_id(state, guild_id)
-            or NEWS_TARGET_FORUM_ID
-            or get_guild_forum_channel_id(state, guild_id)
-        )
-        if forum_channel_id is None:
-            continue
+    for guild_id, forum_channel_id in pending_guilds:
         try:
             await upsert_daily_post(
                 client=client,
@@ -118,15 +128,53 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
                 image_paths=[],
             )
             set_guild_last_auto_run_date(state, guild_id, "newsbriefing", run_date)
+            posted += 1
         except Exception as exc:
+            failed += 1
             logger.exception("[intel] news post failed guild=%s: %s", guild_id, exc)
 
-    set_job_last_run(state, "news_briefing", "ok", f"domestic={len(domestic)} global={len(global_items)}")
+    if posted > 0:
+        set_job_last_run(
+            state,
+            "news_briefing",
+            "ok",
+            f"posted={posted} failed={failed} missing_forum={missing_forum} domestic={len(domestic)} global={len(global_items)}",
+        )
+    else:
+        set_job_last_run(
+            state,
+            "news_briefing",
+            "failed",
+            f"posted=0 failed={failed} missing_forum={missing_forum}",
+        )
     save_state(state)
 
 
 async def _run_eod_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
+    run_date = date_key(now)
+    pending_guilds: list[tuple[int, int]] = []
+    missing_forum = 0
+
+    for guild_id in list_guild_ids(state):
+        if get_guild_last_auto_run_date(state, guild_id, "eodsummary") == run_date:
+            continue
+        forum_channel_id = (
+            get_guild_eod_forum_channel_id(state, guild_id)
+            or EOD_TARGET_FORUM_ID
+            or get_guild_forum_channel_id(state, guild_id)
+        )
+        if forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, forum_channel_id))
+
+    if not pending_guilds:
+        if missing_forum > 0:
+            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
+        return
+
     is_trading_day, err = safe_check_krx_trading_day(now)
     if is_trading_day is not True:
         reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
@@ -144,20 +192,11 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         logger.exception("[intel] eod summary failed: %s", exc)
         return
 
-    run_date = date_key(now)
     body = build_eod_body(timestamp_text(now), summary)
+    posted = 0
+    failed = 0
 
-    for guild_id in list_guild_ids(state):
-        last_run = get_guild_last_auto_run_date(state, guild_id, "eodsummary")
-        if last_run == run_date:
-            continue
-        forum_channel_id = (
-            get_guild_eod_forum_channel_id(state, guild_id)
-            or EOD_TARGET_FORUM_ID
-            or get_guild_forum_channel_id(state, guild_id)
-        )
-        if forum_channel_id is None:
-            continue
+    for guild_id, forum_channel_id in pending_guilds:
         try:
             await upsert_daily_post(
                 client=client,
@@ -170,10 +209,25 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
                 image_paths=[],
             )
             set_guild_last_auto_run_date(state, guild_id, "eodsummary", run_date)
+            posted += 1
         except Exception as exc:
+            failed += 1
             logger.exception("[intel] eod post failed guild=%s: %s", guild_id, exc)
 
-    set_job_last_run(state, "eod_summary", "ok", f"date={summary.date_text}")
+    if posted > 0:
+        set_job_last_run(
+            state,
+            "eod_summary",
+            "ok",
+            f"posted={posted} failed={failed} missing_forum={missing_forum} date={summary.date_text}",
+        )
+    else:
+        set_job_last_run(
+            state,
+            "eod_summary",
+            "failed",
+            f"posted=0 failed={failed} missing_forum={missing_forum} date={summary.date_text}",
+        )
     save_state(state)
 
 

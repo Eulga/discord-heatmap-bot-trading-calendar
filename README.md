@@ -18,7 +18,7 @@ If you want specific accounts to run admin commands in any server, set `DISCORD_
 ## 2) Run
 
 ```powershell
-python bot/main.py
+python -m bot.main
 ```
 
 Docker (background):
@@ -34,6 +34,7 @@ docker compose logs -f discord-bot
 ```
 
 Runtime logs are also written to `data/logs/bot.log` by default.
+When you use Docker, `data/logs/` is mounted so log files survive container recreation.
 
 Stop:
 
@@ -51,9 +52,8 @@ docker compose down
 
 ## 4) Quick test
 
-In your Discord server, send `!ping` and bot replies `pong`.
-
-Also run slash commands `/kheatmap` and `/usheatmap`.
+In your Discord server, first confirm slash commands `/health`, `/kheatmap`, and `/usheatmap` are visible.
+- `/health` should reply ephemerally with the latest job/provider status.
 - Set each server's forum channel first with `/setforumchannel`.
 - Toggle auto schedule per server with `/autoscreenshot mode:on|off`.
 - The bot stores forum channel per server and posts to that server's configured channel.

@@ -123,8 +123,8 @@
 
 ## 5) 실행/운영 체크리스트
 - 로컬 실행:
-```bash
-source .venv/Scripts/activate
+```powershell
+.\.venv\Scripts\Activate.ps1
 python -m bot.main
 ```
 
