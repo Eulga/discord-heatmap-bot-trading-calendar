@@ -1,6 +1,20 @@
 # Development Log
 
 ## 2026-03-17
+- Context: 새로 추가한 뉴스/장마감/watch 스케줄을 실사용 단계로 올리기 위한 외부 API 기준 문서가 필요했다.
+- Change:
+1. `docs/specs/external-intel-api-spec.md`를 추가해 뉴스 브리핑, 장마감 요약, watch quote의 정규화 API 계약을 정의했다.
+2. `AGENTS.md`, `docs/context/goals.md`, `docs/context/session-handoff.md`, `docs/context/README.md`, `README.md`를 갱신해 이 작업을 최우선 전환 과제로 반영했다.
+3. 다음 세션 TODO를 실제 provider 구현과 운영 검증 중심으로 재정렬했다.
+- Verification:
+1. `bot/features/intel_scheduler.py`, `bot/intel/providers/news.py`, `bot/intel/providers/market.py`의 현재 인터페이스와 필드 구성을 기준으로 명세를 대조했다.
+2. README와 컨텍스트 문서가 같은 명세 경로를 참조하는지 확인했다.
+- Next:
+1. 외부 벤더 또는 중간 adapter 후보를 정하고 provider 구현을 시작한다.
+2. 특히 watch quote는 batch 조회 전략을 먼저 잡는다.
+- Status: done
+
+## 2026-03-17
 - Context: PR `#3`의 Codex Connector 리뷰 코멘트를 반영하는 작업
 - Change:
 1. `record_command_sync`를 `bot/app/command_sync.py`로 옮겨 공용 함수로 정리했다.

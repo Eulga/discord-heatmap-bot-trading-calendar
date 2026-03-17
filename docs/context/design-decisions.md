@@ -1,6 +1,18 @@
 # Design Decisions
 
 ## 2026-03-17
+- Context: 새로 추가한 뉴스/장마감/watch 스케줄을 mock 단계에서 실제 운영 단계로 올리려면 외부 데이터 소스 기준이 먼저 필요하다.
+- Decision: 벤더를 먼저 고정하지 않고, 현재 scheduler/provider 인터페이스에 맞는 벤더 중립 정규화 계약을 `docs/specs/external-intel-api-spec.md`로 먼저 확정한다.
+- Why:
+1. 지금 코드의 진짜 의존성은 특정 API가 아니라 `NewsItem`, `Quote`, `EodSummary` 형태의 정규화된 데이터다.
+2. 계약이 먼저 있어야 벤더 교체, fallback, rate limit 대응, 테스트 fixture 구성이 한 기준으로 정리된다.
+3. watchlist 폴링은 호출 빈도가 높아 구현 전에 timeout, batch, 오류 처리 규칙이 선행돼야 한다.
+- Impact:
+1. 이후 외부 API 연동은 이 명세를 만족하는 adapter 구현으로 진행한다.
+2. goals와 handoff의 최우선 항목은 확장 스케줄 실사용 전환으로 유지한다.
+- Status: accepted
+
+## 2026-03-17
 - Context: 프로젝트용 바이브 코딩 규칙 초안을 실제 운영 문서에 편입했다.
 - Decision: 바이브 코딩 규칙을 별도 초안 파일에만 두지 않고 `AGENTS.md` 상단 공통 운영 규칙으로 승격한다.
 - Why:

@@ -6,11 +6,13 @@
 1. 이 문서
 2. `docs/context/README.md`
 3. `docs/context/session-handoff.md`
-4. `docs/prompts/vibe-coding-rule-prompt.md`
-5. `README.md`
-6. `bot/app/settings.py`
-7. `bot/features/runner.py`
-8. `bot/forum/repository.py`
+4. `docs/context/goals.md`
+5. `docs/specs/external-intel-api-spec.md`
+6. `docs/prompts/vibe-coding-rule-prompt.md`
+7. `README.md`
+8. `bot/app/settings.py`
+9. `bot/features/runner.py`
+10. `bot/forum/repository.py`
 
 ## 1-1) 컨텍스트 저장 원칙
 - 앞으로의 검토, 개발, 설계 대화 결과는 `docs/context/*`에 종류별로 누적 저장한다.
@@ -189,11 +191,11 @@ pytest -m live
 참고: 현재 프로젝트 작업 자체는 위 두 스킬 없이도 수행 가능하며, 필요 시에만 사용한다.
 
 ## 9) 다음 세션 즉시 실행 TODO (5개)
-1. `python -m bot.main`으로 봇 기동 확인
-2. 대상 서버에서 `/setforumchannel` 매핑 확인
-3. `/kheatmap` 1회 실행 후 포럼 포스트 생성/수정 동작 점검
-4. `pytest` 실행으로 기본 회귀 확인
-5. 로그에서 sync/업서트 오류 유무 확인
+1. `docs/specs/external-intel-api-spec.md` 기준으로 뉴스/장마감/watch 외부 API 후보와 인증 방식을 확정
+2. `NewsProvider` 실제 구현과 `/setnewsforum` 게시 흐름 검증
+3. `EodSummaryProvider` 실제 구현과 장마감 포럼 업서트 검증
+4. `MarketDataProvider` 실제 구현과 watch alert 임계값/쿨다운 실운영 검증
+5. `python -m bot.main` 및 `pytest`로 스케줄러 부트/기본 회귀 확인
 
 ## 10) 세션 종료 체크
 1. 이번 작업이 검토/개발/설계 중 어디에 속하는지 판단

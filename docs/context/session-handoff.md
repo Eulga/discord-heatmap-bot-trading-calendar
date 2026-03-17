@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-17
+- Context: 새로 추가한 뉴스/장마감/watch 스케줄을 실사용 단계로 전환하기 위한 외부 API 명세를 우선 과제로 추가했다.
+- Current state:
+1. `docs/specs/external-intel-api-spec.md`가 추가됐고, 뉴스 브리핑, 장마감 요약, watch quote에 필요한 정규화 계약이 정의됐다.
+2. `docs/context/goals.md`의 최우선 목표는 확장 스케줄 실사용 전환으로 올라갔다.
+3. `AGENTS.md`와 `README.md`도 같은 명세 경로를 기준으로 읽도록 맞췄다.
+- Next:
+1. 실제 외부 API 또는 중간 adapter 후보를 선택한다.
+2. `NewsProvider`, `EodSummaryProvider`, `MarketDataProvider`를 이 명세 기준으로 구현한다.
+3. Discord 실운영 환경에서 스케줄 포스트/알림을 검증한다.
+- Status: open
+
+## 2026-03-17
 - Context: PR `#3`에서 Codex Connector 리뷰 1건을 반영했다.
 - Current state:
 1. 지적 내용은 command sync 상태 저장 실패가 봇 시작을 깨뜨릴 수 있다는 점이었다.
@@ -43,6 +55,16 @@
 1. GitHub 인증 가능한 환경에서 PR 생성
 2. 체크 통과 확인 후 merge
 3. merge 후 원격 브랜치 삭제
+- Status: done
+
+## 2026-03-17
+- Context: 현재 프로젝트 목표를 다음 세션에서도 바로 복구할 수 있게 goals 문서를 추가했다.
+- Current state:
+1. 현재 우선 목표는 운영 안정화, 히트맵 게시 실운영 검증, 자동 스케줄 신뢰도 확보다.
+2. 운영 가시성 강화와 확장 기능 운영화는 그 다음 레이어로 정리했다.
+3. 목표 문서는 `docs/context/goals.md`에 따로 분리했다.
+- Next:
+1. 다음 작업 시작 전 `session-handoff.md`와 `goals.md`를 함께 확인한다.
 - Status: done
 
 ## 2026-03-17
