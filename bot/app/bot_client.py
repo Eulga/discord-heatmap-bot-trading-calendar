@@ -4,6 +4,7 @@ import logging
 import discord
 from discord import app_commands
 
+from bot.app.command_sync import format_command_sync_error, record_command_sync
 from bot.common.logging import setup_logging
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
@@ -36,13 +37,20 @@ class BotApp:
         @self.client.event
         async def on_ready() -> None:
             if not self._synced:
-                synced_commands = await self.tree.sync()
-                logger.info(
-                    "Synced %s global commands: %s",
-                    len(synced_commands),
-                    [c.name for c in synced_commands],
-                )
-                self._synced = True
+                try:
+                    synced_commands = await self.tree.sync()
+                except Exception as exc:
+                    detail = format_command_sync_error(exc)
+                    record_command_sync("failed", detail)
+                    logger.error("%s", detail)
+                else:
+                    logger.info(
+                        "Synced %s global commands: %s",
+                        len(synced_commands),
+                        [c.name for c in synced_commands],
+                    )
+                    record_command_sync("ok", f"{len(synced_commands)} commands synced")
+                    self._synced = True
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 logger.info("Auto screenshot scheduler started.")

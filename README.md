@@ -142,3 +142,4 @@ git commit -m "chore: bootstrap python discord bot"
 - `WATCH_ALERT_CHANNEL_ID=<optional>`
 
 현재 MVP의 데이터 소스는 provider 교체 가능한 mock 구현입니다. 운영 전 실제 API provider로 교체하세요.
+실사용 전환용 외부 API 계약은 `docs/specs/external-intel-api-spec.md`를 기준으로 맞춥니다.
