@@ -4,10 +4,27 @@
 - 이 문서는 다음 세션에서 프로젝트 컨텍스트를 빠르게 복구하기 위한 단일 진입 문서다.
 - 우선 읽기 순서:
 1. 이 문서
-2. `README.md`
-3. `bot/app/settings.py`
-4. `bot/features/runner.py`
-5. `bot/forum/repository.py`
+2. `docs/context/README.md`
+3. `docs/context/session-handoff.md`
+4. `README.md`
+5. `bot/app/settings.py`
+6. `bot/features/runner.py`
+7. `bot/forum/repository.py`
+
+## 1-1) 컨텍스트 저장 원칙
+- 앞으로의 검토, 개발, 설계 대화 결과는 `docs/context/*`에 종류별로 누적 저장한다.
+- 목적은 세션/작업 위치가 달라도 같은 프로젝트 판단 기준을 재사용하는 것이다.
+- 문서 분류:
+1. `docs/context/session-handoff.md`: 현재 활성 컨텍스트, 최근 결정, 다음 액션
+2. `docs/context/design-decisions.md`: 설계 결정과 이유, 대안, 영향 범위
+3. `docs/context/development-log.md`: 구현 변경, 작업 단위, 검증 결과
+4. `docs/context/review-log.md`: 코드 리뷰/버그/리스크/회귀 포인트
+- 저장 규칙:
+1. 작업 종료 시 관련 문서를 최소 1곳 이상 업데이트한다.
+2. 설계 판단이 바뀌면 `design-decisions.md`에 남기고, 실행 결과는 `development-log.md`에도 반영한다.
+3. 리뷰에서 나온 이슈는 해결 전후와 상관없이 먼저 `review-log.md`에 남긴다.
+4. 다음 세션이 바로 이어받아야 할 내용은 반드시 `session-handoff.md`에 요약한다.
+5. 비밀값/토큰/개인정보는 저장하지 않는다.
 
 ## 2) 현재 아키텍처 스냅샷
 - 엔트리포인트: `bot/main.py`
@@ -141,6 +158,12 @@ pytest -m live
 3. `/kheatmap` 1회 실행 후 포럼 포스트 생성/수정 동작 점검
 4. `pytest` 실행으로 기본 회귀 확인
 5. 로그에서 sync/업서트 오류 유무 확인
+
+## 10) 세션 종료 체크
+1. 이번 작업이 검토/개발/설계 중 어디에 속하는지 판단
+2. 해당 문서(`docs/context/*.md`)에 결과와 이유를 기록
+3. 다음 세션이 바로 써야 할 사실만 `docs/context/session-handoff.md`에 업데이트
+4. 미해결 이슈가 있으면 상태를 `open`, `blocked`, `done` 중 하나로 명시
 
 ## 인터페이스/타입 메모
 - 상태 스키마:
