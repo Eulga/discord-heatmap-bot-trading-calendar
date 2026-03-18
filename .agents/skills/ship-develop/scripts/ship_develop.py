@@ -198,11 +198,15 @@ def merge_pr(pr_number: int, method: str, delete_remote_branch: bool) -> None:
     gh(*cmd)
 
 
-def cleanup_local_branch(base: str, branch: str) -> None:
+def cleanup_local_branch(base: str, branch: str) -> str:
     git("fetch", "origin", base)
     git("checkout", base)
     git("pull", "--ff-only", "origin", base)
+    branch_exists = bool(git("branch", "--list", branch).stdout)
+    if not branch_exists:
+        return "already-gone"
     git("branch", "-D", branch)
+    return "deleted"
 
 
 def print_plan(branch: str, base: str, args: argparse.Namespace) -> None:
@@ -298,8 +302,8 @@ def main() -> int:
     print(f"merged={details['url']} method={args.merge_method}")
 
     if not args.keep_local_branch:
-        cleanup_local_branch(args.base, branch)
-        print(f"local_cleanup=deleted branch={branch} current_branch={args.base}")
+        cleanup_result = cleanup_local_branch(args.base, branch)
+        print(f"local_cleanup={cleanup_result} branch={branch} current_branch={args.base}")
     else:
         print(f"local_cleanup=kept branch={branch}")
     return 0
