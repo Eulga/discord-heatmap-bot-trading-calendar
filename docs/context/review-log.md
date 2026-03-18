@@ -1,5 +1,16 @@
 # Review Log
 
+## 2026-03-18
+- Context: PR `#4`의 Codex Connector 재리뷰에서 `news_briefing`/`eod_summary` 상태가 같은 분 내 후속 tick에서 `skipped`로 덮어써질 수 있다는 P1 두 건이 나왔다.
+- Finding: 지적은 유효했고, 혼합 설정에서 일부 guild만 성공한 뒤 같은 분의 다음 tick에서 `pending_guilds`가 비고 `missing_forum > 0`이면 이전 성공 상태가 `skipped`로 바뀔 수 있었다.
+- Resolution:
+1. 뉴스/장마감 모두 pending guild 계산 시 `completed_guilds`를 세어, 이미 당일 성공 처리된 guild가 있으면 no-target early return에서 상태를 덮어쓰지 않도록 수정했다.
+2. 같은 분 재실행에서 `ok` 상태가 유지되는 회귀 테스트를 뉴스/EOD 각각 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`7 passed`)
+2. `.\.venv\Scripts\python.exe -m pytest` 통과 (`40 passed, 2 deselected`)
+- Status: done
+
 ## 2026-03-17
 - Context: 최신 `develop` 리뷰에서 나온 intel scheduler/문서 정합성 이슈를 후속 수정으로 반영했다.
 - Finding: 이전 리뷰에서 지적한 뉴스 dedup 선소비, job status 거짓 양성, Docker 로그 비영속, README/handoff 부정확성은 모두 유효했고 수정됐다.

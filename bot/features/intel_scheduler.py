@@ -61,10 +61,12 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    completed_guilds = 0
     missing_forum = 0
 
     for guild_id in list_guild_ids(state):
         if get_guild_last_auto_run_date(state, guild_id, "newsbriefing") == run_date:
+            completed_guilds += 1
             continue
         forum_channel_id = (
             get_guild_news_forum_channel_id(state, guild_id)
@@ -77,7 +79,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         pending_guilds.append((guild_id, forum_channel_id))
 
     if not pending_guilds:
-        if missing_forum > 0:
+        if missing_forum > 0 and completed_guilds == 0:
             set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
             save_state(state)
         return
@@ -154,10 +156,12 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    completed_guilds = 0
     missing_forum = 0
 
     for guild_id in list_guild_ids(state):
         if get_guild_last_auto_run_date(state, guild_id, "eodsummary") == run_date:
+            completed_guilds += 1
             continue
         forum_channel_id = (
             get_guild_eod_forum_channel_id(state, guild_id)
@@ -170,7 +174,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         pending_guilds.append((guild_id, forum_channel_id))
 
     if not pending_guilds:
-        if missing_forum > 0:
+        if missing_forum > 0 and completed_guilds == 0:
             set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
             save_state(state)
         return

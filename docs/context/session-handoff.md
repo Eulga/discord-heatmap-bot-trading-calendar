@@ -1,6 +1,40 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: PR `#4`의 Codex Connector P1 두 건을 반영해 같은 분 내 반복 tick이 기존 성공 상태를 `skipped`로 덮어쓰는 문제를 수정했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 뉴스/장마감 모두 `completed_guilds`를 계산해 이미 성공한 tick 결과를 no-target early return이 덮어쓰지 않는다.
+2. `tests/integration/test_intel_scheduler_logic.py`에 뉴스/EOD 상태 보존 회귀 테스트가 추가됐다.
+3. 전체 기본 테스트는 `.\.venv\Scripts\python.exe -m pytest` 기준 `40 passed, 2 deselected`다.
+- Next:
+1. 현재 수정 커밋을 PR `#4`에 푸시한다.
+2. `@codex review`를 다시 호출해 P1이 닫혔는지 확인한다.
+- Status: open
+
+## 2026-03-18
+- Context: project-scoped Codex custom agent와 repo skill 최소 골격을 저장소에 추가했다.
+- Current state:
+1. `.codex/config.toml`에 `[agents] max_threads=3`, `max_depth=1`이 들어가 있다.
+2. read-only custom agent `repo_explorer`, `reviewer`, `docs_researcher`가 `.codex/agents/` 아래에 생겼다.
+3. repo skill `external-intel-provider-rollout`가 `.agents/skills/` 아래에 생겼고, 외부 provider 실사용 전환용 절차가 들어가 있다.
+4. 현재 프로젝트 `.venv`에 `PyYAML 6.0.3`이 설치돼 있고, 공식 `quick_validate.py`도 통과했다.
+- Next:
+1. 다음 실제 외부 provider 작업에서 새 agent/skill을 직접 써 보고 지침을 조정한다.
+- Status: open
+
+## 2026-03-18
+- Context: Codex subagents/custom agents 운영 방식을 이 저장소에 접목할 수 있는지 검토했다.
+- Current state:
+1. 공식 문서 기준으로 subagents는 명시 요청형 병렬 작업, `AGENTS.md`는 공통 지침, skills는 재사용 workflow 패키징으로 역할이 분리된다는 점을 확인했다.
+2. 현재 저장소에는 project-scoped `.codex/agents/`와 repo `.agents/skills/`가 아직 없다.
+3. 이 프로젝트는 외부 provider 조사, 리뷰, 문서 검증처럼 read-heavy 작업은 분업 이점이 있지만, 실제 코드 수정은 single-writer가 더 안전하다는 판단을 정리했다.
+- Next:
+1. 도입 시 최소 세트로 `reviewer`, `repo_explorer`, `docs_researcher` 같은 read-only custom agent부터 추가한다.
+2. 구현은 메인 세션 또는 단일 worker가 맡고, 반복 체크리스트는 skill로 분리한다.
+3. `Agents SDK + Codex MCP`는 multi-repo 자동화나 상위 orchestration 필요가 생길 때 다시 검토한다.
+- Status: open
+
+## 2026-03-18
 - Context: 리뷰 실수를 반복하지 않도록 첫 번째 리뷰 운영 규칙을 추가했다.
 - Current state:
 1. `docs/context/review-rules.md`가 새로 생겼다.
