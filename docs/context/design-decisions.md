@@ -1,6 +1,32 @@
 # Design Decisions
 
 ## 2026-03-18
+- Context: 사용자는 `develop에 합쳐` 한 번으로 PR 생성부터 Codex Connector 리뷰 반영, 재검토, merge까지 이어지는 흐름을 원했다.
+- Decision: `ship-develop`의 기본 reviewed shipping은 human approval gate가 아니라 Codex review loop로 둔다. 사람 승인 대기는 명시 요청일 때만 `--require-review`로 켠다.
+- Why:
+1. 이 저장소에서는 이미 `@codex review` -> feedback 확인 -> 수정 -> 재검토 -> merge 흐름을 실제로 사용해 왔다.
+2. Codex review는 수 분 단위로 끝나는 자동 루프라서 한 세션 안에서 끝까지 처리하기 좋지만, 사람 리뷰는 대기 시간이 길어 one-shot workflow 기본값으로는 맞지 않는다.
+3. 사용자가 원하는 UX는 "한 번 말하면 내가 끝까지 처리"에 가깝고, 그 요구는 Codex review loop가 더 잘 맞는다.
+- Impact:
+1. 기본 `develop으로 합쳐`는 PR 생성 후 `@codex review`를 요청하고, findings가 있으면 수정/재검토를 반복한다.
+2. `사람 리뷰 받고 develop에 합쳐` 같은 요청일 때만 human review gate를 추가로 사용한다.
+3. `ship_develop.py`는 Codex review 결과를 `clean`, `findings`, `pending`으로 판별해 merge 여부를 결정한다.
+- Status: accepted
+
+## 2026-03-18
+- Context: `ship-develop`이 PR 생성 직후 바로 merge해서, 사용자가 원한 "리뷰 확인 후 merge" 흐름과 맞지 않았다.
+- Decision: `ship-develop`은 review gate를 지원하고, `develop` shipping의 기본 흐름은 two-pass로 운영한다. 첫 실행은 PR 생성 또는 갱신 후 `review-required` 상태로 멈추고, 승인 후 같은 스크립트를 다시 실행해 merge한다.
+- Why:
+1. 이 저장소의 `develop` 브랜치는 현재 GitHub branch protection이 없어서, review 강제는 repo 설정이 아니라 shipping workflow 내부에서 처리해야 한다.
+2. 사람 리뷰는 수분에서 수시간이 걸릴 수 있어 한 세션에서 오래 기다리는 것보다 "같은 도구를 다시 실행하는 2단계"가 현실적이다.
+3. 도구를 둘로 나누지 않고 review gate 옵션을 추가하면 PR 생성과 merge 재개가 같은 인터페이스 안에서 유지된다.
+- Impact:
+1. 이후 `develop으로 합쳐` 류 요청은 기본적으로 리뷰 대기 상태를 존중한다.
+2. 첫 실행에서 merge가 되지 않아도 정상일 수 있고, `review-required`는 실패가 아니라 대기 상태다.
+3. 긴 대기 대신 승인 후 같은 branch에서 `ship-develop`을 다시 실행하면 된다.
+- Status: accepted
+
+## 2026-03-18
 - Context: 반복되는 push -> PR -> merge -> branch cleanup 요청을 한 번의 Codex 요청으로 줄이고 싶었다.
 - Decision: 이 저장소는 GitHub shipping workflow를 repo skill `ship-develop`과 보조 스크립트로 캡슐화한다. 구현은 `gh` CLI 기반으로 하고, base branch는 항상 명시적으로 넘긴다.
 - Why:
