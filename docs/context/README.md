@@ -5,14 +5,16 @@
 ## 읽기 순서
 1. `session-handoff.md`
 2. `goals.md`
-3. 확장 스케줄 작업이면 `../specs/external-intel-api-spec.md`
-4. 필요 시 `design-decisions.md`
-5. 필요 시 `development-log.md`
-6. 필요 시 `review-log.md`
+3. 리뷰 작업이면 `review-rules.md`
+4. 확장 스케줄 작업이면 `../specs/external-intel-api-spec.md`
+5. 필요 시 `design-decisions.md`
+6. 필요 시 `development-log.md`
+7. 필요 시 `review-log.md`
 
 ## 문서 역할
 - `session-handoff.md`: 지금 당장 알아야 하는 현재 상태
 - `goals.md`: 현재 프로젝트 목표와 우선순위
+- `review-rules.md`: 반복 실수를 막기 위한 리뷰 규칙
 - `design-decisions.md`: 왜 이렇게 설계했는지에 대한 기준
 - `development-log.md`: 무엇을 구현했고 무엇을 검증했는지
 - `review-log.md`: 어떤 리스크와 결함이 있었는지
@@ -32,3 +34,4 @@
 ## 현재 운용 메모
 - 2026-03-17: 컨텍스트 분류 저장 체계를 신설했다.
 - 2026-03-17: 뉴스/장마감/watch 실사용 전환은 `docs/specs/external-intel-api-spec.md`를 우선 기준으로 삼는다.
+- 2026-03-18: 리뷰 작업은 `docs/context/review-rules.md`를 기준으로 누적 강화한다.

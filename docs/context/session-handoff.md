@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 2026-03-18
+- Context: 리뷰 실수를 반복하지 않도록 첫 번째 리뷰 운영 규칙을 추가했다.
+- Current state:
+1. `docs/context/review-rules.md`가 새로 생겼다.
+2. Rule 1은 `실패 경로와 운영 정합성까지 리뷰한다`이며, scheduler/status/doc/docker 정합성을 함께 보도록 고정했다.
+3. `AGENTS.md`와 `docs/context/README.md`도 리뷰 작업 시 이 문서를 먼저 읽도록 연결됐다.
+- Next:
+1. 다음 리뷰부터 `review-rules.md`를 기준으로 체크한다.
+2. 새 누락 유형이 확인되면 같은 문서에 Rule 2를 추가한다.
+- Status: open
+
 ## 2026-03-17
 - Context: 최신 리뷰에서 나온 운영 가시성과 문서 정합성 이슈를 `codex/review-fixes` 브랜치에서 정리했다.
 - Current state:

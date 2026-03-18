@@ -7,12 +7,13 @@
 2. `docs/context/README.md`
 3. `docs/context/session-handoff.md`
 4. `docs/context/goals.md`
-5. `docs/specs/external-intel-api-spec.md`
-6. `docs/prompts/vibe-coding-rule-prompt.md`
-7. `README.md`
-8. `bot/app/settings.py`
-9. `bot/features/runner.py`
-10. `bot/forum/repository.py`
+5. 리뷰 작업이면 `docs/context/review-rules.md`
+6. `docs/specs/external-intel-api-spec.md`
+7. `docs/prompts/vibe-coding-rule-prompt.md`
+8. `README.md`
+9. `bot/app/settings.py`
+10. `bot/features/runner.py`
+11. `bot/forum/repository.py`
 
 ## 1-1) 컨텍스트 저장 원칙
 - 앞으로의 검토, 개발, 설계 대화 결과는 `docs/context/*`에 종류별로 누적 저장한다.
@@ -22,6 +23,7 @@
 2. `docs/context/design-decisions.md`: 설계 결정과 이유, 대안, 영향 범위
 3. `docs/context/development-log.md`: 구현 변경, 작업 단위, 검증 결과
 4. `docs/context/review-log.md`: 코드 리뷰/버그/리스크/회귀 포인트
+5. `docs/context/review-rules.md`: 반복해서 놓친 리뷰 포인트를 규칙화한 체크리스트
 - 저장 규칙:
 1. 작업 종료 시 관련 문서를 최소 1곳 이상 업데이트한다.
 2. 설계 판단이 바뀌면 `design-decisions.md`에 남기고, 실행 결과는 `development-log.md`에도 반영한다.
