@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-03-18
+- Context: `ship-develop`을 실제로 사용해 `develop` merge를 수행하는 과정에서 local branch cleanup 마지막 단계가 실패한 문제를 보완하는 작업
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`의 `cleanup_local_branch()`가 로컬 브랜치가 이미 삭제된 경우 `already-gone`으로 정상 처리하도록 바꿨다.
+2. merge 후 출력도 `local_cleanup=deleted|already-gone|kept`처럼 실제 결과를 그대로 남기도록 맞췄다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 이 fix를 별도 브랜치에서 `develop`에 반영해 shipping workflow를 다시 깨끗하게 만든다.
+- Status: done
+
+## 2026-03-18
 - Context: `develop으로 합쳐` 한 문장으로 GitHub shipping workflow를 처리할 수 있게 만드는 작업
 - Change:
 1. system-level `gh` 설치 상태와 인증 상태를 확인했고, 현재 계정 `Eulga`로 로그인되어 있음을 확인했다.

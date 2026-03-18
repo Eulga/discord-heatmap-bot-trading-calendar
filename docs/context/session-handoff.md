@@ -1,6 +1,16 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: `ship-develop`을 실제 merge에 사용했더니, `gh pr merge --delete-branch` 이후 로컬 브랜치가 이미 지워진 경우 cleanup 단계가 한 번 더 지우려다 실패했다.
+- Current state:
+1. 현재 작업 브랜치는 `codex/ship-develop-cleanup`이다.
+2. `ship_develop.py`는 이제 local branch가 이미 없어도 `already-gone`으로 정상 처리한다.
+3. py_compile과 skill validator는 다시 통과했다.
+- Next:
+1. 이 cleanup fix를 `develop`에 반영한다.
+- Status: open
+
+## 2026-03-18
 - Context: `develop으로 합쳐` 요청을 한 번의 흐름으로 처리하기 위한 GitHub shipping skill을 추가했다.
 - Current state:
 1. `.agents/skills/ship-develop/`와 `scripts/ship_develop.py`가 생겼다.
