@@ -1,6 +1,41 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: PR `#7` Codex review에서 pagination 누락이 지적돼 `ship-develop` comment 조회를 보강했다.
+- Current state:
+1. `ship_develop.py`는 issue/review comments를 single page가 아니라 paging으로 읽는다.
+2. py_compile, historical PR 분류 재검증, skill validator는 다시 통과했다.
+3. 현재 해야 할 일은 이 fix를 PR `#7`에 푸시하고 `@codex review`를 다시 돌린 뒤 findings가 닫혔는지 확인하는 것이다.
+- Next:
+1. PR `#7`에 pagination fix를 푸시
+2. `@codex review` 재요청
+3. findings가 없으면 merge
+- Status: open
+
+## 2026-03-18
+- Context: `ship-develop` 기본 동작을 Codex review loop 중심으로 바꿨다.
+- Current state:
+1. `ship_develop.py`는 `--codex-review`와 `--wait-codex-seconds`를 지원한다.
+2. 스크립트는 `@codex review`를 요청한 뒤 `chatgpt-codex-connector` / `chatgpt-codex-connector[bot]` 응답 패턴으로 `clean`, `findings`, `pending`을 판별한다.
+3. 기본 shipping UX는 "PR 생성 또는 갱신 -> Codex review -> findings 수정 -> 재검토 -> clean이면 merge"다.
+4. human review gate는 여전히 가능하지만, 명시 요청 시 `--require-review`로만 켠다.
+5. py_compile, dry-run, historical PR 분류 검증, skill validator는 통과했다.
+- Next:
+1. 다음 실제 `develop에 합쳐` 요청에서 Codex review loop 기본 경로를 실전 검증한다.
+- Status: open
+
+## 2026-03-18
+- Context: `ship-develop`이 리뷰 없이 바로 merge하지 않도록 review gate를 추가했다.
+- Current state:
+1. `ship_develop.py`는 `--require-review`와 `--wait-review-seconds`를 지원한다.
+2. review가 승인되지 않았으면 PR URL과 함께 `review-required` 상태로 멈춘다.
+3. `develop` shipping 기본 흐름은 같은 스크립트를 두 번 쓰는 two-pass다. 첫 실행은 PR 생성 또는 갱신, 두 번째 실행은 승인 후 merge다.
+4. py_compile, dry-run, skill validator는 통과했다.
+- Next:
+1. 다음 실제 shipping 요청에서 review gate가 원하는 UX로 동작하는지 실전 확인한다.
+- Status: open
+
+## 2026-03-18
 - Context: `ship-develop`을 실제 merge에 사용했더니, `gh pr merge --delete-branch` 이후 로컬 브랜치가 이미 지워진 경우 cleanup 단계가 한 번 더 지우려다 실패했다.
 - Current state:
 1. 현재 작업 브랜치는 `codex/ship-develop-cleanup`이다.

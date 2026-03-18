@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -27,6 +28,8 @@ def _find_gh() -> str:
 
 GIT = shutil.which("git") or "git"
 GH = _find_gh()
+CODEX_REVIEW_LOGIN = "chatgpt-codex-connector"
+CODEX_REVIEW_BOT_LOGIN = "chatgpt-codex-connector[bot]"
 
 
 @dataclass
@@ -137,7 +140,7 @@ def get_pr_details(pr_number: int) -> dict[str, object]:
             "view",
             str(pr_number),
             "--json",
-            "number,url,title,reviewDecision,mergeStateStatus,isDraft,state,baseRefName,headRefName",
+            "number,url,title,reviewDecision,mergeStateStatus,isDraft,state,baseRefName,headRefName,headRefOid,reviews",
         ).stdout
     )
 
@@ -185,6 +188,136 @@ def wait_for_checks(pr_number: int, wait_seconds: int, interval_seconds: int) ->
         time.sleep(interval_seconds)
 
 
+def wait_for_review(pr_number: int, wait_seconds: int, interval_seconds: int) -> dict[str, object]:
+    deadline = time.time() + wait_seconds
+    while True:
+        details = get_pr_details(pr_number)
+        review_decision = str(details.get("reviewDecision") or "")
+        if review_decision in {"APPROVED", "CHANGES_REQUESTED"}:
+            return details
+        if time.time() >= deadline:
+            return details
+        time.sleep(interval_seconds)
+
+
+def parse_github_time(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def is_codex_actor(login: str | None) -> bool:
+    return login in {CODEX_REVIEW_LOGIN, CODEX_REVIEW_BOT_LOGIN}
+
+
+def post_codex_review_request(repo: str, pr_number: int) -> dict[str, object]:
+    return json.loads(
+        gh(
+            "api",
+            f"repos/{repo}/issues/{pr_number}/comments",
+            "--method",
+            "POST",
+            "-f",
+            "body=@codex review",
+        ).stdout
+    )
+
+
+def get_paginated_api_items(path: str) -> list[dict[str, object]]:
+    page = 1
+    items: list[dict[str, object]] = []
+    while True:
+        chunk = json.loads(gh("api", f"{path}?per_page=100&page={page}").stdout)
+        if not isinstance(chunk, list):
+            raise RuntimeError(f"Expected a list from gh api for {path}, got {type(chunk).__name__}.")
+        items.extend(item for item in chunk if isinstance(item, dict))
+        if len(chunk) < 100:
+            return items
+        page += 1
+
+
+def get_issue_comments(repo: str, pr_number: int) -> list[dict[str, object]]:
+    return get_paginated_api_items(f"repos/{repo}/issues/{pr_number}/comments")
+
+
+def get_review_comments(repo: str, pr_number: int) -> list[dict[str, object]]:
+    return get_paginated_api_items(f"repos/{repo}/pulls/{pr_number}/comments")
+
+
+def summarize_codex_review(repo: str, pr_number: int, requested_at: str, head_oid: str) -> dict[str, object]:
+    requested_time = parse_github_time(requested_at)
+    issue_comments = get_issue_comments(repo, pr_number)
+    review_comments = get_review_comments(repo, pr_number)
+    details = get_pr_details(pr_number)
+    current_head_oid = str(details.get("headRefOid") or "")
+
+    clean_comment: dict[str, object] | None = None
+    finding_count = 0
+
+    for comment in issue_comments:
+        login = str(((comment.get("user") or {}).get("login")) or "")
+        created_at = str(comment.get("created_at") or "")
+        if not is_codex_actor(login) or not created_at:
+            continue
+        if parse_github_time(created_at) < requested_time:
+            continue
+        body = str(comment.get("body") or "")
+        if "Didn't find any major issues" in body:
+            clean_comment = comment
+
+    for comment in review_comments:
+        login = str(((comment.get("user") or {}).get("login")) or "")
+        created_at = str(comment.get("created_at") or "")
+        commit_id = str(comment.get("commit_id") or "")
+        if not is_codex_actor(login) or not created_at:
+            continue
+        if parse_github_time(created_at) < requested_time:
+            continue
+        if commit_id and commit_id != head_oid:
+            continue
+        finding_count += 1
+
+    review_summaries = details.get("reviews") or []
+    summary_with_findings = False
+    if isinstance(review_summaries, list):
+        for review in review_summaries:
+            if not isinstance(review, dict):
+                continue
+            login = str(((review.get("author") or {}).get("login")) or "")
+            submitted_at = str(review.get("submittedAt") or "")
+            if not is_codex_actor(login) or not submitted_at:
+                continue
+            if parse_github_time(submitted_at) < requested_time:
+                continue
+            body = str(review.get("body") or "")
+            if "automated review suggestions" in body.lower():
+                summary_with_findings = True
+
+    if current_head_oid and current_head_oid != head_oid:
+        return {"status": "pending", "finding_count": finding_count}
+    if finding_count > 0 or summary_with_findings:
+        return {"status": "findings", "finding_count": finding_count}
+    if clean_comment is not None:
+        return {"status": "clean", "finding_count": 0}
+    return {"status": "pending", "finding_count": 0}
+
+
+def wait_for_codex_review(
+    repo: str,
+    pr_number: int,
+    requested_at: str,
+    head_oid: str,
+    wait_seconds: int,
+    interval_seconds: int,
+) -> dict[str, object]:
+    deadline = time.time() + wait_seconds
+    while True:
+        summary = summarize_codex_review(repo, pr_number, requested_at, head_oid)
+        if summary["status"] != "pending":
+            return summary
+        if time.time() >= deadline:
+            return summary
+        time.sleep(interval_seconds)
+
+
 def merge_pr(pr_number: int, method: str, delete_remote_branch: bool) -> None:
     cmd = ["pr", "merge", str(pr_number)]
     if method == "squash":
@@ -216,6 +349,10 @@ def print_plan(branch: str, base: str, args: argparse.Namespace) -> None:
     print(f"dirty={get_worktree_dirty()}")
     print(f"create_only={args.create_only}")
     print(f"merge_method={args.merge_method}")
+    print(f"codex_review={args.codex_review}")
+    print(f"wait_codex_seconds={args.wait_codex_seconds}")
+    print(f"require_review={args.require_review}")
+    print(f"wait_review_seconds={args.wait_review_seconds}")
     print(f"keep_remote_branch={args.keep_remote_branch}")
     print(f"keep_local_branch={args.keep_local_branch}")
     print(f"wait_seconds={args.wait_seconds}")
@@ -229,6 +366,10 @@ def main() -> int:
     parser.add_argument("--draft", action="store_true")
     parser.add_argument("--merge-method", choices=["squash", "merge", "rebase"], default="squash")
     parser.add_argument("--create-only", action="store_true")
+    parser.add_argument("--codex-review", action="store_true")
+    parser.add_argument("--wait-codex-seconds", type=int, default=0)
+    parser.add_argument("--require-review", action="store_true")
+    parser.add_argument("--wait-review-seconds", type=int, default=0)
     parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--interval-seconds", type=int, default=20)
     parser.add_argument("--keep-remote-branch", action="store_true")
@@ -279,6 +420,46 @@ def main() -> int:
     if details.get("mergeStateStatus") == "DIRTY":
         print(f"done=blocked reason=merge-conflict url={details['url']}")
         return 2
+
+    if args.codex_review:
+        head_oid = str(details.get("headRefOid") or "")
+        request = post_codex_review_request(repo, pr_number)
+        requested_at = str(request.get("created_at") or "")
+        codex_summary = (
+            wait_for_codex_review(repo, pr_number, requested_at, head_oid, args.wait_codex_seconds, args.interval_seconds)
+            if args.wait_codex_seconds > 0
+            else summarize_codex_review(repo, pr_number, requested_at, head_oid)
+        )
+        print(
+            "codex_review="
+            f"status={codex_summary['status']} findings={codex_summary['finding_count']} "
+            f"url={details['url']}"
+        )
+        if codex_summary["status"] == "pending":
+            print(f"done=pending reason=codex-review-pending url={details['url']}")
+            return 10
+        if codex_summary["status"] == "findings":
+            print(f"done=blocked reason=codex-review-findings url={details['url']}")
+            return 2
+
+    if args.require_review:
+        if args.wait_review_seconds > 0 and details.get("reviewDecision") != "APPROVED":
+            details = wait_for_review(pr_number, args.wait_review_seconds, args.interval_seconds)
+        review_decision = str(details.get("reviewDecision") or "")
+        print(f"review_status={review_decision or 'NONE'} require_review=True")
+        if review_decision == "CHANGES_REQUESTED":
+            print(f"done=blocked reason=changes-requested url={details['url']}")
+            return 2
+        if review_decision != "APPROVED":
+            summary = summarize_checks(pr_number)
+            buckets = summary["buckets"]
+            print(
+                "checks="
+                f"pass={buckets['pass']} fail={buckets['fail']} pending={buckets['pending']} "
+                f"skipping={buckets['skipping']} cancel={buckets['cancel']}"
+            )
+            print(f"done=pending reason=review-required url={details['url']}")
+            return 9
 
     summary = summarize_checks(pr_number)
     if summary["has_pending"] and args.wait_seconds > 0:

@@ -1,6 +1,55 @@
 # Development Log
 
 ## 2026-03-18
+- Context: PR `#7`의 Codex review에서 comment pagination 누락으로 review 상태를 오판할 수 있다는 지적을 반영하는 작업
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `get_paginated_api_items()`를 추가했다.
+2. `get_issue_comments()`와 `get_review_comments()`가 GitHub REST 기본 30개 제한에 묶이지 않도록 `per_page=100` paging 루프를 사용하게 바꿨다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. historical PR 분류 재검증:
+   - PR `#4` clean 케이스는 여전히 `clean`
+   - PR `#7` findings 케이스는 `findings`로 유지
+3. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 수정 커밋을 PR `#7`에 푸시하고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-18
+- Context: `ship-develop` 기본 동작을 human review gate에서 Codex review loop 중심으로 바꾸는 작업
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `--codex-review`, `--wait-codex-seconds` 옵션을 추가했다.
+2. 스크립트가 `@codex review` 코멘트를 남기고, `chatgpt-codex-connector` issue comment / `chatgpt-codex-connector[bot]` review comment 패턴을 읽어 `clean`, `findings`, `pending`을 판별하도록 구현했다.
+3. `.agents/skills/ship-develop/SKILL.md`와 `agents/openai.yaml`을 갱신해 기본 workflow를 "PR -> Codex review -> fix loop -> merge"로 바꾸고, human review gate는 명시 요청 시 옵션으로 남겼다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. `.\.venv\Scripts\python .agents/skills/ship-develop/scripts/ship_develop.py --base develop --codex-review --wait-codex-seconds 300 --dry-run --allow-dirty`로 Codex review 포함 dry-run 출력 확인
+3. historical PR 기준 분류 검증:
+   - PR `#4` 첫 요청 시 `findings`
+   - PR `#4` 두 번째 요청 시 `clean`
+   - PR `#5` 요청 시 `findings`
+4. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 다음 실제 shipping 요청에서 Codex review loop가 원하는 UX로 동작하는지 실전 확인한다.
+2. 필요하면 `codex-review-findings`일 때 PR 댓글/리뷰 스레드 요약까지 자동으로 더 도와주는 보조 스크립트를 추가한다.
+- Status: done
+
+## 2026-03-18
+- Context: `ship-develop`에 리뷰 승인 대기 단계를 넣는 작업
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `--require-review`, `--wait-review-seconds` 옵션과 review polling 로직을 추가했다.
+2. review decision이 `APPROVED`가 아니면 checks 상태를 요약한 뒤 `done=pending reason=review-required`로 멈추도록 바꿨다.
+3. `.agents/skills/ship-develop/SKILL.md`와 `agents/openai.yaml`을 갱신해 reviewed shipping의 기본 경로가 two-pass임을 명시했다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. `.\.venv\Scripts\python .agents/skills/ship-develop/scripts/ship_develop.py --base develop --require-review --dry-run --allow-dirty`로 review-gated dry-run 출력 확인
+3. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 다음 실제 shipping 요청에서 첫 실행은 PR 생성 후 `review-required`로 멈추는지 확인한다.
+2. 승인 후 같은 스크립트를 다시 실행해 merge 재개 흐름도 검증한다.
+- Status: done
+
+## 2026-03-18
 - Context: `ship-develop`을 실제로 사용해 `develop` merge를 수행하는 과정에서 local branch cleanup 마지막 단계가 실패한 문제를 보완하는 작업
 - Change:
 1. `.agents/skills/ship-develop/scripts/ship_develop.py`의 `cleanup_local_branch()`가 로컬 브랜치가 이미 삭제된 경우 `already-gone`으로 정상 처리하도록 바꿨다.
