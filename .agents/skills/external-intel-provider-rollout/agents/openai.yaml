@@ -1,0 +1,4 @@
+interface:
+  display_name: "Intel Provider Rollout"
+  short_description: "Roll out live intel providers safely"
+  default_prompt: "Use $external-intel-provider-rollout to replace a mock intel provider with a live adapter and update tests and docs."

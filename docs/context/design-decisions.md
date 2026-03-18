@@ -1,6 +1,33 @@
 # Design Decisions
 
 ## 2026-03-18
+- Context: 반복되는 push -> PR -> merge -> branch cleanup 요청을 한 번의 Codex 요청으로 줄이고 싶었다.
+- Decision: 이 저장소는 GitHub shipping workflow를 repo skill `ship-develop`과 보조 스크립트로 캡슐화한다. 구현은 `gh` CLI 기반으로 하고, base branch는 항상 명시적으로 넘긴다.
+- Why:
+1. 이 저장소의 실사용 브랜치 흐름은 `develop` 중심이지만, GitHub repo 기본 브랜치는 현재 `master`라서 암묵적 기본값에 기대면 잘못 머지할 수 있다.
+2. 현재 repo 설정은 `allow_auto_merge=false`, `delete_branch_on_merge=false`라서 GitHub UI 기본 동작만으로는 사용자가 원하는 "머지 후 정리" 흐름을 끝까지 자동화하기 어렵다.
+3. skill + script 조합이면 Codex가 한 문장 요청에서도 테스트, 커밋, PR, merge, cleanup 흐름을 일관되게 재사용할 수 있다.
+- Impact:
+1. 이후 `develop으로 합쳐` 류 요청은 `$ship-develop` skill이 우선 후보가 된다.
+2. 머지 자동화는 current branch, worktree 상태, PR 상태, checks 상태를 확인한 뒤 안전할 때만 진행한다.
+3. `gh`가 `PATH`에 없더라도 `C:\Program Files\GitHub CLI\gh.exe` fallback 경로를 사용한다.
+- Status: accepted
+
+## 2026-03-18
+- Context: Codex subagents/custom agents 운영 방식을 이 저장소 작업 흐름에 붙일 수 있는지 검토했다.
+- Decision: 이 저장소는 `AGENTS.md`를 공통 규칙 레이어로 유지하고, 필요 시 프로젝트 범위의 read-only custom agent와 repo skill을 소규모로 추가한다. 외부 `Agents SDK + Codex MCP` 오케스트레이션은 당장 도입하지 않는다.
+- Why:
+1. 현재 구조는 `bot/features/*`, `bot/intel/providers/*`, `bot/forum/*`, `docs/context/*`처럼 경계가 나뉘어 있어 탐색, 리뷰, 문서 검증은 병렬 분업 이점이 있다.
+2. 반면 실제 수정은 `bot/features/intel_scheduler.py`, `bot/app/settings.py`, `bot/forum/repository.py`처럼 공용 파일에 집중돼 병렬 writer를 늘리면 충돌과 정합성 비용이 커진다.
+3. 현재 최우선 과제는 외부 provider 실사용 전환과 운영 검증이라, 별도 오케스트레이터보다 project-scoped custom agent/skill이 더 저비용이다.
+4. 공식 Codex 문서도 subagents는 명시 요청 기반 병렬 작업, `AGENTS.md`는 공통 지침, skills는 재사용 workflow 패키징 용도로 분리한다.
+- Impact:
+1. 병렬 활용은 코드 탐색, 문서 검증, 리뷰 중심으로 제한한다.
+2. 반복 작업은 repo skill 후보로 분리할 수 있고, 구현은 메인 세션 또는 단일 worker가 맡는다.
+3. multi-repo 자동화나 상위 orchestration 필요성이 커질 때만 `Agents SDK + Codex MCP`를 다시 검토한다.
+- Status: accepted
+
+## 2026-03-18
 - Context: 같은 유형의 리뷰 누락이 다시 발생하지 않게, 발견된 실수를 운영 규칙으로 축적할 필요가 생겼다.
 - Decision: 리뷰에서 유효했던 지적은 `docs/context/review-log.md`에 기록만 하지 않고, 재발 방지 가치가 있으면 `docs/context/review-rules.md`에 규칙으로 승격한다.
 - Why:

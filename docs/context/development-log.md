@@ -1,6 +1,22 @@
 # Development Log
 
 ## 2026-03-18
+- Context: `develop으로 합쳐` 한 문장으로 GitHub shipping workflow를 처리할 수 있게 만드는 작업
+- Change:
+1. system-level `gh` 설치 상태와 인증 상태를 확인했고, 현재 계정 `Eulga`로 로그인되어 있음을 확인했다.
+2. GitHub repo 설정을 확인해 현재 기본 브랜치가 `master`, 자동 머지가 `false`, merge 후 브랜치 자동 삭제가 `false`임을 확인했다.
+3. `.agents/skills/ship-develop/` skill을 추가하고, `.agents/skills/ship-develop/scripts/ship_develop.py`로 push, PR 생성/재사용, check 확인, merge, local branch cleanup 흐름을 구현했다.
+4. 새 skill은 `gh`가 `PATH`에 없어도 `C:\Program Files\GitHub CLI\gh.exe`를 fallback으로 사용하도록 만들었다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. `.\.venv\Scripts\python .agents/skills/ship-develop/scripts/ship_develop.py --base develop --dry-run --allow-dirty`로 dry-run 계획 출력 확인
+3. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 다음 실제 merge 요청에서 `$ship-develop`을 사용해 end-to-end 흐름을 한 번 실전 검증한다.
+2. 필요하면 pending checks 대기 시간이나 merge 정책 옵션을 실제 사용 패턴에 맞게 조정한다.
+- Status: done
+
+## 2026-03-18
 - Context: PR `#4`의 Codex Connector 리뷰에서 같은 분 내 반복 tick이 기존 성공 상태를 `skipped`로 덮어쓸 수 있다는 P1 두 건을 반영하는 작업
 - Change:
 1. `bot/features/intel_scheduler.py`에서 뉴스/장마감 pending guild 계산 시 이미 해당 날짜에 성공 처리된 guild 수를 함께 세도록 바꿨다.
