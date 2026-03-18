@@ -221,12 +221,25 @@ def post_codex_review_request(repo: str, pr_number: int) -> dict[str, object]:
     )
 
 
+def get_paginated_api_items(path: str) -> list[dict[str, object]]:
+    page = 1
+    items: list[dict[str, object]] = []
+    while True:
+        chunk = json.loads(gh("api", f"{path}?per_page=100&page={page}").stdout)
+        if not isinstance(chunk, list):
+            raise RuntimeError(f"Expected a list from gh api for {path}, got {type(chunk).__name__}.")
+        items.extend(item for item in chunk if isinstance(item, dict))
+        if len(chunk) < 100:
+            return items
+        page += 1
+
+
 def get_issue_comments(repo: str, pr_number: int) -> list[dict[str, object]]:
-    return json.loads(gh("api", f"repos/{repo}/issues/{pr_number}/comments").stdout)
+    return get_paginated_api_items(f"repos/{repo}/issues/{pr_number}/comments")
 
 
 def get_review_comments(repo: str, pr_number: int) -> list[dict[str, object]]:
-    return json.loads(gh("api", f"repos/{repo}/pulls/{pr_number}/comments").stdout)
+    return get_paginated_api_items(f"repos/{repo}/pulls/{pr_number}/comments")
 
 
 def summarize_codex_review(repo: str, pr_number: int, requested_at: str, head_oid: str) -> dict[str, object]:

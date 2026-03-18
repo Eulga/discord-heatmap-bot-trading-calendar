@@ -1,6 +1,21 @@
 # Development Log
 
 ## 2026-03-18
+- Context: PR `#7`의 Codex review에서 comment pagination 누락으로 review 상태를 오판할 수 있다는 지적을 반영하는 작업
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `get_paginated_api_items()`를 추가했다.
+2. `get_issue_comments()`와 `get_review_comments()`가 GitHub REST 기본 30개 제한에 묶이지 않도록 `per_page=100` paging 루프를 사용하게 바꿨다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. historical PR 분류 재검증:
+   - PR `#4` clean 케이스는 여전히 `clean`
+   - PR `#7` findings 케이스는 `findings`로 유지
+3. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+- Next:
+1. 수정 커밋을 PR `#7`에 푸시하고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-18
 - Context: `ship-develop` 기본 동작을 human review gate에서 Codex review loop 중심으로 바꾸는 작업
 - Change:
 1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `--codex-review`, `--wait-codex-seconds` 옵션을 추가했다.

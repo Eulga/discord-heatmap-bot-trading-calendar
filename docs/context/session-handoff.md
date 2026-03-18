@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: PR `#7` Codex review에서 pagination 누락이 지적돼 `ship-develop` comment 조회를 보강했다.
+- Current state:
+1. `ship_develop.py`는 issue/review comments를 single page가 아니라 paging으로 읽는다.
+2. py_compile, historical PR 분류 재검증, skill validator는 다시 통과했다.
+3. 현재 해야 할 일은 이 fix를 PR `#7`에 푸시하고 `@codex review`를 다시 돌린 뒤 findings가 닫혔는지 확인하는 것이다.
+- Next:
+1. PR `#7`에 pagination fix를 푸시
+2. `@codex review` 재요청
+3. findings가 없으면 merge
+- Status: open
+
+## 2026-03-18
 - Context: `ship-develop` 기본 동작을 Codex review loop 중심으로 바꿨다.
 - Current state:
 1. `ship_develop.py`는 `--codex-review`와 `--wait-codex-seconds`를 지원한다.
