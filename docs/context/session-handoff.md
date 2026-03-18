@@ -1,6 +1,19 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: `ship-develop` review loop 검증과 `develop` merge를 끝냈고, 임시 backup 브랜치도 정리했다.
+- Current state:
+1. PR `#7`은 `@codex review`가 `clean`으로 끝난 뒤 squash merge됐고, 최종 merge commit은 `596871d`다.
+2. `ship_develop.py`는 review comment pagination과 `headRefOid` drift 보호를 포함한 상태다.
+3. 현재 로컬 브랜치는 `develop`, `master`, `release/v1`, `codex/docs`, `codex/file-logging`만 남아 있고 작업 트리는 깨끗하다.
+4. shipping 자동화는 이제 실제 merge까지 한 번 검증된 상태다.
+- Next:
+1. `docs/specs/external-intel-api-spec.md` 기준으로 첫 실사용 외부 provider 구현 범위를 고른다. 권장 시작점은 `NewsProvider`다.
+2. `.\.venv\Scripts\python -m pytest`와 `python -m bot.main`으로 `develop` 기준 기본 회귀와 부트를 다시 확인한다.
+3. Discord 실운영에서 `/setforumchannel`, `/kheatmap`, `/usheatmap`, 확장 scheduler 흐름 검증 순서를 정리한다.
+- Status: open
+
+## 2026-03-18
 - Context: PR `#7` Codex review에서 pagination 누락이 지적돼 `ship-develop` comment 조회를 보강했다.
 - Current state:
 1. `ship_develop.py`는 issue/review comments를 single page가 아니라 paging으로 읽는다.

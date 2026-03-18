@@ -1,6 +1,23 @@
 # Development Log
 
 ## 2026-03-18
+- Context: `ship-develop` Codex review loop을 실제로 마무리해 `develop`에 반영하고, 임시 backup 브랜치도 정리했다.
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`가 PR head SHA가 바뀐 뒤 예전 `clean` review 결과를 재사용하지 않도록 `headRefOid` drift를 `pending`으로 처리하게 했다.
+2. PR `#7`을 `@codex review` 재확인 후 squash merge해 `develop`에 반영했다.
+3. 로컬 backup 브랜치 `codex/develop-diverged-backup-20260317`, `codex/review-fixes-backup-20260318`를 삭제했다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py` 통과
+2. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`가 `Skill is valid!`로 통과
+3. `.\.venv\Scripts\python .agents/skills/ship-develop/scripts/ship_develop.py --base develop --codex-review --wait-codex-seconds 300 --wait-seconds 600` 실행으로 PR `#7`이 `clean` 후 merge됨을 확인
+4. `git status --short --branch` 기준 현재 로컬은 `develop...origin/develop`이고 작업 트리는 깨끗하다
+- Next:
+1. `docs/specs/external-intel-api-spec.md` 기준으로 첫 실제 외부 provider 구현 대상을 고른다. 우선순위는 `NewsProvider`다.
+2. `.\.venv\Scripts\python -m pytest`와 `python -m bot.main` 기준으로 `develop` 부트와 기본 회귀를 다시 확인한다.
+3. Discord 실운영 환경에서 히트맵 게시 흐름과 확장 scheduler 흐름 검증 계획을 구체화한다.
+- Status: done
+
+## 2026-03-18
 - Context: PR `#7`의 Codex review에서 comment pagination 누락으로 review 상태를 오판할 수 있다는 지적을 반영하는 작업
 - Change:
 1. `.agents/skills/ship-develop/scripts/ship_develop.py`에 `get_paginated_api_items()`를 추가했다.
