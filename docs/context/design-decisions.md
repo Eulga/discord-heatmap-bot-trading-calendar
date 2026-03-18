@@ -1,5 +1,16 @@
 # Design Decisions
 
+## 2026-03-18
+- Context: 같은 유형의 리뷰 누락이 다시 발생하지 않게, 발견된 실수를 운영 규칙으로 축적할 필요가 생겼다.
+- Decision: 리뷰에서 유효했던 지적은 `docs/context/review-log.md`에 기록만 하지 않고, 재발 방지 가치가 있으면 `docs/context/review-rules.md`에 규칙으로 승격한다.
+- Why:
+1. 리뷰 로그는 과거 사실 기록에는 좋지만, 다음 리뷰 시작 시 바로 적용할 체크리스트 역할은 약하다.
+2. 이번 누락은 단일 버그보다 리뷰 범위의 문제였기 때문에 규칙화가 더 효과적이다.
+- Impact:
+1. 이후 리뷰 세션은 `review-rules.md`를 먼저 보고 체크한다.
+2. 규칙은 실제로 놓친 사례가 생길 때마다 한 개씩 추가한다.
+- Status: accepted
+
 ## 2026-03-17
 - Context: 새로 추가한 뉴스/장마감/watch 스케줄을 mock 단계에서 실제 운영 단계로 올리려면 외부 데이터 소스 기준이 먼저 필요하다.
 - Decision: 벤더를 먼저 고정하지 않고, 현재 scheduler/provider 인터페이스에 맞는 벤더 중립 정규화 계약을 `docs/specs/external-intel-api-spec.md`로 먼저 확정한다.
