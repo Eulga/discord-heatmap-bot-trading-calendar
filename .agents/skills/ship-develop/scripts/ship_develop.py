@@ -247,6 +247,7 @@ def summarize_codex_review(repo: str, pr_number: int, requested_at: str, head_oi
     issue_comments = get_issue_comments(repo, pr_number)
     review_comments = get_review_comments(repo, pr_number)
     details = get_pr_details(pr_number)
+    current_head_oid = str(details.get("headRefOid") or "")
 
     clean_comment: dict[str, object] | None = None
     finding_count = 0
@@ -290,6 +291,8 @@ def summarize_codex_review(repo: str, pr_number: int, requested_at: str, head_oi
             if "automated review suggestions" in body.lower():
                 summary_with_findings = True
 
+    if current_head_oid and current_head_oid != head_oid:
+        return {"status": "pending", "finding_count": finding_count}
     if finding_count > 0 or summary_with_findings:
         return {"status": "findings", "finding_count": finding_count}
     if clean_comment is not None:
