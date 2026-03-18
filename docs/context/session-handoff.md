@@ -1,6 +1,19 @@
 # Session Handoff
 
 ## 2026-03-18
+- Context: `develop으로 합쳐` 요청을 한 번의 흐름으로 처리하기 위한 GitHub shipping skill을 추가했다.
+- Current state:
+1. `.agents/skills/ship-develop/`와 `scripts/ship_develop.py`가 생겼다.
+2. 현재 GitHub repo는 default branch=`master`, `develop` 브랜치 별도 운영, `allow_auto_merge=false`, `delete_branch_on_merge=false` 상태다.
+3. `gh`는 `C:\Program Files\GitHub CLI\gh.exe`에 설치돼 있고, 계정 `Eulga`로 로그인되어 있다.
+4. 새 script는 current branch push, PR create/reuse, checks/review 상태 확인, direct merge, `develop` checkout, local branch 삭제까지 처리한다.
+5. dry-run과 공식 skill validator는 통과했다.
+- Next:
+1. 다음 실제 shipping 요청에서 `$ship-develop`으로 실전 검증한다.
+2. 필요하면 wait time이나 merge method 기본값을 조정한다.
+- Status: open
+
+## 2026-03-18
 - Context: PR `#4`의 Codex Connector P1 두 건을 반영해 같은 분 내 반복 tick이 기존 성공 상태를 `skipped`로 덮어쓰는 문제를 수정했다.
 - Current state:
 1. `bot/features/intel_scheduler.py`는 뉴스/장마감 모두 `completed_guilds`를 계산해 이미 성공한 tick 결과를 no-target early return이 덮어쓰지 않는다.
