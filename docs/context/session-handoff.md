@@ -1,5 +1,150 @@
 # Session Handoff
 
+## 2026-03-19
+- Context: PR `#8` Codex review findings 2건을 반영했다.
+- Current state:
+1. `bot/forum/service.py`는 이제 starter thread/message state를 follow-up content sync 전에 먼저 기록해, sync 중 예외가 나도 같은 날짜 thread를 재사용할 수 있다.
+2. `bot/features/news/trend_policy.py`는 oversized single theme block도 안전하게 분할 또는 truncate해서 region message 길이 제한을 넘지 않는다.
+3. 관련 회귀를 포함한 전체 기본 테스트는 `72 passed, 2 deselected`다.
+- Next:
+1. PR `#8`에 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `develop`에 merge한다.
+- Status: open
+
+## 2026-03-19
+- Context: `trendbriefing` 전용 thread와 멀티-message forum upsert까지 포함한 트렌드 테마 뉴스 기능을 붙였다.
+- Current state:
+1. 뉴스 provider는 이제 `NewsAnalysis`를 만들고, conservative briefing items와 trend theme candidates를 분리해서 계산한다.
+2. `trendbriefing`은 같은 뉴스 스케줄 tick에서 생성되며, thread 구조는 starter message + 국내 section message + 해외 section message다.
+3. forum state의 `DailyPostEntry`에는 optional `content_message_ids`가 들어가고, rerun 시 하위 message들도 edit/create/delete된다.
+4. 실데이터 기준 오늘은 국내 테마가 `반도체`, `자동차` 2개라 국내 section은 placeholder가 들어가고, 해외는 `금리/Fed`, `AI/반도체`, `에너지/원유`, `메가캡 기술주` 4개가 게시됐다.
+5. 실제 thread URL은 `https://discord.com/channels/332110589969039360/1484089919285497967`다.
+6. 전체 기본 테스트는 `69 passed, 2 deselected`다.
+- Next:
+1. 국내 실데이터 recall을 더 올릴지 보고 `전력설비`, `방산`, `건설/원전` probe/score를 추가 튜닝한다.
+2. 실제 Discord에서 트렌드 테마 thread의 읽기 경험이 괜찮은지 확인하고, 필요하면 국내/해외 메시지를 더 잘게 나눌지 판단한다.
+- Status: open
+
+## 2026-03-19
+- Context: 뉴스 브리핑을 국내/해외 별도 daily thread 2개로 분리했고, 실제 Discord 포럼에도 오늘자 split 결과를 반영했다.
+- Current state:
+1. 뉴스 스케줄러는 이제 `newsbriefing-domestic`, `newsbriefing-global` 두 thread를 upsert한다.
+2. 오늘자 기존 통합 thread `https://discord.com/channels/332110589969039360/1484055161600213092`는 domestic thread로 재사용되며 제목이 `[2026-03-19 국내 경제 뉴스 브리핑]`로 바뀌었다.
+3. 오늘자 global thread는 `https://discord.com/channels/332110589969039360/1484079599175336057`로 새 생성됐다.
+4. 최신 실반영 기준 `news_briefing` detail은 `posted=1 failed=0 missing_forum=0 domestic=5 global=7`이고, `news_provider`는 `fetched=12`였다.
+5. 관련 회귀를 포함한 전체 기본 테스트는 `61 passed, 2 deselected`다.
+- Next:
+1. Discord에서 split thread UX가 실제로 더 읽기 좋은지 확인한다.
+2. global 기사 밀도가 다시 높아 보이면 query 세트 또는 source weight를 한 번 더 조정한다.
+- Status: open
+
+## 2026-03-19
+- Context: 뉴스 브리핑을 `거시 헤드라인 + 헤드라인급 종목 기사` 구조로 다시 조정하고 오늘자 Discord thread도 갱신했다.
+- Current state:
+1. 네이버 뉴스 검색 API는 직접 `headline/top story` 플래그를 주지 않으므로, 현재는 query 구성과 score 기반 선별로 헤드라인을 근사한다.
+2. `NaverNewsProvider`는 거시 query와 종목 query를 분리하고, 종목 기사는 제목에 고영향 이벤트 신호가 있을 때만 통과시킨다.
+3. provider는 region별 score order를 유지하고, scheduler는 `story_key()`로 국내/해외 중복 기사를 한 번 더 제거한다.
+4. 실제 Discord thread는 현재 `domestic=6`, `global=11`, `body_len=1956` 본문으로 갱신됐다.
+- Next:
+1. Discord에서 실제 체감 품질을 보고 `개장시황`, 설명형 해설 기사도 더 줄일지 판단한다.
+2. 필요하면 `NAVER_NEWS_*_STOCK_QUERIES`와 stock alias를 한 번 더 튜닝한다.
+- Status: open
+
+## 2026-03-19
+- Context: 20건 상한과 Discord 본문 길이 보완 후 오늘자 뉴스 브리핑 thread를 실제로 다시 갱신했다.
+- Current state:
+1. 오늘자 Discord thread는 현재 실데이터 기준 `domestic=5`, `global=17` 본문으로 갱신됐다.
+2. 같은 본문 길이는 `1987`자로 Discord 2000자 제한 안에 들어간다.
+3. thread URL은 `https://discord.com/channels/332110589969039360/1484055161600213092`다.
+- Next:
+1. Discord에서 실제 가독성과 기사 밀도를 확인한다.
+2. 국내 기사 수가 여전히 부족하면 dedup 세분화 여부를 검토한다.
+- Status: open
+
+## 2026-03-19
+- Context: 사용자가 뉴스 브리핑을 지역별 최대 20건까지 넓히되, 품질이 부족하면 정확히 20건을 채우지는 않길 원했다.
+- Current state:
+1. `NAVER_NEWS_LIMIT_PER_REGION` 기준 상한은 scheduler와 provider 모두 20건으로 맞춰졌다.
+2. `bot/features/news/policy.py`는 Discord 2000자 제한 안에서 본문을 안전하게 줄이도록 보완됐다.
+3. 관련 회귀 테스트를 추가한 뒤 전체 `pytest`는 `53 passed, 2 deselected`다.
+4. 실제 네이버 fetch 샘플 기준 현재 결과는 `domestic=5`, `global=17`이며, 같은 본문 길이는 `1987`자다.
+- Next:
+1. 실제 Discord thread를 다시 갱신할 때 본문이 최대 20건 기준으로 늘어났는지 확인한다.
+2. 국내 기사 수가 계속 낮으면 query 세트는 유지한 채 dedup 정책을 더 세분화할지 판단한다.
+- Status: open
+
+## 2026-03-19
+- Context: 국내 품질 튜닝 결과를 오늘자 Discord 뉴스 브리핑 thread에도 실제 반영했다.
+- Current state:
+1. 오늘자 브리핑 thread는 최신 필터 결과로 갱신됐다.
+2. 현재 실제 게시 결과는 국내 3건, 해외 4건이다.
+3. 국내는 `한은 총재/코스피 급락/국고채 금리` 축으로 정리됐고, 개별 종목/ETF headline은 빠졌다.
+- Next:
+1. Discord에서 결과물을 보고 이 방향을 유지할지 판단한다.
+2. 글로벌도 더 다듬고 싶으면 `tokenpost.kr` 같은 소스 패널티를 추가 조정한다.
+- Status: open
+
+## 2026-03-19
+- Context: 국내 뉴스 브리핑은 중복/잡음을 더 줄이기 위해 주제 dedup과 국내 query 세트 재조정을 적용했다.
+- Current state:
+1. 국내 기본 query는 `국내 증시, 코스피 지수, 코스닥 지수, 원달러 환율, 한국은행 금리`다.
+2. 같은 코스피 장세 headline은 topic 단위로 1건만 남고, 개별 종목 `주가` 기사와 ETF headline은 제외된다.
+3. 실데이터 샘플 기준 현재 국내 브리핑은 `코스피`, `국고채 금리`, `환율` 중심 3건으로 정리된다.
+4. 전체 테스트는 `49 passed, 2 deselected`다.
+- Next:
+1. 이 품질을 실제 Discord 포럼에서 다시 확인하고, 괜찮으면 현재 query/weight를 기준선으로 고정한다.
+2. 필요하면 글로벌 소스 패널티를 한 번 더 조정한다.
+- Status: open
+
+## 2026-03-19
+- Context: 뉴스 브리핑을 실제 Discord 포럼에 1회 게시해 결과물 확인 경로까지 검증했다.
+- Current state:
+1. 오늘자(`2026-03-19`) 뉴스 브리핑 thread가 실제 guild forum에 생성됐다.
+2. 생성된 thread 제목은 `[2026-03-19 아침 경제 뉴스 브리핑]`이다.
+3. 실데이터 fetch -> scheduler -> forum upsert 전체 경로가 한 번 실제 운영 환경에서 검증됐다.
+- Next:
+1. Discord에서 본문 품질을 확인하고, 필요 시 국내 기사 필터링을 더 다듬는다.
+2. 뉴스 브리핑 품질이 충분하면 다음 provider 후보로 넘어간다.
+- Status: open
+
+## 2026-03-19
+- Context: 뉴스 브리핑을 "주요뉴스/속보" 쪽으로 더 가깝게 만들기 위해 네이버 필터링을 한 단계 더 강화했다.
+- Current state:
+1. `NaverNewsProvider`는 이제 다중 query 후보 수집 -> dedup -> gate 키워드 -> 중요도 점수 -> 저신호 패널티 순서로 기사 선별을 한다.
+2. `global`은 미국 시장 직접 신호가 제목에 있어야 통과 가능성이 높아졌고, 실제 샘플에서도 FOMC/연준/나스닥 중심으로 정리됐다.
+3. `domestic`은 이전보다 나아졌지만 아직 일부 테마/해설형 기사가 남을 수 있어 추가 튜닝 여지가 있다.
+4. 관련 테스트는 전체 `pytest`까지 통과했다.
+- Next:
+1. `domestic`의 query/키워드/소스 정책을 한 번 더 조정해 시장 영향도가 낮은 기사 비중을 줄인다.
+2. Discord 실운영 forum에 실제 브리핑을 붙여 사용자 체감 품질을 확인한다.
+3. 뉴스 브리핑 품질이 안정되면 다음 provider 후보로 `EodSummaryProvider` 또는 `MarketDataProvider`를 진행한다.
+- Status: open
+
+## 2026-03-19
+- Context: 네이버 뉴스 브리핑을 실제 자격증명으로 호출해 scheduler 경로까지 검증했다.
+- Current state:
+1. `NEWS_PROVIDER_KIND=naver`와 실제 네이버 Client ID/Secret으로 `_run_news_job()`가 성공했고 `news_briefing` status는 `ok`였다.
+2. 현재 기본 query 기준으로 `domestic=5`, `global=5`는 채워지지만, `global` 결과에 국내 시장 기사도 일부 섞인다.
+3. 즉, 인증/호출/렌더링 경로는 살아 있고 다음 이슈는 query 품질 튜닝이다.
+- Next:
+1. `NAVER_NEWS_GLOBAL_QUERY`를 조정해 해외 기사 purity를 높인다.
+2. 필요하면 `NAVER_NEWS_DOMESTIC_QUERY`도 국내 증시/코스피/코스닥 중심으로 좁혀 비교한다.
+3. query가 안정되면 Discord 실운영 forum에 실제 아침 브리핑 포스트를 한 번 검증한다.
+- Status: open
+
+## 2026-03-19
+- Context: 뉴스 브리핑에 네이버 뉴스 검색 API adapter를 붙일 수 있는 코드 경로를 추가했다.
+- Current state:
+1. `bot/intel/providers/news.py`는 `NaverNewsProvider`를 지원하고, `NEWS_PROVIDER_KIND=naver`일 때만 실제 API를 사용한다.
+2. 네이버 응답은 `domestic`/`global` 쿼리를 별도로 호출해 지역을 나누고, `originallink` 도메인으로 source를 채운다.
+3. 키가 없거나 provider 종류가 잘못됐으면 부트 대신 fetch 시점에 provider failure로 기록되도록 `ErrorNewsProvider`가 들어 있다.
+4. 관련 테스트는 `test_news_provider.py` 추가 후 전체 `pytest`까지 통과했다.
+- Next:
+1. `.env`에 네이버 Client ID/Secret을 넣고 `NEWS_PROVIDER_KIND=naver`로 바꾼 뒤 실제 fetch 결과를 확인한다.
+2. `NAVER_NEWS_DOMESTIC_QUERY`, `NAVER_NEWS_GLOBAL_QUERY`가 브리핑 품질에 맞는지 샘플 결과를 보고 조정한다.
+3. 실데이터가 안정적이면 다음 provider 후보인 `EodSummaryProvider` 또는 `MarketDataProvider` 작업으로 넘어간다.
+- Status: open
+
 ## 2026-03-18
 - Context: `ship-develop` review loop 검증과 `develop` merge를 끝냈고, 임시 backup 브랜치도 정리했다.
 - Current state:

@@ -5,12 +5,30 @@ from bot.intel.providers.market import (
     MockMarketDataProvider,
     Quote,
 )
-from bot.intel.providers.news import MockNewsProvider, NewsItem, NewsProvider
+from bot.intel.providers.news import (
+    ErrorNewsProvider,
+    MockNewsProvider,
+    NaverNewsProvider,
+    NewsAnalysis,
+    NewsItem,
+    NewsProvider,
+    ThemeBrief,
+    ThemeDefinition,
+    ThemeHit,
+    TrendThemeReport,
+)
 
 __all__ = [
     "NewsItem",
     "NewsProvider",
+    "NewsAnalysis",
+    "ThemeDefinition",
+    "ThemeHit",
+    "ThemeBrief",
+    "TrendThemeReport",
     "MockNewsProvider",
+    "NaverNewsProvider",
+    "ErrorNewsProvider",
     "Quote",
     "EodSummary",
     "EodSummaryProvider",

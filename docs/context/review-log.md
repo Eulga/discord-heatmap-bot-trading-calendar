@@ -1,5 +1,18 @@
 # Review Log
 
+## 2026-03-19
+- Context: PR `#8`의 Codex review에서 `trendbriefing` 멀티-message upsert와 trend chunking 쪽으로 2건의 후속 이슈가 나왔다.
+- Finding:
+1. `bot/forum/service.py`는 starter thread 생성 후 follow-up content sync 중 예외가 나면 `daily_posts[today]`가 기록되기 전에 함수가 끝나, 다음 재시도에서 같은 날짜 thread를 새로 만들 수 있었다.
+2. `bot/features/news/trend_policy.py`는 첫 번째 theme block 하나만으로 `max_chars`를 넘는 경우에도 안전하게 잘라내지 않아, Discord 2000자 제한을 넘어 게시 실패할 수 있었다.
+- Resolution:
+1. thread/starter message state는 follow-up content sync 전에 먼저 기록하고, content message ids도 sync 진행 상황에 맞춰 부분적으로 갱신하도록 바꿨다.
+2. trend theme block은 line truncation과 oversize block 분할 로직을 추가해, 단일 block이 너무 길어도 region message가 항상 `max_chars` 이내로 나오게 했다.
+3. partial-state persistence와 oversized single-block 회귀 테스트를 각각 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -B -m pytest` 통과 (`72 passed, 2 deselected`)
+- Status: done
+
 ## 2026-03-18
 - Context: PR `#4`의 Codex Connector 재리뷰에서 `news_briefing`/`eod_summary` 상태가 같은 분 내 후속 tick에서 `skipped`로 덮어써질 수 있다는 P1 두 건이 나왔다.
 - Finding: 지적은 유효했고, 혼합 설정에서 일부 guild만 성공한 뒤 같은 분의 다음 tick에서 `pending_guilds`가 비고 `missing_forum > 0`이면 이전 성공 상태가 `skipped`로 바뀔 수 있었다.

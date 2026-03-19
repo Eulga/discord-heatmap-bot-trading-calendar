@@ -14,6 +14,7 @@ class ImageCacheEntry(TypedDict):
 class DailyPostEntry(TypedDict):
     thread_id: int
     starter_message_id: int
+    content_message_ids: NotRequired[list[int]]
 
 
 class CommandState(TypedDict):
