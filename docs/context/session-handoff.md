@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: release PR `#9`의 추가 Codex review까지 반영해 `watch_poll` delivery failure false positive를 닫았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `alert_attempts`를 detail에 남기고, `channel.send(...)` 실패가 한 건이라도 있으면 `watch_poll=failed`를 기록한다.
+2. watch poll 관련 회귀 테스트는 cross-guild fallback, all-quote-failure, alert-delivery-failure까지 포함한다.
+3. 전체 기본 테스트는 `75 passed, 2 deselected`다.
+4. release PR은 여전히 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 다음 단계는 이 수정 커밋 푸시 후 `@codex review` 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
 - Context: `develop` 내용을 `master`로 보내는 release branch PR `#9`에서 Codex review 후속 수정 2건을 반영했다.
 - Current state:
 1. `bot/features/intel_scheduler.py`는 이제 watch alert channel이 현재 guild 소속인지 검증해, 전역 fallback channel이 다른 guild 채널로 새는 경우 해당 guild를 실패로 처리한다.

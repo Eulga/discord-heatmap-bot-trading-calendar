@@ -1,6 +1,19 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 두 번째 Codex review가 `watch_poll` delivery failure를 여전히 `ok`로 숨길 수 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `channel.send(...)`가 실패해도 `processed > 0`이면 `watch_poll=ok`를 남겨, 실제 알림 delivery 실패가 `/health`에 드러나지 않을 수 있었다.
+- Resolution:
+1. watch poll run detail에 `alert_attempts`를 추가했다.
+2. 알림 전송이 한 건이라도 실패하면 `watch_poll` status를 `failed`로 기록해 false positive를 없앴다.
+3. 실제 alert signal은 발생했지만 `channel.send(...)`가 실패하는 회귀 테스트를 `tests/integration/test_intel_scheduler_logic.py`에 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`16 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`75 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#9`의 Codex review에서 `watch_poll` 운영 정합성 관련 2건이 나왔다.
 - Finding:
 1. `bot/features/intel_scheduler.py`는 guild별 watch alert channel이 비어 있을 때 전역 `WATCH_ALERT_CHANNEL_ID` fallback 채널이 다른 guild 소속이어도 그대로 사용해, 멀티 guild 환경에서 다른 서버 채널로 watch alert가 새어 나갈 수 있었다.

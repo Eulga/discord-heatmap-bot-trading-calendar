@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-03-19
+- Context: `develop -> master` release PR `#9` 재검토에서 watch alert delivery failure를 `ok`로 숨기지 않도록 후속 수정했다.
+- Change:
+1. `bot/features/intel_scheduler.py`는 `watch_poll` detail에 `alert_attempts`를 추가하고, `channel.send(...)` 실패가 한 건이라도 있으면 `watch_poll=failed`로 기록하도록 바꿨다.
+2. `tests/integration/test_intel_scheduler_logic.py`에 실제 signal은 발생하지만 Discord delivery가 실패하는 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 기준 `16 passed`
+2. `.\.venv\Scripts\python -m pytest` 기준 `75 passed, 2 deselected`
+- Next:
+1. 수정 커밋을 release branch에 푸시하고 PR `#9`에 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-19
 - Context: `develop -> master` 릴리스 검토 중 PR `#9` Codex review가 `watch_poll` 운영 정합성 2건을 지적했다.
 - Change:
 1. `bot/features/intel_scheduler.py`는 watch alert channel을 해석할 때 channel의 guild 소유권을 확인하고, 다른 guild 채널로 fallback 되면 해당 guild를 실패로 처리하도록 보완했다.

@@ -412,6 +412,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
     sent = 0
+    alert_attempts = 0
     processed = 0
     quote_failures = 0
     channel_failures = 0
@@ -462,6 +463,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             set_watch_baseline(state, guild_id, symbol, baseline, now.isoformat())
             processed += 1
             if should_send:
+                alert_attempts += 1
                 emoji = "📈" if direction == "up" else "📉"
                 try:
                     await channel.send(
@@ -473,12 +475,14 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
 
     detail = (
         "alerts="
-        f"{sent} processed={processed} watched_symbols={watched_symbols} "
+        f"{sent} alert_attempts={alert_attempts} processed={processed} watched_symbols={watched_symbols} "
         f"quote_failures={quote_failures} channel_failures={channel_failures} "
         f"missing_channel_guilds={missing_channel_guilds} send_failures={send_failures}"
     )
     if watched_symbols == 0:
         set_job_last_run(state, "watch_poll", "skipped", "no-watch-symbols")
+    elif send_failures > 0:
+        set_job_last_run(state, "watch_poll", "failed", detail)
     elif processed > 0:
         set_job_last_run(state, "watch_poll", "ok", detail)
     elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
