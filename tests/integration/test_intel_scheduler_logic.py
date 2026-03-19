@@ -5,9 +5,24 @@ import pytest
 
 from bot.features import intel_scheduler
 from bot.intel.providers.market import EodRow, EodSummary
-from bot.intel.providers.news import NewsItem
+from bot.intel.providers.news import NewsAnalysis, NewsItem, ThemeBrief, TrendThemeReport
 
 KST = ZoneInfo("Asia/Seoul")
+
+
+def _theme_brief(region: str, name: str, now: datetime, base_url: str) -> ThemeBrief:
+    return ThemeBrief(
+        theme_name=name,
+        region=region,
+        score=44,
+        reason_tags=("기사 4건", "3개 소스"),
+        representative_items=(
+            NewsItem(f"{name} 기사 1", f"{base_url}/1", f"{name.lower()}-source-1.com", now, region),
+            NewsItem(f"{name} 기사 2", f"{base_url}/2", f"{name.lower()}-source-2.com", now, region),
+        ),
+        article_count=4,
+        source_count=3,
+    )
 
 
 @pytest.mark.asyncio
@@ -55,6 +70,7 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
     await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
@@ -82,7 +98,7 @@ async def test_news_job_retries_same_items_after_post_failure(monkeypatch):
         raise RuntimeError("discord unavailable")
 
     async def ok_post(**kwargs):
-        captured["body_text"] = kwargs["body_text"]
+        captured[kwargs["command_key"]] = kwargs["body_text"]
 
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
@@ -99,8 +115,9 @@ async def test_news_job_retries_same_items_after_post_failure(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
     await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
 
-    assert "한국 수출지표 개선 기대" in captured["body_text"]
-    assert captured["body_text"].count("한국 수출지표 개선 기대") == 1
+    assert "한국 수출지표 개선 기대" in captured["newsbriefing-domestic"]
+    assert captured["newsbriefing-domestic"].count("한국 수출지표 개선 기대") == 1
+    assert "(데이터 없음)" in captured["newsbriefing-global"]
     assert state["guilds"]["1"]["last_auto_runs"]["newsbriefing"] == "2026-02-13"
     assert state["system"]["job_last_runs"]["news_briefing"]["status"] == "ok"
 
@@ -138,6 +155,276 @@ async def test_news_job_keeps_ok_status_when_later_tick_has_only_missing_forums(
     assert first["status"] == "ok"
     assert second["status"] == "ok"
     assert "no-target-forums" not in second["detail"]
+
+
+@pytest.mark.asyncio
+async def test_news_job_uses_configured_limit_per_region(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def fetch(self, now):
+            domestic = [
+                NewsItem(
+                    f"D{index}",
+                    f"https://e.co/d{index}",
+                    f"d{index}.co",
+                    now,
+                    "domestic",
+                )
+                for index in range(25)
+            ]
+            global_items = [
+                NewsItem(
+                    f"G{index}",
+                    f"https://e.co/g{index}",
+                    f"g{index}.co",
+                    now,
+                    "global",
+                )
+                for index in range(23)
+            ]
+            return domestic + global_items
+
+    captured: dict[str, str] = {}
+
+    async def ok_post(**kwargs):
+        captured[kwargs["command_key"]] = kwargs["body_text"]
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+    monkeypatch.setattr(intel_scheduler, "NAVER_NEWS_LIMIT_PER_REGION", 20)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert state["system"]["job_last_runs"]["news_briefing"]["status"] == "ok"
+    assert "domestic=20 global=20" in state["system"]["job_last_runs"]["news_briefing"]["detail"]
+
+    domestic_body = captured["newsbriefing-domestic"]
+    global_body = captured["newsbriefing-global"]
+    assert "[국내]" in domestic_body
+    assert "[해외]" not in domestic_body
+    assert "[해외]" in global_body
+    assert "[국내]" not in global_body
+    assert domestic_body.count("\n- ") + domestic_body.startswith("- ") == 20
+    assert global_body.count("\n- ") + global_body.startswith("- ") == 20
+
+
+@pytest.mark.asyncio
+async def test_news_job_dedups_same_story_across_regions(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def fetch(self, now):
+            return [
+                NewsItem(
+                    "엔비디아 수출 규제에 삼성전자·SK하이닉스 영향",
+                    "https://example.com/story-1",
+                    "example.com",
+                    now,
+                    "domestic",
+                ),
+                NewsItem(
+                    "엔비디아 수출 규제에 삼성전자·SK하이닉스 영향",
+                    "https://example.com/story-1",
+                    "example.com",
+                    now,
+                    "global",
+                ),
+            ]
+
+    captured: dict[str, str] = {}
+
+    async def ok_post(**kwargs):
+        captured[kwargs["command_key"]] = kwargs["body_text"]
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    combined = captured["newsbriefing-domestic"] + "\n" + captured["newsbriefing-global"]
+    assert combined.count("엔비디아 수출 규제에 삼성전자·SK하이닉스 영향") == 1
+
+
+@pytest.mark.asyncio
+async def test_news_job_posts_domestic_and_global_threads_separately(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def fetch(self, now):
+            return [
+                NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+            ]
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def ok_post(**kwargs):
+        calls.append((kwargs["command_key"], kwargs["post_title"], kwargs["body_text"]))
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert [call[0] for call in calls] == ["newsbriefing-domestic", "newsbriefing-global"]
+    assert calls[0][1] == "[2026-02-13 국내 경제 뉴스 브리핑]"
+    assert calls[1][1] == "[2026-02-13 해외 경제 뉴스 브리핑]"
+    assert "[국내]" in calls[0][2]
+    assert "[해외]" in calls[1][2]
+
+
+@pytest.mark.asyncio
+async def test_news_job_posts_trendbriefing_with_content_messages(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def analyze(self, now):
+            return NewsAnalysis(
+                briefing_items=(
+                    NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                    NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+                ),
+                trend_report=TrendThemeReport(
+                    generated_at=now,
+                    themes_by_region={
+                        "domestic": (
+                            _theme_brief("domestic", "반도체", now, "https://example.com/semi"),
+                            _theme_brief("domestic", "건설/원전", now, "https://example.com/nuke"),
+                            _theme_brief("domestic", "전력설비", now, "https://example.com/power"),
+                        ),
+                        "global": (
+                            _theme_brief("global", "AI/반도체", now, "https://example.com/ai"),
+                            _theme_brief("global", "금리/Fed", now, "https://example.com/fed"),
+                            _theme_brief("global", "에너지/원유", now, "https://example.com/oil"),
+                        ),
+                    },
+                ),
+            )
+
+    calls: list[dict] = []
+
+    async def ok_post(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert [call["command_key"] for call in calls] == [
+        "newsbriefing-domestic",
+        "newsbriefing-global",
+        "trendbriefing",
+    ]
+    trend_call = calls[2]
+    assert trend_call["post_title"] == "[2026-02-13 트렌드 테마 뉴스]"
+    assert "국내 테마 3개 | 해외 테마 3개" in trend_call["body_text"]
+    assert len(trend_call["content_texts"]) == 2
+    assert trend_call["content_texts"][0].startswith("[국내 트렌드 테마]")
+    assert trend_call["content_texts"][1].startswith("[해외 트렌드 테마]")
+    assert state["system"]["job_last_runs"]["trend_briefing"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_news_job_skips_trendbriefing_when_both_regions_are_below_minimum(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def analyze(self, now):
+            return NewsAnalysis(
+                briefing_items=(
+                    NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                    NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+                ),
+                trend_report=TrendThemeReport(
+                    generated_at=now,
+                    themes_by_region={
+                        "domestic": (
+                            _theme_brief("domestic", "반도체", now, "https://example.com/semi"),
+                            _theme_brief("domestic", "건설/원전", now, "https://example.com/nuke"),
+                        ),
+                        "global": (
+                            _theme_brief("global", "AI/반도체", now, "https://example.com/ai"),
+                        ),
+                    },
+                ),
+            )
+
+    calls: list[dict] = []
+
+    async def ok_post(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert [call["command_key"] for call in calls] == ["newsbriefing-domestic", "newsbriefing-global"]
+    assert state["system"]["job_last_runs"]["trend_briefing"]["status"] == "skipped"
+    assert state["guilds"]["1"]["last_auto_skips"]["trendbriefing"]["date"] == "2026-02-13"
+
+
+@pytest.mark.asyncio
+async def test_news_job_uses_placeholder_for_region_below_minimum_when_other_region_qualifies(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+
+    class Provider:
+        async def analyze(self, now):
+            return NewsAnalysis(
+                briefing_items=(
+                    NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                    NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+                ),
+                trend_report=TrendThemeReport(
+                    generated_at=now,
+                    themes_by_region={
+                        "domestic": (
+                            _theme_brief("domestic", "반도체", now, "https://example.com/semi"),
+                            _theme_brief("domestic", "자동차", now, "https://example.com/auto"),
+                        ),
+                        "global": (
+                            _theme_brief("global", "AI/반도체", now, "https://example.com/ai"),
+                            _theme_brief("global", "금리/Fed", now, "https://example.com/fed"),
+                            _theme_brief("global", "에너지/원유", now, "https://example.com/oil"),
+                        ),
+                    },
+                ),
+            )
+
+    calls: list[dict] = []
+
+    async def ok_post(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    trend_call = calls[2]
+    assert "국내 테마 0개 | 해외 테마 3개" in trend_call["body_text"]
+    assert trend_call["content_texts"][0] == "[국내 트렌드 테마]\n- (유의미한 테마 부족)"
+    assert trend_call["content_texts"][1].startswith("[해외 트렌드 테마]")
 
 
 @pytest.mark.asyncio

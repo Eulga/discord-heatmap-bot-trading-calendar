@@ -17,6 +17,7 @@ async def upsert_daily_post(
     post_title: str,
     body_text: str,
     image_paths: list[Path],
+    content_texts: list[str] | None = None,
 ) -> tuple[discord.Thread, str]:
     channel = client.get_channel(forum_channel_id)
     if channel is None:
@@ -31,6 +32,9 @@ async def upsert_daily_post(
 
     thread_id = record.get("thread_id")
     starter_message_id = record.get("starter_message_id")
+    existing_content_ids = record.get("content_message_ids", [])
+    content_message_ids = [message_id for message_id in existing_content_ids if isinstance(message_id, int)]
+    desired_content_texts = content_texts or []
 
     thread: discord.Thread | None = None
     starter_message: discord.Message | None = None
@@ -52,6 +56,8 @@ async def upsert_daily_post(
     files = [discord.File(path, filename=path.name) for path in image_paths]
 
     if thread is not None and starter_message is not None:
+        if thread.name != post_title:
+            await thread.edit(name=post_title)
         await starter_message.edit(content=body_text, attachments=files)
         action = "updated"
         message = starter_message
@@ -61,8 +67,30 @@ async def upsert_daily_post(
         message = created.message
         action = "created"
 
+    synced_content_ids: list[int] = []
+    for index, content_text in enumerate(desired_content_texts):
+        if index < len(content_message_ids):
+            try:
+                content_message = await thread.fetch_message(content_message_ids[index])
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                content_message = await thread.send(content_text)
+            else:
+                await content_message.edit(content=content_text)
+        else:
+            content_message = await thread.send(content_text)
+        synced_content_ids.append(content_message.id)
+
+    for content_message_id in content_message_ids[len(desired_content_texts) :]:
+        try:
+            content_message = await thread.fetch_message(content_message_id)
+            await content_message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            continue
+
     daily_posts[today] = {
         "thread_id": thread.id,
         "starter_message_id": message.id,
     }
+    if synced_content_ids:
+        daily_posts[today]["content_message_ids"] = synced_content_ids
     return thread, action

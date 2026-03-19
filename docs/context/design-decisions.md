@@ -1,5 +1,97 @@
 # Design Decisions
 
+## 2026-03-19
+- Context: 사용자가 보수적인 경제 뉴스 브리핑은 유지하되, 따로 읽을 수 있는 `트렌드 테마 뉴스` 게시글을 원했다.
+- Decision: 트렌드 테마는 기존 국내/해외 뉴스 브리핑에 섞지 않고, 같은 스케줄에서 별도 `trendbriefing` thread 하나로 생성한다.
+- Why:
+1. 메인 브리핑은 거시 헤드라인과 고영향 종목 기사 위주의 보수적 선별 품질을 유지해야 했다.
+2. 트렌드 테마는 더 넓은 후보군과 curated taxonomy 기반 점수화가 필요해, 같은 본문에 섞으면 메인 브리핑 판단 기준이 흐려질 수 있다.
+3. 사용자가 원하는 형태는 국내/해외 브리핑에 붙는 부가 문단보다, 나중에 따로 열어볼 수 있는 독립 thread에 더 가까웠다.
+- Impact:
+1. 뉴스 스케줄은 같은 tick에서 `국내 브리핑`, `해외 브리핑`, `트렌드 테마 뉴스` 세 갈래를 관리한다.
+2. `trendbriefing`은 starter message와 하위 content message를 따로 동기화해야 하므로, forum state의 `DailyPostEntry`에 `content_message_ids`가 추가됐다.
+3. 한 지역이 3개 미만이면 그 지역은 placeholder로 처리하고, 두 지역 모두 3개 미만일 때만 thread 자체를 만들지 않는다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 뉴스 브리핑 기사 수를 늘리자 한 본문 안에서 2000자 제한과 국내/해외 혼합 가독성 문제가 다시 드러났다.
+- Decision: 뉴스 브리핑은 국내/해외를 하나의 starter message에 합치지 않고, region별 daily thread 2개로 분리한다.
+- Why:
+1. Discord starter message는 2000자 제한이 있어 기사 수를 늘릴수록 길이 압박 때문에 하위 기사를 잘라야 했다.
+2. 사용자는 국내 시장 흐름과 해외 시장 흐름을 따로 읽는 편이 더 명확하다고 판단했고, region별 20건 soft cap도 그 구조에서 더 자연스럽다.
+3. 기존 오늘자 통합 thread를 domestic thread로 재사용하고 global thread만 추가 생성하면 포럼 히스토리를 크게 깨지 않고 전환할 수 있다.
+- Impact:
+1. scheduler는 `newsbriefing-domestic`, `newsbriefing-global` 두 daily post를 관리하고, 완료 판정은 둘 다 존재할 때만 난다.
+2. region별 품질/개수 변화가 서로의 본문 길이와 가독성에 영향을 덜 준다.
+3. 포럼에는 하루에 뉴스 thread가 2개 생기므로, 운영상 소음이 과한지 관찰이 필요하다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 사용자가 "시장 전체 기사만 말고, 헤드라인급 개별 종목 기사도 포함"되길 원했고, 네이버 뉴스 검색 API가 직접 headline 플래그를 주는지도 다시 확인할 필요가 있었다.
+- Decision: 네이버 뉴스 브리핑은 `headline API`를 기다리기보다 `거시 헤드라인 query + 종목 헤드라인 query` 2트랙 점수화로 운영한다.
+- Why:
+1. 네이버 공식 문서 기준 뉴스 검색 API는 검색 결과만 반환하며 `headline`, `top story`, `랭킹` 같은 직접 필드를 주지 않는다.
+2. 따라서 "헤드라인 뉴스"는 API 속성이 아니라 adapter가 query 구성, source weight, event keyword, 중복 제거로 근사해야 한다.
+3. 사용자가 원하는 결과는 거시 기사만 모아놓은 브리핑이 아니라, 시장 전체 흐름과 함께 중요한 종목 이벤트가 한두 개는 보이는 형태였다.
+- Impact:
+1. 현재 선별은 거시 기사와 고영향 종목 기사 둘 다 허용하지만, 종목 기사는 제목에 이벤트 신호가 없으면 통과하지 않는다.
+2. provider는 지역별 score order를 유지하므로, 단순히 최근 기사라는 이유만으로 저품질 기사가 앞쪽을 차지하기 어렵다.
+3. 같은 기사 링크/제목이 국내/해외 양쪽에 동시에 뜨는 경우 scheduler에서 한 번 더 제거한다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 뉴스 브리핑 품질은 괜찮았지만, 아침/저녁 브리핑 특성상 지역별 기사 수를 더 넓게 보여 달라는 요구가 생겼다.
+- Decision: 뉴스 브리핑은 지역별 최대 20건까지 허용하되, 품질 필터와 dedup을 통과한 기사만 게시하는 soft cap으로 유지한다.
+- Why:
+1. 브리핑 성격상 3~5건보다 더 넓은 커버리지가 유용하지만, 품질을 위해 억지로 20건을 채우면 다시 중복/저신호 기사가 섞일 수 있다.
+2. 이미 적용한 dedup, blocklist, 소스 가중치 정책은 유지하고 상한만 넓히는 편이 현재 만족한 품질을 해치지 않는다.
+3. 실제 실데이터 기준으로도 해외는 17건까지 자연스럽게 늘어났고, 국내는 5건만 남아 soft cap 요구와 잘 맞는다.
+4. Discord starter message는 2000자 제한이 있어, 상한을 늘리더라도 본문 길이 안전장치가 함께 필요하다.
+- Impact:
+1. scheduler와 provider는 이제 20건까지 담을 수 있지만, 실제 게시 수는 지역별 기사 품질과 실데이터 상황에 따라 더 적을 수 있다.
+2. 게시 본문은 Discord 2000자 제한을 넘기지 않도록 자동으로 잘리며, 길이 때문에 일부 하위 기사가 빠질 수 있다.
+3. 기사 수를 더 늘리고 싶을 때는 상한을 또 올리기보다 dedup 기준과 query 세트 세분화를 먼저 검토한다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 뉴스 브리핑에서 같은 장세 headline 반복과 개별 종목/ETF 기사 유입 때문에 국내 기사 품질이 흐려졌다.
+- Decision: 국내 뉴스 브리핑은 개수보다 품질을 우선해, 시장 주제 단위 dedup과 개별 종목/ETF headline 제외 규칙을 적용한다.
+- Why:
+1. 사용자가 원하는 브리핑은 "주요뉴스/속보"에 가깝고, 같은 코스피 장세 기사가 여러 건 있거나 종목/ETF 기사까지 섞이면 목적과 멀어진다.
+2. 네이버 검색 API는 중요도 랭크를 직접 주지 않으므로 adapter에서 주제 대표성과 다양성을 강제해야 한다.
+3. 실제 실데이터 샘플에서도 국내 5건보다 국내 3건이 더 읽기 쉬운 결과를 보였다.
+- Impact:
+1. `domestic`은 `코스피`, `금리`, `환율` 같은 시장 축별 대표 기사 위주로 남는다.
+2. 개별 종목 `주가` 기사와 ETF/상품 headline, 같은 장세 반복 headline은 대부분 탈락한다.
+3. 기사 수가 5건보다 적어질 수 있지만, 이는 품질 우선 동작으로 허용한다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 네이버 뉴스 검색 API를 붙인 뒤 단일 query만으로는 `global`에 국내 기사나 코너형 기사까지 섞여, "주요뉴스/속보" 품질이 부족했다.
+- Decision: 네이버 뉴스 브리핑은 단일 query 정렬을 그대로 쓰지 않고, 다중 query 후보 수집 후 gate 키워드, blocklist, 중요도 점수, 저신호 패널티를 거쳐 region별 상위 기사만 남긴다.
+- Why:
+1. 네이버 검색 API는 중요도, 주요뉴스 여부, source rank를 직접 주지 않아 adapter 내부 재정렬이 필요하다.
+2. `global`은 미국 시장 직접 신호가 제목에 없으면 국내 시장 기사도 쉽게 섞이므로, region gate가 필요하다.
+3. 기업 PR, 사진 기사, 반복 코너형 기사까지 그대로 통과시키면 브리핑 목적과 멀어진다.
+- Impact:
+1. `NaverNewsProvider`는 region별 다중 query를 호출하고 dedup 후 상위 기사만 반환한다.
+2. `global`은 미국 시장 직접 신호가 제목에 있어야 통과 가능성이 높고, 국내 시장 키워드가 더 강하면 탈락한다.
+3. 결과 품질은 query 세트와 키워드 사전에 계속 영향을 받으므로, 실데이터를 보며 튜닝을 이어가야 한다.
+- Status: accepted
+
+## 2026-03-19
+- Context: 뉴스 브리핑을 mock에서 실제 데이터로 바꾸기 위해 네이버 뉴스 검색 API를 첫 번째 실사용 소스로 붙이는 작업을 시작했다.
+- Decision: 뉴스 provider는 `NEWS_PROVIDER_KIND=naver` 설정으로 명시 전환하고, 네이버 응답의 `query`별 결과를 `domestic`/`global`로 태깅해 현재 `NewsItem` 계약에 맞춘다.
+- Why:
+1. 네이버 뉴스 검색 API는 국내 뉴스 접근성이 좋고 공식 문서가 안정적이지만, 응답에 `region`과 `source` 필드가 직접 들어 있지 않다.
+2. 현재 scheduler/policy는 `domestic`/`global` 구분과 `source` 문자열을 기대하므로, query를 두 번 호출해 지역을 나누고 `originallink` 도메인으로 source를 유추하는 adapter가 필요하다.
+3. 기본값을 바로 네이버로 바꾸면 키가 없는 개발 환경에서 부트나 테스트가 흔들릴 수 있으므로, explicit opt-in이 더 안전하다.
+- Impact:
+1. `.env`에 `NEWS_PROVIDER_KIND=naver`, `NAVER_NEWS_CLIENT_ID`, `NAVER_NEWS_CLIENT_SECRET`를 넣기 전까지는 기존 mock 뉴스가 유지된다.
+2. 국내/해외 뉴스 품질은 `NAVER_NEWS_DOMESTIC_QUERY`, `NAVER_NEWS_GLOBAL_QUERY` 선택에 영향을 받으므로 실운영 전에 쿼리 튜닝이 필요하다.
+3. title의 `<b>` 태그 제거, `pubDate` 파싱, 원문 링크 우선 사용, 최근 N시간 필터링은 adapter가 책임진다.
+- Status: accepted
+
 ## 2026-03-18
 - Context: 사용자는 `develop에 합쳐` 한 번으로 PR 생성부터 Codex Connector 리뷰 반영, 재검토, merge까지 이어지는 흐름을 원했다.
 - Decision: `ship-develop`의 기본 reviewed shipping은 human approval gate가 아니라 Codex review loop로 둔다. 사람 승인 대기는 명시 요청일 때만 `--require-review`로 켠다.

@@ -41,6 +41,15 @@ def _env_path(name: str, default: Path) -> Path:
     raw = os.getenv(name, "").strip()
     return Path(raw) if raw else default
 
+
+def _env_list(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    normalized = raw.replace("|", ",").replace(";", ",").replace("\n", ",")
+    values = [part.strip() for part in normalized.split(",") if part.strip()]
+    return values or default
+
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
@@ -84,6 +93,31 @@ US_USER_AGENT = (
 NEWS_BRIEFING_ENABLED = _env_bool("NEWS_BRIEFING_ENABLED", True)
 NEWS_BRIEFING_TIME = os.getenv("NEWS_BRIEFING_TIME", "07:30").strip() or "07:30"
 NEWS_BRIEFING_TRADING_DAYS_ONLY = _env_bool("NEWS_BRIEFING_TRADING_DAYS_ONLY", False)
+NEWS_PROVIDER_KIND = os.getenv("NEWS_PROVIDER_KIND", "mock").strip().lower() or "mock"
+NAVER_NEWS_CLIENT_ID = os.getenv("NAVER_NEWS_CLIENT_ID", "").strip()
+NAVER_NEWS_CLIENT_SECRET = os.getenv("NAVER_NEWS_CLIENT_SECRET", "").strip()
+NAVER_NEWS_DOMESTIC_QUERY = os.getenv("NAVER_NEWS_DOMESTIC_QUERY", "국내 증시").strip() or "국내 증시"
+NAVER_NEWS_GLOBAL_QUERY = os.getenv("NAVER_NEWS_GLOBAL_QUERY", "미국 증시").strip() or "미국 증시"
+NAVER_NEWS_DOMESTIC_QUERIES = _env_list(
+    "NAVER_NEWS_DOMESTIC_QUERIES",
+    [NAVER_NEWS_DOMESTIC_QUERY, "코스피 지수", "코스닥 지수", "원달러 환율", "한국은행 금리"],
+)
+NAVER_NEWS_GLOBAL_QUERIES = _env_list(
+    "NAVER_NEWS_GLOBAL_QUERIES",
+    [NAVER_NEWS_GLOBAL_QUERY, "나스닥", "S&P 500", "연준", "FOMC"],
+)
+NAVER_NEWS_DOMESTIC_STOCK_QUERIES = _env_list(
+    "NAVER_NEWS_DOMESTIC_STOCK_QUERIES",
+    ["삼성전자", "SK하이닉스", "현대차", "한화에어로스페이스", "셀트리온"],
+)
+NAVER_NEWS_GLOBAL_STOCK_QUERIES = _env_list(
+    "NAVER_NEWS_GLOBAL_STOCK_QUERIES",
+    ["엔비디아", "애플", "마이크로소프트", "테슬라", "마이크론"],
+)
+NAVER_NEWS_LIMIT_PER_REGION = max(1, min(_env_int("NAVER_NEWS_LIMIT_PER_REGION", 20), 20))
+NAVER_NEWS_MAX_AGE_HOURS = max(1, min(_env_int("NAVER_NEWS_MAX_AGE_HOURS", 24), 72))
+INTEL_API_TIMEOUT_SECONDS = max(1, min(_env_int("INTEL_API_TIMEOUT_SECONDS", 5), 10))
+INTEL_API_RETRY_COUNT = max(0, min(_env_int("INTEL_API_RETRY_COUNT", 1), 1))
 
 EOD_SUMMARY_ENABLED = _env_bool("EOD_SUMMARY_ENABLED", True)
 EOD_SUMMARY_TIME = os.getenv("EOD_SUMMARY_TIME", "16:20").strip() or "16:20"

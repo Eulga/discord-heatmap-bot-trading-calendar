@@ -39,7 +39,9 @@
 
 ### 용도
 - `NewsProvider.fetch(now)`를 대체한다.
-- 스케줄러는 국내(`domestic`) 5건, 해외(`global`) 5건까지 사용한다.
+- 스케줄러는 국내(`domestic`) 최대 20건, 해외(`global`) 최대 20건까지 사용한다.
+- 현재 포럼 게시물은 국내/해외를 하나의 본문에 합치지 않고, region별 daily post 2개로 렌더링할 수 있다.
+- 같은 뉴스 fetch 결과의 넓은 후보군으로 별도 `trendbriefing` thread를 만들 수 있으며, 이 thread는 국내/해외 테마 섹션을 하위 message로 분리해 관리할 수 있다.
 - dedup 기준은 `region + source + title + link` 조합이므로, 같은 뉴스는 필드가 안정적으로 유지돼야 한다.
 
 ### 정규화 엔드포인트
@@ -48,7 +50,7 @@
 ### 요청 파라미터
 - `as_of`: 기준 시각, ISO 8601
 - `regions`: `domestic,global`
-- `limit_per_region`: 기본 `5`, 최대 `10`
+- `limit_per_region`: 기본 `20`, 최대 `20`
 - `published_within_hours`: 기본 `24`
 
 ### 응답 예시
@@ -85,6 +87,7 @@
 - 정렬은 최신순 권장
 - 해당 구간 뉴스가 없으면 `items: []`로 반환하고 200 응답을 사용한다
 - 일부 필드 누락 데이터는 adapter에서 제외하고 경고 수준 로그만 남긴다
+- adapter 내부에서 trend theme 후보 분석을 하더라도, 메인 브리핑용 기사 선별 결과와 분리해 conservative briefing 품질을 우선 유지한다
 
 ## 2) 장마감 요약 API
 
