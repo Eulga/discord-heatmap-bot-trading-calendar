@@ -699,3 +699,31 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     provider = state["system"]["provider_status"]["market_data_provider"]
     assert provider["ok"] is True
     assert provider["message"] == "quote:005930"
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_success(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watchlist": ["005930", "000660"], "watch_alert_channel_id": 123}},
+    }
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            if symbol == "005930":
+                return SimpleNamespace(price=73100.0)
+            raise RuntimeError("quote provider down")
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
+
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "processed=1" in run["detail"]
+    assert "quote_failures=1" in run["detail"]

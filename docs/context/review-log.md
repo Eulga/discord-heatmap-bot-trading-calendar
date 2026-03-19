@@ -1,6 +1,21 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 네 번째 Codex review가 mixed watch_poll failure 가시성과 forum content state drift를 추가로 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 일부 symbol/guild가 성공해 `processed > 0`이면, 같은 run 안의 `quote_failures`나 `channel_failures`가 있어도 `watch_poll=ok`로 기록할 수 있었다.
+2. `bot/forum/service.py`는 삭제 대상 follow-up message가 이미 사라진 경우 `content_message_ids`에서 stale id를 지우지 않아 상태 드리프트가 남을 수 있었다.
+- Resolution:
+1. `watch_poll`은 `quote_failures`, `channel_failures`, `send_failures` 중 하나라도 있으면 `failed`로 기록하도록 보수적으로 조정했다.
+2. 성공 후 quote failure가 뒤따르는 mixed-result watch poll 회귀 테스트를 추가했다.
+3. follow-up deletion 루프는 `discord.NotFound`일 때 stale content id를 상태에서 제거하도록 바꿨다.
+4. 이미 삭제된 follow-up message id가 state에서 정리되는 forum upsert 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py tests/integration/test_forum_upsert_flow.py` 통과 (`27 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`79 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#9`의 세 번째 Codex review에서 뉴스/EOD 전역 forum fallback의 cross-guild leak 가능성이 지적됐다.
 - Finding:
 1. `bot/features/intel_scheduler.py`는 `NEWS_TARGET_FORUM_ID`와 `EOD_TARGET_FORUM_ID` fallback을 사용할 때, 해당 forum channel이 현재 `guild_id` 소속인지 검증하지 않아 다른 서버 포럼으로 자동 게시가 새어 나갈 수 있었다.

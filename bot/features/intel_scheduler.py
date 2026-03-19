@@ -510,12 +510,10 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     )
     if watched_symbols == 0:
         set_job_last_run(state, "watch_poll", "skipped", "no-watch-symbols")
-    elif send_failures > 0:
+    elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
         set_job_last_run(state, "watch_poll", "failed", detail)
     elif processed > 0:
         set_job_last_run(state, "watch_poll", "ok", detail)
-    elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
-        set_job_last_run(state, "watch_poll", "failed", detail)
     else:
         set_job_last_run(state, "watch_poll", "skipped", f"no-target-channels {detail}")
     save_state(state)

@@ -21,7 +21,14 @@ class FakeMessage:
 
 
 class FakeThread:
-    def __init__(self, thread_id: int, message: FakeMessage, *, fail_on_send_number: int | None = None):
+    def __init__(
+        self,
+        thread_id: int,
+        message: FakeMessage,
+        *,
+        fail_on_send_number: int | None = None,
+        missing_message_error: type[Exception] | None = None,
+    ):
         self.id = thread_id
         self._message = message
         self.jump_url = f"https://discord.com/channels/thread/{thread_id}"
@@ -31,11 +38,14 @@ class FakeThread:
         self.sent_contents: list[str] = []
         self._send_count = 0
         self._fail_on_send_number = fail_on_send_number
+        self._missing_message_error = missing_message_error
 
     async def fetch_message(self, message_id: int):
         if message_id != self._message.id:
             extra = self._extra_messages.get(message_id)
             if extra is None:
+                if self._missing_message_error is not None:
+                    raise self._missing_message_error()
                 raise RuntimeError("message mismatch")
             return extra
         return self._message
@@ -254,6 +264,56 @@ async def test_upsert_deletes_extra_content_messages(monkeypatch):
     record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert record["content_message_ids"] == [30]
     assert second.deleted is True
+
+
+@pytest.mark.asyncio
+async def test_upsert_removes_stale_missing_content_message_ids(monkeypatch):
+    class FakeNotFound(Exception):
+        pass
+
+    monkeypatch.setattr(service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(service.discord, "Thread", FakeThread)
+    monkeypatch.setattr(service.discord, "NotFound", FakeNotFound)
+
+    starter = FakeMessage(11)
+    thread = FakeThread(22, starter, missing_message_error=FakeNotFound)
+    first = FakeMessage(30)
+    thread._extra_messages[30] = first
+    channel = FakeForumChannel(existing_thread=thread)
+    client = FakeClient(channel)
+
+    state = {
+        "commands": {
+            "trendbriefing": {
+                "daily_posts_by_guild": {
+                    "1": {
+                        service.date_key(): {
+                            "thread_id": 22,
+                            "starter_message_id": 11,
+                            "content_message_ids": [30, 31],
+                        }
+                    }
+                },
+                "last_images": {},
+            }
+        },
+        "guilds": {},
+    }
+
+    await service.upsert_daily_post(
+        client,
+        state,
+        1,
+        123,
+        "trendbriefing",
+        "trend title",
+        "starter body",
+        [],
+        content_texts=["only one chunk"],
+    )
+
+    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    assert record["content_message_ids"] == [30]
 
 
 @pytest.mark.asyncio

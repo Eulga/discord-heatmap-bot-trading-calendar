@@ -1,6 +1,20 @@
 # Development Log
 
 ## 2026-03-19
+- Context: release PR `#9`의 추가 review에 맞춰 mixed watch_poll failure와 forum stale content id 정리를 보강했다.
+- Change:
+1. `bot/features/intel_scheduler.py`는 이제 `quote_failures`, `channel_failures`, `send_failures`가 하나라도 있으면 `watch_poll=failed`를 기록한다.
+2. `tests/integration/test_intel_scheduler_logic.py`에 partial success 뒤 quote failure가 따라오는 mixed-result watch poll 회귀 테스트를 추가했다.
+3. `bot/forum/service.py`는 삭제 대상 follow-up message가 이미 `NotFound`면 stale `content_message_ids`를 상태에서 제거하도록 바꿨다.
+4. `tests/integration/test_forum_upsert_flow.py`에 missing follow-up message id cleanup 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py tests/integration/test_forum_upsert_flow.py` 기준 `27 passed`
+2. `.\.venv\Scripts\python -m pytest` 기준 `79 passed, 2 deselected`
+- Next:
+1. 수정 커밋을 release branch에 푸시하고 PR `#9`에 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-19
 - Context: release PR `#9`의 추가 P1 review로 뉴스/EOD 전역 forum fallback의 guild ownership 검증을 보강했다.
 - Change:
 1. `bot/features/intel_scheduler.py`에 `_resolve_guild_forum_channel_id()` helper를 추가해, 뉴스와 장마감이 resolved forum channel의 guild 소유권을 확인한 뒤에만 pending queue에 넣도록 바꿨다.
