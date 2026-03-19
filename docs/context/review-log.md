@@ -1,6 +1,20 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 Codex review에서 `watch_poll` 운영 정합성 관련 2건이 나왔다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 guild별 watch alert channel이 비어 있을 때 전역 `WATCH_ALERT_CHANNEL_ID` fallback 채널이 다른 guild 소속이어도 그대로 사용해, 멀티 guild 환경에서 다른 서버 채널로 watch alert가 새어 나갈 수 있었다.
+2. 같은 함수는 quote fetch나 channel resolution이 전부 실패해도 마지막에 `watch_poll=ok`로 기록해 `/health`가 장애를 숨길 수 있었다.
+- Resolution:
+1. resolved watch channel은 `discord.abc.Messageable`이면서 현재 `guild_id`와 동일한 guild 소속인지 검증하고, 아니면 해당 guild를 실패로 처리하도록 바꿨다.
+2. `watch_poll`은 이번 run의 `processed`, `quote_failures`, `channel_failures`, `missing_channel_guilds`, `send_failures`를 집계해 전부 실패하면 `failed`, 대상이 없으면 `skipped`, 일부라도 처리되면 `ok`로 남기도록 수정했다.
+3. 다른 guild fallback 채널 차단과 all-quote-failure status 회귀 테스트를 `tests/integration/test_intel_scheduler_logic.py`에 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`15 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`74 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#8`의 Codex review에서 `trendbriefing` 멀티-message upsert와 trend chunking 쪽으로 2건의 후속 이슈가 나왔다.
 - Finding:
 1. `bot/forum/service.py`는 starter thread 생성 후 follow-up content sync 중 예외가 나면 `daily_posts[today]`가 기록되기 전에 함수가 끝나, 다음 재시도에서 같은 날짜 thread를 새로 만들 수 있었다.

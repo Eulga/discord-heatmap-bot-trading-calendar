@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -500,3 +501,78 @@ async def test_eod_job_keeps_ok_status_when_later_tick_has_only_missing_forums(m
     assert first["status"] == "ok"
     assert second["status"] == "ok"
     assert "no-target-forums" not in second["detail"]
+
+
+class FakeMessageable:
+    async def send(self, message: str) -> None:
+        raise NotImplementedError
+
+
+class FakeWatchChannel(FakeMessageable):
+    def __init__(self, guild_id: int):
+        self.guild = SimpleNamespace(id=guild_id)
+        self.messages: list[str] = []
+
+    async def send(self, message: str) -> None:
+        self.messages.append(message)
+
+
+class FakeWatchClient:
+    def __init__(self, channel):
+        self._channel = channel
+
+    def get_channel(self, _channel_id: int):
+        return self._channel
+
+    async def fetch_channel(self, _channel_id: int):
+        return self._channel
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_fails_when_fallback_channel_belongs_to_other_guild(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["005930"]}}}
+    quote_calls = {"count": 0}
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            quote_calls["count"] += 1
+            return SimpleNamespace(price=73100.0)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", 999)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=2)), now=now)
+
+    assert quote_calls["count"] == 0
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "channel_failures=1" in run["detail"]
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_marks_failed_when_all_quotes_fail(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["005930"], "watch_alert_channel_id": 123}}}
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            raise RuntimeError("quote provider down")
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
+
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "quote_failures=1" in run["detail"]
+    provider = state["system"]["provider_status"]["market_data_provider"]
+    assert provider["ok"] is False
+    assert provider["message"] == "quote provider down"

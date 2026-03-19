@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-03-19
+- Context: `develop -> master` 릴리스 검토 중 PR `#9` Codex review가 `watch_poll` 운영 정합성 2건을 지적했다.
+- Change:
+1. `bot/features/intel_scheduler.py`는 watch alert channel을 해석할 때 channel의 guild 소유권을 확인하고, 다른 guild 채널로 fallback 되면 해당 guild를 실패로 처리하도록 보완했다.
+2. 같은 함수는 watch poll run별 `processed`, `quote_failures`, `channel_failures`, `missing_channel_guilds`, `send_failures`를 detail에 남기고, 전부 실패했으면 `failed`, 대상이 없으면 `skipped`, 일부라도 처리했으면 `ok`를 기록하도록 바꿨다.
+3. `tests/integration/test_intel_scheduler_logic.py`에 cross-guild fallback 차단과 all-quote-failure status 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 기준 `15 passed`
+2. `.\.venv\Scripts\python -m pytest` 기준 `74 passed, 2 deselected`
+- Next:
+1. PR `#9`에 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-19
 - Context: PR `#8` Codex review 후속 지적 2건을 반영했다.
 - Change:
 1. `bot/forum/service.py`는 starter thread/message state를 follow-up content sync 전에 먼저 기록하고, content message ids도 sync/deletion 진행에 따라 부분 상태로 갱신하도록 바꿨다.

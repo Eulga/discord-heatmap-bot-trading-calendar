@@ -412,20 +412,32 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
     sent = 0
+    processed = 0
+    quote_failures = 0
+    channel_failures = 0
+    missing_channel_guilds = 0
+    send_failures = 0
+    watched_symbols = 0
+
     for guild_id in list_guild_ids(state):
         symbols = list_watch_symbols(state, guild_id)
         if not symbols:
             continue
+        watched_symbols += len(symbols)
         alert_channel_id = get_guild_watch_alert_channel_id(state, guild_id) or WATCH_ALERT_CHANNEL_ID
         if alert_channel_id is None:
+            missing_channel_guilds += 1
             continue
         channel = client.get_channel(alert_channel_id)
         if channel is None:
             try:
                 channel = await client.fetch_channel(alert_channel_id)
             except Exception:
+                channel_failures += 1
                 continue
-        if not isinstance(channel, discord.abc.Messageable):
+        channel_guild = getattr(channel, "guild", None)
+        if not isinstance(channel, discord.abc.Messageable) or getattr(channel_guild, "id", None) != guild_id:
+            channel_failures += 1
             continue
 
         for symbol in symbols:
@@ -434,6 +446,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 set_provider_status(state, "market_data_provider", True, f"quote:{symbol}")
             except Exception as exc:
                 set_provider_status(state, "market_data_provider", False, str(exc))
+                quote_failures += 1
                 continue
 
             baseline = get_watch_baseline(state, guild_id, symbol) or quote.price
@@ -447,14 +460,31 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 current_price=quote.price,
             )
             set_watch_baseline(state, guild_id, symbol, baseline, now.isoformat())
+            processed += 1
             if should_send:
                 emoji = "📈" if direction == "up" else "📉"
-                await channel.send(
-                    f"{emoji} `{symbol}` 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
-                )
-                sent += 1
+                try:
+                    await channel.send(
+                        f"{emoji} `{symbol}` 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
+                    )
+                    sent += 1
+                except Exception:
+                    send_failures += 1
 
-    set_job_last_run(state, "watch_poll", "ok", f"alerts={sent}")
+    detail = (
+        "alerts="
+        f"{sent} processed={processed} watched_symbols={watched_symbols} "
+        f"quote_failures={quote_failures} channel_failures={channel_failures} "
+        f"missing_channel_guilds={missing_channel_guilds} send_failures={send_failures}"
+    )
+    if watched_symbols == 0:
+        set_job_last_run(state, "watch_poll", "skipped", "no-watch-symbols")
+    elif processed > 0:
+        set_job_last_run(state, "watch_poll", "ok", detail)
+    elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
+        set_job_last_run(state, "watch_poll", "failed", detail)
+    else:
+        set_job_last_run(state, "watch_poll", "skipped", f"no-target-channels {detail}")
     save_state(state)
 
 

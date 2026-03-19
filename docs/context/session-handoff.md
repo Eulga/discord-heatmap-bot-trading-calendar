@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: `develop` 내용을 `master`로 보내는 release branch PR `#9`에서 Codex review 후속 수정 2건을 반영했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 watch alert channel이 현재 guild 소속인지 검증해, 전역 fallback channel이 다른 guild 채널로 새는 경우 해당 guild를 실패로 처리한다.
+2. `watch_poll` 마지막 status는 더 이상 무조건 `ok`가 아니고, `processed/quote_failures/channel_failures/missing_channel_guilds/send_failures`를 바탕으로 `ok|failed|skipped`를 기록한다.
+3. 관련 회귀를 포함한 전체 기본 테스트는 `74 passed, 2 deselected`다.
+4. release PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 현재 다음 단계는 수정 커밋 푸시 후 Codex review 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
 - Context: 오래된 원격 작업 브랜치를 `origin/develop` 기준으로 다시 점검했다.
 - Current state:
 1. 원격 `origin/codex/file-logging`은 이미 `develop`에 patch-equivalent가 들어간 상태라 삭제했다.
