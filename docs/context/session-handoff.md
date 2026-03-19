@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: release PR `#9`의 여섯 번째 review까지 반영해 `news_briefing`과 `trend_briefing` partial guild failure false positive도 닫았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `news_briefing`, `trend_briefing`, `eod_summary`, `watch_poll` 모두 partial delivery failure를 `ok`로 숨기지 않는다.
+2. `tests/integration/test_intel_scheduler_logic.py`는 뉴스 partial failure, 트렌드 partial failure, EOD partial failure, watch mixed failure 회귀를 모두 포함한다.
+3. 전체 기본 테스트는 `82 passed, 2 deselected`다.
+4. release PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이며, 최신 수정이 반영된 fresh Codex review 결과만 남아 있다.
+- Next:
+1. PR `#9`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `master`로 squash merge하고 release branch를 정리한다.
+- Status: open
+
+## 2026-03-19
 - Context: release PR `#9`의 다섯 번째 Codex review까지 반영해 `eod_summary` partial guild failure false positive도 닫았다.
 - Current state:
 1. `bot/features/intel_scheduler.py`는 이제 EOD summary posting이 일부 guild에서만 성공한 경우에도 `failed > 0`이면 `eod_summary=failed`를 기록한다.

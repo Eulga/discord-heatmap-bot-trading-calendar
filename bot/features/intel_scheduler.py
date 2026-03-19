@@ -297,41 +297,24 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if guild_failed > 0:
             continue
 
-    if posted > 0:
-        set_job_last_run(
-            state,
-            "news_briefing",
-            "ok",
-            f"posted={posted} failed={failed} missing_forum={missing_forum} domestic={len(domestic)} global={len(global_items)}",
-        )
-    else:
-        set_job_last_run(
-            state,
-            "news_briefing",
-            "failed",
-            f"posted=0 failed={failed} missing_forum={missing_forum}",
-        )
+    news_status = "ok" if posted > 0 and failed == 0 else "failed"
+    set_job_last_run(
+        state,
+        "news_briefing",
+        news_status,
+        f"posted={posted} failed={failed} missing_forum={missing_forum} domestic={len(domestic)} global={len(global_items)}",
+    )
     if trend_can_post:
-        if trend_posted > 0:
-            set_job_last_run(
-                state,
-                "trend_briefing",
-                "ok",
-                (
-                    f"posted={trend_posted} failed={trend_failed} missing_forum={missing_forum} "
-                    f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
-                ),
-            )
-        else:
-            set_job_last_run(
-                state,
-                "trend_briefing",
-                "failed",
-                (
-                    f"posted=0 failed={trend_failed} missing_forum={missing_forum} "
-                    f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
-                ),
-            )
+        trend_status = "ok" if trend_posted > 0 and trend_failed == 0 else "failed"
+        set_job_last_run(
+            state,
+            "trend_briefing",
+            trend_status,
+            (
+                f"posted={trend_posted} failed={trend_failed} missing_forum={missing_forum} "
+                f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
+            ),
+        )
     else:
         set_job_last_run(state, "trend_briefing", "skipped", trend_skip_reason)
     save_state(state)

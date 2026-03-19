@@ -1,6 +1,20 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 여섯 번째 Codex review가 `news_briefing`과 `trend_briefing`도 partial guild post failure를 `ok`로 숨기고 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `news_briefing` run에서 일부 guild posting이 실패해도, 다른 guild가 성공해 `posted > 0`이면 `news_briefing=ok`를 기록할 수 있었다.
+2. 같은 함수는 `trendbriefing`이 일부 guild에서 실패해도 `trend_posted > 0`이면 `trend_briefing=ok`를 남겨 partial outage를 가릴 수 있었다.
+- Resolution:
+1. `news_briefing`은 이제 `posted > 0 and failed == 0`일 때만 `ok`를 기록한다.
+2. `trend_briefing`도 `trend_posted > 0 and trend_failed == 0`일 때만 `ok`를 기록하도록 맞췄다.
+3. `tests/integration/test_intel_scheduler_logic.py`에 뉴스 partial post failure, 트렌드 partial post failure 회귀 테스트를 각각 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py -k "news_job or eod_job"` 통과 (`18 passed, 4 deselected`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`82 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#9`의 다섯 번째 Codex review가 `eod_summary`가 일부 guild 실패를 `ok`로 숨길 수 있다고 지적했다.
 - Finding:
 1. `bot/features/intel_scheduler.py`는 같은 run 안에서 일부 guild EOD post가 실패해도, 다른 guild가 성공해 `posted > 0`이면 `eod_summary=ok`를 남겨 false healthy signal을 만들 수 있었다.

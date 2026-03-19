@@ -1,6 +1,20 @@
 # Development Log
 
 ## 2026-03-19
+- Context: release PR `#9`의 추가 review 2건에 맞춰 뉴스/트렌드 partial-delivery status false positive를 닫았다.
+- Change:
+1. `bot/features/intel_scheduler.py`는 `news_briefing`을 `posted > 0`만으로 `ok` 처리하지 않고, 같은 run의 `failed` count가 0일 때만 `ok`를 남기도록 조정했다.
+2. 같은 함수는 `trend_briefing`도 `trend_posted > 0 and trend_failed == 0`일 때만 `ok`가 되도록 맞췄다.
+3. `tests/integration/test_intel_scheduler_logic.py`에 뉴스 partial-failure, 트렌드 partial-failure 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py -k "news_job or eod_job"` 기준 `18 passed, 4 deselected`
+2. `.\.venv\Scripts\python -m pytest` 기준 `82 passed, 2 deselected`
+- Next:
+1. release branch 최신 커밋을 PR `#9`에 푸시하고 `@codex review`를 다시 요청한다.
+2. 새 review가 clean이면 `master`로 squash merge를 진행한다.
+- Status: done
+
+## 2026-03-19
 - Context: release PR `#9`의 마지막 남은 Codex review finding으로 EOD partial-failure status false positive를 닫았다.
 - Change:
 1. `bot/features/intel_scheduler.py`는 `eod_summary`를 `posted > 0`만으로 `ok` 처리하지 않고, 같은 run의 `failed` count가 0일 때만 `ok`를 남기도록 조정했다.

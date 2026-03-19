@@ -327,6 +327,44 @@ async def test_news_job_posts_domestic_and_global_threads_separately(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_news_job_marks_failed_when_any_guild_post_fails(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"forum_channel_id": 123},
+            "2": {"forum_channel_id": 456},
+        },
+    }
+
+    class Provider:
+        async def fetch(self, now):
+            return [
+                NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+            ]
+
+    async def flaky_post(**kwargs):
+        if kwargs["guild_id"] == 2:
+            raise RuntimeError("forum write failed")
+        return None
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "failed"
+    assert "posted=1 failed=1" in runs["news_briefing"]["detail"]
+    assert runs["trend_briefing"]["status"] == "skipped"
+    assert state["guilds"]["1"]["last_auto_runs"]["newsbriefing"] == "2026-02-13"
+    assert "last_auto_runs" not in state["guilds"]["2"]
+
+
+@pytest.mark.asyncio
 async def test_news_job_posts_trendbriefing_with_content_messages(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
 
@@ -379,6 +417,61 @@ async def test_news_job_posts_trendbriefing_with_content_messages(monkeypatch):
     assert trend_call["content_texts"][0].startswith("[국내 트렌드 테마]")
     assert trend_call["content_texts"][1].startswith("[해외 트렌드 테마]")
     assert state["system"]["job_last_runs"]["trend_briefing"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_news_job_marks_trend_failed_when_any_guild_trend_post_fails(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"forum_channel_id": 123},
+            "2": {"forum_channel_id": 456},
+        },
+    }
+
+    class Provider:
+        async def analyze(self, now):
+            return NewsAnalysis(
+                briefing_items=(
+                    NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                    NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+                ),
+                trend_report=TrendThemeReport(
+                    generated_at=now,
+                    themes_by_region={
+                        "domestic": (
+                            _theme_brief("domestic", "반도체", now, "https://example.com/semi"),
+                            _theme_brief("domestic", "건설/원전", now, "https://example.com/nuke"),
+                            _theme_brief("domestic", "전력설비", now, "https://example.com/power"),
+                        ),
+                        "global": (
+                            _theme_brief("global", "AI/반도체", now, "https://example.com/ai"),
+                            _theme_brief("global", "금리/Fed", now, "https://example.com/fed"),
+                            _theme_brief("global", "에너지/원유", now, "https://example.com/oil"),
+                        ),
+                    },
+                ),
+            )
+
+    async def flaky_post(**kwargs):
+        if kwargs["command_key"] == "trendbriefing" and kwargs["guild_id"] == 2:
+            raise RuntimeError("trend write failed")
+        return None
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "ok"
+    assert runs["trend_briefing"]["status"] == "failed"
+    assert "posted=1 failed=1" in runs["trend_briefing"]["detail"]
+    assert state["guilds"]["1"]["last_auto_runs"]["trendbriefing"] == "2026-02-13"
+    assert "trendbriefing" not in state["guilds"]["2"].get("last_auto_runs", {})
 
 
 @pytest.mark.asyncio
