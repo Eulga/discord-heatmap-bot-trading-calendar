@@ -65,3 +65,37 @@ def test_build_trend_starter_body_summarizes_regions():
     assert "국내 테마 1개 | 해외 테마 0개" in body
     assert "반도체" in body
     assert "(유의미한 테마 부족)" in body
+
+
+def test_build_trend_region_messages_caps_oversized_single_theme_block():
+    long_title = "매우 긴 헤드라인 " * 30
+    long_link = "https://example.com/" + ("segment-" * 40)
+    theme = ThemeBrief(
+        theme_name="반도체",
+        region="domestic",
+        score=88,
+        reason_tags=("기사 9건", "6개 소스", "대표 종목 다수", "추가 근거 " * 20),
+        representative_items=(
+            NewsItem(
+                title=long_title,
+                link=long_link,
+                source="source-1",
+                published_at=datetime(2026, 3, 19, 7, 10, tzinfo=KST),
+                region="domestic",
+            ),
+            NewsItem(
+                title=long_title,
+                link=long_link,
+                source="source-2",
+                published_at=datetime(2026, 3, 19, 7, 20, tzinfo=KST),
+                region="domestic",
+            ),
+        ),
+        article_count=9,
+        source_count=6,
+    )
+
+    messages = trend_policy.build_trend_region_messages("domestic", (theme,), max_chars=180)
+
+    assert messages
+    assert all(len(message) <= 180 for message in messages)

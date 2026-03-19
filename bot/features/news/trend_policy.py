@@ -40,15 +40,18 @@ def build_trend_region_messages(
     if not themes:
         return [f"[{label} 트렌드 테마]\n- (유의미한 테마 부족)"]
 
-    blocks = [_theme_block(index, theme) for index, theme in enumerate(themes, start=1)]
+    header = f"[{label} 트렌드 테마]"
+    blocks = []
+    for index, theme in enumerate(themes, start=1):
+        blocks.extend(_fit_theme_block(header, _theme_block(index, theme), max_chars))
     messages: list[str] = []
-    current = [f"[{label} 트렌드 테마]"]
+    current = [header]
 
     for block in blocks:
         candidate = current + [""] + block if len(current) > 1 else current + block
         if len("\n".join(candidate)) > max_chars and len(current) > 1:
             messages.append("\n".join(current))
-            current = [f"[{label} 트렌드 테마]"] + block
+            current = [header] + block
             continue
         current = candidate
 
@@ -66,8 +69,8 @@ def _summary_line(region: str, themes: Sequence[ThemeBrief]) -> str:
 
 def _theme_block(index: int, theme: ThemeBrief) -> list[str]:
     lines = [
-        f"{index}. {theme.theme_name}",
-        f"- 근거: {' | '.join(theme.reason_tags)}",
+        _truncate_text(f"{index}. {theme.theme_name}", 120),
+        _truncate_text(f"- 근거: {' | '.join(theme.reason_tags)}", 240),
     ]
     for item in theme.representative_items:
         lines.append(_fmt_item(item))
@@ -75,4 +78,51 @@ def _theme_block(index: int, theme: ThemeBrief) -> list[str]:
 
 
 def _fmt_item(item: NewsItem) -> str:
-    return f"- {item.title} | {item.source} | {item.published_at.strftime('%H:%M')} | {item.link}"
+    return _truncate_text(
+        f"- {item.title} | {item.source} | {item.published_at.strftime('%H:%M')} | {item.link}",
+        480,
+    )
+
+
+def _fit_theme_block(header: str, block: list[str], max_chars: int) -> list[list[str]]:
+    if len("\n".join([header] + block)) <= max_chars:
+        return [block]
+
+    body_budget = max(24, max_chars - len(header) - 1)
+    title_budget = max(16, body_budget // 3)
+    title = _truncate_text(block[0], title_budget)
+    continuation_title = _truncate_text(f"{title} (계속)", title_budget)
+    chunks: list[list[str]] = []
+    current = [title]
+
+    for raw_line in block[1:]:
+        active_title = title if not chunks else continuation_title
+        if current[0] != active_title:
+            current = [active_title]
+        available = max_chars - len("\n".join([header] + current)) - 1
+        if available <= 0:
+            chunks.append(current)
+            current = [continuation_title]
+            available = max_chars - len("\n".join([header] + current)) - 1
+        safe_line = _truncate_text(raw_line, max(1, available))
+        candidate = current + [safe_line]
+        if len("\n".join([header] + candidate)) > max_chars and len(current) > 1:
+            chunks.append(current)
+            current = [continuation_title]
+            available = max_chars - len("\n".join([header] + current)) - 1
+            safe_line = _truncate_text(raw_line, max(1, available))
+            current.append(safe_line)
+            continue
+        current = candidate
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    if max_chars <= 1:
+        return text[:max_chars]
+    if len(text) <= max_chars:
+        return text
+    return f"{text[: max_chars - 1]}…"

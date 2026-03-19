@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: PR `#8` Codex review findings 2건을 반영했다.
+- Current state:
+1. `bot/forum/service.py`는 이제 starter thread/message state를 follow-up content sync 전에 먼저 기록해, sync 중 예외가 나도 같은 날짜 thread를 재사용할 수 있다.
+2. `bot/features/news/trend_policy.py`는 oversized single theme block도 안전하게 분할 또는 truncate해서 region message 길이 제한을 넘지 않는다.
+3. 관련 회귀를 포함한 전체 기본 테스트는 `72 passed, 2 deselected`다.
+- Next:
+1. PR `#8`에 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `develop`에 merge한다.
+- Status: open
+
+## 2026-03-19
 - Context: `trendbriefing` 전용 thread와 멀티-message forum upsert까지 포함한 트렌드 테마 뉴스 기능을 붙였다.
 - Current state:
 1. 뉴스 provider는 이제 `NewsAnalysis`를 만들고, conservative briefing items와 trend theme candidates를 분리해서 계산한다.

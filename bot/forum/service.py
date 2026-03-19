@@ -67,7 +67,21 @@ async def upsert_daily_post(
         message = created.message
         action = "created"
 
-    synced_content_ids: list[int] = []
+    persisted_content_ids = list(content_message_ids)
+
+    def persist_record(current_content_ids: list[int]) -> None:
+        daily_posts[today] = {
+            "thread_id": thread.id,
+            "starter_message_id": message.id,
+        }
+        cleaned_ids = [content_id for content_id in current_content_ids if isinstance(content_id, int)]
+        if cleaned_ids:
+            daily_posts[today]["content_message_ids"] = cleaned_ids
+
+    # Persist the thread as soon as the starter message is available so retries reuse
+    # the existing daily thread even if syncing follow-up content fails midway.
+    persist_record(persisted_content_ids)
+
     for index, content_text in enumerate(desired_content_texts):
         if index < len(content_message_ids):
             try:
@@ -78,7 +92,11 @@ async def upsert_daily_post(
                 await content_message.edit(content=content_text)
         else:
             content_message = await thread.send(content_text)
-        synced_content_ids.append(content_message.id)
+        if index < len(persisted_content_ids):
+            persisted_content_ids[index] = content_message.id
+        else:
+            persisted_content_ids.append(content_message.id)
+        persist_record(persisted_content_ids)
 
     for content_message_id in content_message_ids[len(desired_content_texts) :]:
         try:
@@ -86,11 +104,9 @@ async def upsert_daily_post(
             await content_message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             continue
+        if content_message_id in persisted_content_ids:
+            persisted_content_ids.remove(content_message_id)
+            persist_record(persisted_content_ids)
 
-    daily_posts[today] = {
-        "thread_id": thread.id,
-        "starter_message_id": message.id,
-    }
-    if synced_content_ids:
-        daily_posts[today]["content_message_ids"] = synced_content_ids
+    persist_record(persisted_content_ids)
     return thread, action

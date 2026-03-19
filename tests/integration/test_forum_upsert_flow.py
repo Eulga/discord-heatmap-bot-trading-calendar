@@ -21,7 +21,7 @@ class FakeMessage:
 
 
 class FakeThread:
-    def __init__(self, thread_id: int, message: FakeMessage):
+    def __init__(self, thread_id: int, message: FakeMessage, *, fail_on_send_number: int | None = None):
         self.id = thread_id
         self._message = message
         self.jump_url = f"https://discord.com/channels/thread/{thread_id}"
@@ -29,6 +29,8 @@ class FakeThread:
         self.edited_name: str | None = None
         self._extra_messages: dict[int, FakeMessage] = {}
         self.sent_contents: list[str] = []
+        self._send_count = 0
+        self._fail_on_send_number = fail_on_send_number
 
     async def fetch_message(self, message_id: int):
         if message_id != self._message.id:
@@ -43,6 +45,9 @@ class FakeThread:
         self.edited_name = name
 
     async def send(self, content: str):
+        self._send_count += 1
+        if self._fail_on_send_number == self._send_count:
+            raise RuntimeError("send failed")
         message_id = max([self._message.id, *self._extra_messages.keys()], default=self._message.id) + 1
         message = FakeMessage(message_id)
         message.content = content
@@ -249,6 +254,36 @@ async def test_upsert_deletes_extra_content_messages(monkeypatch):
     record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert record["content_message_ids"] == [30]
     assert second.deleted is True
+
+
+@pytest.mark.asyncio
+async def test_upsert_persists_thread_state_when_followup_content_fails(monkeypatch):
+    monkeypatch.setattr(service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(service.discord, "Thread", FakeThread)
+
+    thread = FakeThread(77, FakeMessage(88), fail_on_send_number=2)
+    channel = FakeForumChannel(existing_thread=None, created_thread=thread)
+    client = FakeClient(channel)
+
+    state = {"commands": {"trendbriefing": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
+
+    with pytest.raises(RuntimeError, match="send failed"):
+        await service.upsert_daily_post(
+            client,
+            state,
+            1,
+            123,
+            "trendbriefing",
+            "trend title",
+            "starter body",
+            [],
+            content_texts=["domestic chunk", "global chunk"],
+        )
+
+    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    assert record["thread_id"] == 77
+    assert record["starter_message_id"] == 88
+    assert record["content_message_ids"] == [89]
 
 
 @pytest.mark.asyncio

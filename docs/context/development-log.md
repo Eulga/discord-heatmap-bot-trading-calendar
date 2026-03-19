@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-03-19
+- Context: PR `#8` Codex review 후속 지적 2건을 반영했다.
+- Change:
+1. `bot/forum/service.py`는 starter thread/message state를 follow-up content sync 전에 먼저 기록하고, content message ids도 sync/deletion 진행에 따라 부분 상태로 갱신하도록 바꿨다.
+2. `bot/features/news/trend_policy.py`는 단일 theme block이 너무 길어도 안전하게 분할 또는 truncate되도록 보완해, region message가 Discord 길이 제한을 넘지 않게 했다.
+3. `tests/integration/test_forum_upsert_flow.py`, `tests/unit/test_trend_policy.py`에 Codex review 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -B -m pytest` 기준 `72 passed, 2 deselected`
+- Next:
+1. 같은 PR `#8`에 수정 커밋을 푸시하고 Codex review를 다시 요청한다.
+- Status: done
+
+## 2026-03-19
 - Context: 기존 국내/해외 뉴스 브리핑과 별도로 `트렌드 테마 뉴스` thread를 추가했다.
 - Change:
 1. `bot/intel/providers/news.py`에 `NewsAnalysis`, `ThemeDefinition`, `ThemeBrief`, `TrendThemeReport`를 추가하고, conservative briefing items와 wider trend candidates를 분리해 계산하도록 바꿨다.
