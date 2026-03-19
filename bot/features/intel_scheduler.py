@@ -130,6 +130,27 @@ def _migrate_legacy_news_post_if_needed(state: dict, guild_id: int, run_date: st
         domestic_posts[run_date] = legacy_posts[run_date]
 
 
+async def _resolve_guild_forum_channel_id(
+    client: discord.Client,
+    guild_id: int,
+    forum_channel_id: int,
+) -> int | None:
+    get_channel = getattr(client, "get_channel", None)
+    fetch_channel = getattr(client, "fetch_channel", None)
+    channel = get_channel(forum_channel_id) if callable(get_channel) else None
+    if channel is None and callable(fetch_channel):
+        try:
+            channel = await fetch_channel(forum_channel_id)
+        except Exception:
+            return None
+    if channel is None:
+        return forum_channel_id
+    channel_guild = getattr(channel, "guild", None)
+    if not isinstance(channel, discord.ForumChannel) or getattr(channel_guild, "id", None) != guild_id:
+        return None
+    return forum_channel_id
+
+
 async def _run_news_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
@@ -155,7 +176,11 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        pending_guilds.append((guild_id, forum_channel_id))
+        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        if resolved_forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, resolved_forum_channel_id))
 
     if not pending_guilds:
         if missing_forum > 0 and completed_guilds == 0:
@@ -345,7 +370,11 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        pending_guilds.append((guild_id, forum_channel_id))
+        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        if resolved_forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, resolved_forum_channel_id))
 
     if not pending_guilds:
         if missing_forum > 0 and completed_guilds == 0:

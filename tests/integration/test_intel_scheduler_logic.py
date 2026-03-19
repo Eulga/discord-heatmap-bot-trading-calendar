@@ -26,6 +26,22 @@ def _theme_brief(region: str, name: str, now: datetime, base_url: str) -> ThemeB
     )
 
 
+class FakeForumChannel:
+    def __init__(self, guild_id: int):
+        self.guild = SimpleNamespace(id=guild_id)
+
+
+class FakeForumClient:
+    def __init__(self, channel):
+        self._channel = channel
+
+    def get_channel(self, _channel_id: int):
+        return self._channel
+
+    async def fetch_channel(self, _channel_id: int):
+        return self._channel
+
+
 @pytest.mark.asyncio
 async def test_news_job_records_provider_failure(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
@@ -80,6 +96,32 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
     runs = state["system"]["job_last_runs"]
     assert runs["news_briefing"]["status"] == "skipped"
     assert "no-target-forums" in runs["news_briefing"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"fetch": 0}
+
+    class Provider:
+        async def fetch(self, now):
+            called["fetch"] += 1
+            return []
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=FakeForumClient(FakeForumChannel(guild_id=2)), now=now)
+
+    assert called["fetch"] == 0
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "skipped"
+    assert "missing_forum=1" in runs["news_briefing"]["detail"]
+    assert runs["trend_briefing"]["status"] == "skipped"
 
 
 @pytest.mark.asyncio
@@ -501,6 +543,39 @@ async def test_eod_job_keeps_ok_status_when_later_tick_has_only_missing_forums(m
     assert first["status"] == "ok"
     assert second["status"] == "ok"
     assert "no-target-forums" not in second["detail"]
+
+
+@pytest.mark.asyncio
+async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"summary": 0}
+
+    class Provider:
+        async def get_summary(self, now):
+            called["summary"] += 1
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=FakeForumClient(FakeForumChannel(guild_id=2)), now=now)
+
+    assert called["summary"] == 0
+    run = state["system"]["job_last_runs"]["eod_summary"]
+    assert run["status"] == "skipped"
+    assert "missing_forum=1" in run["detail"]
 
 
 class FakeMessageable:

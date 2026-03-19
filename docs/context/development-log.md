@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-03-19
+- Context: release PR `#9`의 추가 P1 review로 뉴스/EOD 전역 forum fallback의 guild ownership 검증을 보강했다.
+- Change:
+1. `bot/features/intel_scheduler.py`에 `_resolve_guild_forum_channel_id()` helper를 추가해, 뉴스와 장마감이 resolved forum channel의 guild 소유권을 확인한 뒤에만 pending queue에 넣도록 바꿨다.
+2. 다른 guild 소속 global fallback forum은 `missing_forum`으로 처리해 provider fetch와 posting을 시작하지 않게 했다.
+3. `tests/integration/test_intel_scheduler_logic.py`에 뉴스/EOD 각각의 cross-guild fallback forum 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 기준 `18 passed`
+2. `.\.venv\Scripts\python -m pytest` 기준 `77 passed, 2 deselected`
+- Next:
+1. 수정 커밋을 release branch에 푸시하고 PR `#9`에 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-19
 - Context: `develop -> master` release PR `#9` 재검토에서 watch alert delivery failure를 `ok`로 숨기지 않도록 후속 수정했다.
 - Change:
 1. `bot/features/intel_scheduler.py`는 `watch_poll` detail에 `alert_attempts`를 추가하고, `channel.send(...)` 실패가 한 건이라도 있으면 `watch_poll=failed`로 기록하도록 바꿨다.

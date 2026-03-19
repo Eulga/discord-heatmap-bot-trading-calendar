@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: release PR `#9`의 추가 P1 review까지 반영해 뉴스/EOD 전역 forum fallback cross-guild leak도 막았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 뉴스/EOD/watch 모두 resolved target channel의 guild ownership을 검증한다.
+2. 뉴스/EOD는 다른 guild 소속 global fallback forum이면 provider fetch/posting을 시작하지 않고 `missing_forum`으로 건너뛴다.
+3. 관련 회귀 테스트를 포함한 전체 기본 테스트는 `77 passed, 2 deselected`다.
+4. release PR은 여전히 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 다음 단계는 이 수정 커밋 푸시 후 `@codex review` 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
 - Context: release PR `#9`의 추가 Codex review까지 반영해 `watch_poll` delivery failure false positive를 닫았다.
 - Current state:
 1. `bot/features/intel_scheduler.py`는 이제 `alert_attempts`를 detail에 남기고, `channel.send(...)` 실패가 한 건이라도 있으면 `watch_poll=failed`를 기록한다.

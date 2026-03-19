@@ -1,6 +1,19 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 세 번째 Codex review에서 뉴스/EOD 전역 forum fallback의 cross-guild leak 가능성이 지적됐다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `NEWS_TARGET_FORUM_ID`와 `EOD_TARGET_FORUM_ID` fallback을 사용할 때, 해당 forum channel이 현재 `guild_id` 소속인지 검증하지 않아 다른 서버 포럼으로 자동 게시가 새어 나갈 수 있었다.
+- Resolution:
+1. 뉴스/EOD가 공통으로 쓰는 `_resolve_guild_forum_channel_id()` helper를 추가해 resolved forum channel이 `discord.ForumChannel`이면서 현재 guild 소속일 때만 pending guild로 넣도록 바꿨다.
+2. 다른 guild 소속 global fallback forum은 `missing_forum`으로 처리해 provider fetch/posting을 시작하지 않게 했다.
+3. 뉴스/EOD 각각에 cross-guild global fallback forum 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`18 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`77 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#9`의 두 번째 Codex review가 `watch_poll` delivery failure를 여전히 `ok`로 숨길 수 있다고 지적했다.
 - Finding:
 1. `bot/features/intel_scheduler.py`는 `channel.send(...)`가 실패해도 `processed > 0`이면 `watch_poll=ok`를 남겨, 실제 알림 delivery 실패가 `/health`에 드러나지 않을 수 있었다.
