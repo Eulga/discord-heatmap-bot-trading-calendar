@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-19
+- Context: 오래된 원격 작업 브랜치를 `origin/develop` 기준으로 다시 점검했다.
+- Current state:
+1. 원격 `origin/codex/file-logging`은 이미 `develop`에 patch-equivalent가 들어간 상태라 삭제했다.
+2. 원격 `origin/codex/docs`에서는 `docs/reports/mvp-data-source-review-2026-03-12.md`만 현재 브랜치로 가져왔고, 나머지 변경은 이식하지 않았다.
+3. `.gitignore`에 `.obsidian/`를 추가해 로컬 메모 폴더가 작업 트리에 다시 뜨지 않게 했다.
+4. `origin/codex/docs`도 정리 완료라, 오래된 원격 작업 브랜치는 더 이상 남아 있지 않다.
+- Next:
+1. 로컬 검증 스크립트가 필요해지면 현재 뉴스/trend/forum upsert 테스트 구조에 맞춰 새로 설계한다.
+- Status: open
+
+## 2026-03-19
 - Context: PR `#8` Codex review findings 2건을 반영했다.
 - Current state:
 1. `bot/forum/service.py`는 이제 starter thread/message state를 follow-up content sync 전에 먼저 기록해, sync 중 예외가 나도 같은 날짜 thread를 재사용할 수 있다.
