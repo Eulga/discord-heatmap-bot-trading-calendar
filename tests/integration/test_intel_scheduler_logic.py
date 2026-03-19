@@ -503,6 +503,48 @@ async def test_eod_job_marks_failed_when_all_posts_fail(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_eod_job_marks_failed_when_any_guild_post_fails(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"forum_channel_id": 123},
+            "2": {"forum_channel_id": 456},
+        },
+    }
+
+    class Provider:
+        async def get_summary(self, now):
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    async def flaky_post(**kwargs):
+        if kwargs["guild_id"] == 2:
+            raise RuntimeError("forum write failed")
+        return None
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
+
+    now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    runs = state["system"]["job_last_runs"]
+    assert runs["eod_summary"]["status"] == "failed"
+    assert "posted=1 failed=1" in runs["eod_summary"]["detail"]
+    assert state["guilds"]["1"]["last_auto_runs"]["eodsummary"] == "2026-02-13"
+    assert "last_auto_runs" not in state["guilds"]["2"]
+
+
+@pytest.mark.asyncio
 async def test_eod_job_keeps_ok_status_when_later_tick_has_only_missing_forums(monkeypatch):
     state = {
         "commands": {},

@@ -421,20 +421,13 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
             failed += 1
             logger.exception("[intel] eod post failed guild=%s: %s", guild_id, exc)
 
-    if posted > 0:
-        set_job_last_run(
-            state,
-            "eod_summary",
-            "ok",
-            f"posted={posted} failed={failed} missing_forum={missing_forum} date={summary.date_text}",
-        )
-    else:
-        set_job_last_run(
-            state,
-            "eod_summary",
-            "failed",
-            f"posted=0 failed={failed} missing_forum={missing_forum} date={summary.date_text}",
-        )
+    status = "ok" if posted > 0 and failed == 0 else "failed"
+    set_job_last_run(
+        state,
+        "eod_summary",
+        status,
+        f"posted={posted} failed={failed} missing_forum={missing_forum} date={summary.date_text}",
+    )
     save_state(state)
 
 

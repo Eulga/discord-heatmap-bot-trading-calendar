@@ -1,6 +1,18 @@
 # Review Log
 
 ## 2026-03-19
+- Context: PR `#9`의 다섯 번째 Codex review가 `eod_summary`가 일부 guild 실패를 `ok`로 숨길 수 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 같은 run 안에서 일부 guild EOD post가 실패해도, 다른 guild가 성공해 `posted > 0`이면 `eod_summary=ok`를 남겨 false healthy signal을 만들 수 있었다.
+- Resolution:
+1. `eod_summary` status는 이제 `posted > 0 and failed == 0`일 때만 `ok`가 되고, 같은 run 안에 실패 guild가 하나라도 있으면 `failed`를 기록하도록 바꿨다.
+2. `tests/integration/test_intel_scheduler_logic.py`에 2개 guild 중 1개만 posting 실패하는 partial-failure 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py -k "eod_job"` 통과 (`5 passed, 15 deselected`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`80 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
 - Context: PR `#9`의 네 번째 Codex review가 mixed watch_poll failure 가시성과 forum content state drift를 추가로 지적했다.
 - Finding:
 1. `bot/features/intel_scheduler.py`는 일부 symbol/guild가 성공해 `processed > 0`이면, 같은 run 안의 `quote_failures`나 `channel_failures`가 있어도 `watch_poll=ok`로 기록할 수 있었다.
