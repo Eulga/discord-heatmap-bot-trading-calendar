@@ -21,6 +21,7 @@ data/logs/
 # IDE/editor
 .vscode/
 .idea/
+.obsidian/
 *.swp
 
 # OS

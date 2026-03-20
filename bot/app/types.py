@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Any, TypedDict
 
 try:
     from typing import NotRequired
@@ -14,6 +14,7 @@ class ImageCacheEntry(TypedDict):
 class DailyPostEntry(TypedDict):
     thread_id: int
     starter_message_id: int
+    content_message_ids: NotRequired[list[int]]
 
 
 class CommandState(TypedDict):
@@ -24,11 +25,17 @@ class CommandState(TypedDict):
 
 class GuildConfig(TypedDict):
     forum_channel_id: NotRequired[int]
+    news_forum_channel_id: NotRequired[int]
+    eod_forum_channel_id: NotRequired[int]
+    watch_alert_channel_id: NotRequired[int]
     auto_screenshot_enabled: NotRequired[bool]
     last_auto_runs: NotRequired[dict[str, str]]
     last_auto_skips: NotRequired[dict[str, dict[str, str]]]
+    watchlist: NotRequired[list[str]]
+    watch_alert_cooldowns: NotRequired[dict[str, str]]
 
 
 class AppState(TypedDict):
     commands: dict[str, CommandState]
     guilds: dict[str, GuildConfig]
+    system: NotRequired[dict[str, Any]]
