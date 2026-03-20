@@ -42,6 +42,14 @@ class FakeForumClient:
         return self._channel
 
 
+class FailingFetchForumClient:
+    def get_channel(self, _channel_id: int):
+        return None
+
+    async def fetch_channel(self, _channel_id: int):
+        raise RuntimeError("discord api down")
+
+
 @pytest.mark.asyncio
 async def test_news_job_records_provider_failure(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
@@ -122,6 +130,32 @@ async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch
     assert runs["news_briefing"]["status"] == "skipped"
     assert "missing_forum=1" in runs["news_briefing"]["detail"]
     assert runs["trend_briefing"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"fetch": 0}
+
+    class Provider:
+        async def fetch(self, now):
+            called["fetch"] += 1
+            return []
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["fetch"] == 0
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "failed"
+    assert runs["trend_briefing"]["status"] == "failed"
+    assert runs["news_briefing"]["detail"] == "forum-resolution-failed:discord api down"
 
 
 @pytest.mark.asyncio
@@ -711,6 +745,39 @@ async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch)
     run = state["system"]["job_last_runs"]["eod_summary"]
     assert run["status"] == "skipped"
     assert "missing_forum=1" in run["detail"]
+
+
+@pytest.mark.asyncio
+async def test_eod_job_fails_when_forum_resolution_api_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"summary": 0}
+
+    class Provider:
+        async def get_summary(self, now):
+            called["summary"] += 1
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["summary"] == 0
+    run = state["system"]["job_last_runs"]["eod_summary"]
+    assert run["status"] == "failed"
+    assert run["detail"] == "forum-resolution-failed:discord api down"
 
 
 class FakeMessageable:

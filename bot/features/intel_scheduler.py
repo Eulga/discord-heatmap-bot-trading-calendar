@@ -141,7 +141,7 @@ async def _resolve_guild_forum_channel_id(
     if channel is None and callable(fetch_channel):
         try:
             channel = await fetch_channel(forum_channel_id)
-        except Exception:
+        except discord.NotFound:
             return None
     if channel is None:
         return forum_channel_id
@@ -176,7 +176,14 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        try:
+            resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        except Exception as exc:
+            set_job_last_run(state, "news_briefing", "failed", f"forum-resolution-failed:{exc}")
+            set_job_last_run(state, "trend_briefing", "failed", f"forum-resolution-failed:{exc}")
+            save_state(state)
+            logger.exception("[intel] news forum resolution failed guild=%s: %s", guild_id, exc)
+            return
         if resolved_forum_channel_id is None:
             missing_forum += 1
             continue
@@ -353,7 +360,13 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        try:
+            resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        except Exception as exc:
+            set_job_last_run(state, "eod_summary", "failed", f"forum-resolution-failed:{exc}")
+            save_state(state)
+            logger.exception("[intel] eod forum resolution failed guild=%s: %s", guild_id, exc)
+            return
         if resolved_forum_channel_id is None:
             missing_forum += 1
             continue

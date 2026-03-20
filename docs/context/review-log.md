@@ -1,5 +1,18 @@
 # Review Log
 
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10`의 Codex review가 forum resolution helper의 예외 처리 경계를 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 `client.fetch_channel()` 실패를 전부 `None`으로 바꿔, transient Discord API 장애도 `missing_forum`/`no-target-forums`로 오인할 수 있었다.
+2. 그 결과 `_run_news_job()`와 `_run_eod_job()`는 운영 장애를 `skipped`처럼 보이게 만들어 `/health`와 run log에서 실제 outage를 숨길 수 있었다.
+- Resolution:
+1. `discord.NotFound`만 missing channel로 처리하고, 다른 fetch 오류는 job 레벨까지 전파하도록 helper를 좁혔다.
+2. 뉴스/EOD job은 forum resolution API 오류를 잡아 `forum-resolution-failed:...` detail과 함께 `failed` status를 남기도록 바꿨다.
+3. 뉴스/EOD 각각에 forum resolution API failure 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py -k "forum_resolution or fallback_forum or news_job or eod_job"` 통과 (`20 passed, 4 deselected`)
+- Status: done
+
 ## 2026-03-19
 - Context: PR `#9`의 여섯 번째 Codex review가 `news_briefing`과 `trend_briefing`도 partial guild post failure를 `ok`로 숨기고 있다고 지적했다.
 - Finding:

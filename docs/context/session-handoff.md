@@ -1,5 +1,17 @@
 # Session Handoff
 
+## 2026-03-20
+- Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
+- Current state:
+1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.
+2. `bot/features/intel_scheduler.py`는 forum channel resolution 중 `fetch_channel()` API 오류를 더 이상 `missing_forum`으로 숨기지 않고, 뉴스/EOD job을 `failed`로 기록한다.
+3. `tests/integration/test_intel_scheduler_logic.py`는 뉴스/EOD forum resolution API failure 회귀를 포함한다.
+4. 관련 타깃 테스트는 `20 passed, 4 deselected`다.
+- Next:
+1. PR `#10`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `develop`에 merge하고 sync branch를 정리한다.
+- Status: open
+
 ## 2026-03-19
 - Context: release PR `#9`의 여섯 번째 review까지 반영해 `news_briefing`과 `trend_briefing` partial guild failure false positive도 닫았다.
 - Current state:
