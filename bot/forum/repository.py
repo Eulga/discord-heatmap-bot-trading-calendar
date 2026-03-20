@@ -1,20 +1,43 @@
 import json
 from typing import Any, cast
 
-from bot.app.settings import STATE_FILE
+from bot.app.settings import LEGACY_STATE_FILE, STATE_FILE
 from bot.app.types import AppState, CommandState, DailyPostEntry
 from bot.common.fs import atomic_write_json
+from bot.intel.instrument_registry import normalize_stored_watch_symbol
 
 
 def _empty_state() -> AppState:
     return {"commands": {}, "guilds": {}}
 
 
+def _migrate_legacy_state_file() -> None:
+    if STATE_FILE == LEGACY_STATE_FILE:
+        return
+    if STATE_FILE.exists() or not LEGACY_STATE_FILE.exists():
+        return
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LEGACY_STATE_FILE.replace(STATE_FILE)
+    except OSError:
+        return
+
+
+def _get_state_file_for_read() -> Any:
+    _migrate_legacy_state_file()
+    if STATE_FILE.exists():
+        return STATE_FILE
+    if LEGACY_STATE_FILE.exists():
+        return LEGACY_STATE_FILE
+    return STATE_FILE
+
+
 def load_state() -> AppState:
-    if not STATE_FILE.exists():
+    state_file = _get_state_file_for_read()
+    if not state_file.exists():
         return _empty_state()
     try:
-        with STATE_FILE.open("r", encoding="utf-8") as f:
+        with state_file.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return _empty_state()
@@ -34,6 +57,11 @@ def load_state() -> AppState:
 
 def save_state(state: AppState) -> None:
     atomic_write_json(STATE_FILE, state)
+    if LEGACY_STATE_FILE != STATE_FILE and LEGACY_STATE_FILE.exists():
+        try:
+            LEGACY_STATE_FILE.unlink()
+        except OSError:
+            pass
 
 
 def get_command_state(state: AppState, command_key: str) -> CommandState:
@@ -175,15 +203,79 @@ def list_guild_ids(state: AppState) -> list[int]:
     return ids
 
 
-def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
-    normalized = symbol.strip().upper()
-    if not normalized:
-        return False
+def _normalize_watch_state(state: AppState, guild_id: int) -> list[str]:
     cfg = _get_guild_config(state, guild_id)
     watchlist = cfg.setdefault("watchlist", [])
     if not isinstance(watchlist, list):
         watchlist = []
         cfg["watchlist"] = watchlist
+
+    normalized_list: list[str] = []
+    seen: set[str] = set()
+    migrated: dict[str, str] = {}
+
+    for item in watchlist:
+        if not isinstance(item, str):
+            continue
+        raw = item.strip().upper()
+        if not raw:
+            continue
+        normalized, _warning = normalize_stored_watch_symbol(raw)
+        target = normalized or raw
+        if raw != target:
+            migrated[raw] = target
+        if target in seen:
+            continue
+        seen.add(target)
+        normalized_list.append(target)
+
+    normalized_list.sort()
+    if watchlist != normalized_list:
+        cfg["watchlist"] = normalized_list
+    if migrated:
+        _migrate_watch_baseline_keys(state, guild_id, migrated)
+        _migrate_watch_cooldown_keys(state, guild_id, migrated)
+    return cast(list[str], cfg["watchlist"])
+
+
+def _migrate_watch_baseline_keys(state: AppState, guild_id: int, migrated: dict[str, str]) -> None:
+    watch_state = get_system_state(state).get("watch_baselines")
+    if not isinstance(watch_state, dict):
+        return
+    guild_map = watch_state.get(str(guild_id))
+    if not isinstance(guild_map, dict):
+        return
+    for old, new in migrated.items():
+        value = guild_map.pop(old, None)
+        if value is None or new in guild_map:
+            continue
+        guild_map[new] = value
+
+
+def _migrate_watch_cooldown_keys(state: AppState, guild_id: int, migrated: dict[str, str]) -> None:
+    cooldowns = _get_guild_config(state, guild_id).get("watch_alert_cooldowns")
+    if not isinstance(cooldowns, dict):
+        return
+    moved: dict[str, str] = {}
+    for key, hit_at in list(cooldowns.items()):
+        if not isinstance(key, str) or not isinstance(hit_at, str):
+            continue
+        symbol, direction = key.rsplit(":", maxsplit=1) if ":" in key else (key, "")
+        new_symbol = migrated.get(symbol.upper())
+        if not new_symbol:
+            continue
+        new_key = f"{new_symbol}:{direction}" if direction else new_symbol
+        if new_key not in cooldowns:
+            moved[new_key] = hit_at
+        cooldowns.pop(key, None)
+    cooldowns.update(moved)
+
+
+def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    if not normalized:
+        return False
+    watchlist = _normalize_watch_state(state, guild_id)
     if normalized in watchlist:
         return False
     watchlist.append(normalized)
@@ -192,22 +284,18 @@ def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
 
 
 def remove_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
-    normalized = symbol.strip().upper()
-    cfg = _get_guild_config(state, guild_id)
-    watchlist = cfg.get("watchlist")
-    if not isinstance(watchlist, list):
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    watchlist = _normalize_watch_state(state, guild_id)
+    raw = symbol.strip().upper()
+    target = normalized or raw
+    if target not in watchlist and raw not in watchlist:
         return False
-    if normalized not in watchlist:
-        return False
-    watchlist.remove(normalized)
+    watchlist.remove(target if target in watchlist else raw)
     return True
 
 
 def list_watch_symbols(state: AppState, guild_id: int) -> list[str]:
-    watchlist = _get_guild_config(state, guild_id).get("watchlist")
-    if not isinstance(watchlist, list):
-        return []
-    return [x for x in watchlist if isinstance(x, str)]
+    return [x for x in _normalize_watch_state(state, guild_id) if isinstance(x, str)]
 
 
 def get_system_state(state: AppState) -> dict[str, Any]:
@@ -299,7 +387,8 @@ def get_watch_baseline(state: AppState, guild_id: int, symbol: str) -> float | N
     guild_map = watch_state.get(str(guild_id))
     if not isinstance(guild_map, dict):
         return None
-    value = guild_map.get(symbol.upper())
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    value = guild_map.get((normalized or symbol.strip().upper()))
     if not isinstance(value, dict):
         return None
     price = value.get("price")
@@ -313,7 +402,8 @@ def set_watch_baseline(state: AppState, guild_id: int, symbol: str, price: float
     guild_map = watch_state.setdefault(str(guild_id), {})
     if not isinstance(guild_map, dict):
         return
-    guild_map[symbol.upper()] = {"price": float(price), "checked_at": checked_at}
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    guild_map[(normalized or symbol.strip().upper())] = {"price": float(price), "checked_at": checked_at}
 
 
 def cleanup_news_dedup(state: AppState, keep_recent_days: int = 7) -> None:

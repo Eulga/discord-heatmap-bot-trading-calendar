@@ -1,5 +1,48 @@
 # Design Decisions
 
+## 2026-03-20
+- Context: KIS 단독으로는 watch 종목명 검색, 뉴스 링크 품질, 보조 reference 확장성이 부족했고, 사용자는 `watch`를 우선 살리되 `eod_summary`는 잠정 중단하길 원했다.
+- Decision: 외부 인텔 스택은 역할 분리형으로 간다. `watch 이름 검색`은 live vendor search 대신 local instrument registry를 쓰고, 시세는 `KIS primary`, 뉴스는 `Naver domestic + Marketaux global`, 보조 정규화는 `Polygon/Twelve Data/OpenFIGI` 슬롯으로 분리한다.
+- Why:
+1. KIS는 quote에는 강하지만 자유검색형 symbol master와 기사 URL 기반 뉴스 계약이 약해, 모든 역할을 한 벤더에 몰면 command UX와 news 품질이 같이 흔들린다.
+2. `watch add`는 slash command에서 빠르고 안정적으로 후보를 보여주는 게 중요하므로, 외부 rate limit과 auth에 직접 걸리는 live search보다 generated registry + autocomplete가 더 운영 친화적이다.
+3. 국내 상장사와 미국 상장사의 authoritative source가 다르기 때문에, `OpenDART + SEC`를 symbol master base로 두고 vendor별 mapping은 별도 필드로 보관하는 편이 장기적으로 덜 묶인다.
+4. 사용자는 확장형 스택을 원했지만 hot path 복잡도는 낮추길 원했으므로, `Polygon`, `Twelve Data`, `OpenFIGI`는 즉시 core path에 넣지 않고 optional slot으로 여는 쪽이 균형이 좋다.
+5. `eod_summary`는 현재 요구 우선순위에서 밀렸기 때문에, half-built 확장을 이어가기보다 명시적으로 pause 해 두는 편이 운영 판단 기준이 더 선명하다.
+- Impact:
+1. watch 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 통일되고, legacy raw symbol은 점진적으로 canonical로 승격된다.
+2. instrument registry는 repo에 체크인된 generated artifact를 runtime이 읽고, raw source는 `docs/references/external/`에만 둔다.
+3. global news 실제 운영 전환의 기본선은 `NEWS_PROVIDER_KIND=hybrid`이며, source-status는 configured/disabled/paused semantics를 합성해서 보여준다.
+4. `Polygon`, `Twelve Data`, `OpenFIGI`는 이번 단계에서 hot path fail-open 보조 슬롯으로만 열리고, 다음 단계에서 quote fallback/reconciliation job으로 확장한다.
+5. `eod_summary`는 기본 설정상 비활성화되고, spec/상태 화면에도 pause 상태를 드러낸다.
+- Status: accepted
+
+## 2026-03-20
+- Context: runtime 상태 파일이 heatmap 이미지 캐시 디렉터리(`data/heatmaps/`) 안에 섞여 있고, 외부 참고문서도 저장 위치가 분산돼 있어 운영 파일과 참고 자료가 헷갈리기 쉬웠다.
+- Decision: runtime state는 `data/state/state.json`으로 분리하고, 외부 벤더 참고문서는 `docs/references/external/` 한 곳에 모은다.
+- Why:
+1. `state.json`은 이미지 캐시와 성격이 달라서 `data/heatmaps/` 아래에 있으면 캡처 결과물과 운영 상태가 뒤섞여 보인다.
+2. 상태 파일을 별도 디렉터리로 분리하면 런타임 상태, 로그, 이미지 캐시를 목적별로 구분해 관리하기 쉬워진다.
+3. 외부 참고문서는 내부 설계/리포트 문서와 달리 원문 보관 성격이 강하므로, `docs/context`, `docs/specs`, `docs/reports`와 분리된 단일 보관 위치가 있는 편이 탐색이 쉽다.
+- Impact:
+1. 앱 state 기본 경로는 `data/state/state.json`이 되고, 기존 `data/heatmaps/state.json`은 레거시 마이그레이션 대상으로 취급한다.
+2. 외부 API 벤더 문서, 원문 가이드, 비교용 스프레드시트는 앞으로 `docs/references/external/` 아래에 둔다.
+3. 내부 문서(`context/specs/reports`)와 외부 원문 문서가 역할별로 분리된다.
+- Status: accepted
+
+## 2026-03-20
+- Context: `develop -> master` 릴리스를 별도 release branch로 진행한 뒤 `master`에만 squash merge되면서, 같은 수정이 `develop`에는 다시 sync PR `#10`으로 역반영돼야 했다.
+- Decision: 앞으로 `master` 릴리스는 별도 release branch를 만들지 않고, `develop` 브랜치에서 직접 `master` 대상으로 PR을 연다.
+- Why:
+1. 이번 흐름에서 release branch가 `master`에만 들어가고 `develop`에는 자동 반영되지 않아, 같은 변경을 다시 `develop`으로 되돌려 넣는 추가 작업과 리뷰 루프가 필요했다.
+2. 이 저장소의 실질적인 작업 기준선은 `develop`이므로, 릴리스도 `develop` 자신을 source branch로 쓰는 편이 기준선 관리가 단순하다.
+3. 별도 release branch는 특별한 release-only patch가 있을 때만 의미가 있고, 평소에는 브랜치 분기와 역동기화 비용이 더 크다.
+- Impact:
+1. 이후 `develop에서 master로 올려` 류 요청은 `develop -> master` 직접 PR을 기본 경로로 사용한다.
+2. `master`로만 먼저 들어간 수정이 생기지 않아, release 후 `develop` 재동기화 작업 빈도가 줄어든다.
+3. 예외적으로 release branch가 필요하면, 왜 direct PR로 안 되는지와 release 후 `develop` 정리 계획을 같이 남겨야 한다.
+- Status: accepted
+
 ## 2026-03-19
 - Context: 사용자가 보수적인 경제 뉴스 브리핑은 유지하되, 따로 읽을 수 있는 `트렌드 테마 뉴스` 게시글을 원했다.
 - Decision: 트렌드 테마는 기존 국내/해외 뉴스 브리핑에 섞지 않고, 같은 스케줄에서 별도 `trendbriefing` thread 하나로 생성한다.

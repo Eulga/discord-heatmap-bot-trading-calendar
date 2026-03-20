@@ -7,6 +7,8 @@ from bot.intel.providers.market import (
 )
 from bot.intel.providers.news import (
     ErrorNewsProvider,
+    HybridNewsProvider,
+    MarketauxNewsProvider,
     MockNewsProvider,
     NaverNewsProvider,
     NewsAnalysis,
@@ -28,6 +30,8 @@ __all__ = [
     "TrendThemeReport",
     "MockNewsProvider",
     "NaverNewsProvider",
+    "MarketauxNewsProvider",
+    "HybridNewsProvider",
     "ErrorNewsProvider",
     "Quote",
     "EodSummary",

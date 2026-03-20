@@ -1,6 +1,24 @@
 # Review Log
 
 ## 2026-03-20
+- Context: 운영 중이던 15:35 자동 `kheatmap` 글이 코스닥 렌더 타임아웃으로 코스피만 게시된 뒤, 같은 날 수동 `/kheatmap`이 기존 thread 수정 대신 새 글을 만든 원인을 조사했다.
+- Finding:
+1. 현재 코드 기준 수동/자동 `kheatmap`은 모두 `command_key="kheatmap"`로 같은 일자 state를 읽고, 오늘자 `thread_id`/`starter_message_id`가 있으면 기존 글을 수정하고 없거나 fetch가 실패할 때만 새 thread를 만든다.
+2. partial render 자체는 새 글 생성 원인이 아니다. `execute_heatmap_for_guild()`는 성공 이미지가 1개라도 있으면 계속 `upsert_daily_post()`를 호출하고, 관련 통합 테스트도 `kosdaq` timeout이 있어도 기존 글 update 경로를 타는 계약을 검증한다.
+3. 실제 런타임은 `2026-03-20 09:14`에 시작됐고, state 파일을 `data/state/state.json`으로 옮긴 커밋은 `2026-03-20 10:37`에 들어갔다. 즉 운영 중이던 봇은 state 경로 변경 이전 코드를 메모리에 들고 계속 실행 중이었다.
+4. 로컬 최신 state인 `data/state/state.json`에는 오늘자 `kheatmap` post record가 없고 `auto_screenshot_enabled`도 `false`라서, 15:35 자동 게시를 만든 state로 볼 수 없다.
+5. 반대로 레거시 경로 `data/heatmaps/state.json`은 조사 시점에 새로 재생성돼 있었고 내용도 거의 비어 있었다. 이건 아직 레거시 state 경로를 바라보는 런타임이 존재하거나, 운영 중 파일/브랜치 전환으로 state 연속성이 깨졌다는 강한 신호다.
+- Conclusion:
+1. 새 글 생성의 직접 조건은 `오늘자 daily post record를 못 찾았거나 thread/message fetch가 실패한 것`이고, 증거상 더 가능성 높은 쪽은 `스케줄러가 글을 만든 런타임/state와 수동 커맨드가 참조한 state 관점이 갈라진 것`이다.
+2. 특히 봇을 내리지 않은 채 같은 워크스페이스에서 브랜치 checkout/커밋/상태 파일 경로 변경을 진행한 것이 이번 drift를 만든 핵심 운영 리스크로 보인다.
+- Evidence:
+1. `Get-CimInstance Win32_Process` 기준 운영 봇 프로세스 start time은 `2026-03-20 09:14:36`이었다.
+2. `git log --format="%h %ad %s" --date=iso-strict -n 20` 기준 state 경로 이동 커밋 `9e4b428 Reorganize state storage and reference docs`는 `2026-03-20T10:37:55+09:00`였다.
+3. `data/state/state.json`에는 `commands.kheatmap.daily_posts_by_guild["332110589969039360"]`가 `2026-03-16`까지만 있고, guild config의 `auto_screenshot_enabled`는 `false`였다.
+4. `data/heatmaps/state.json`은 조사 시점에 creation/last write가 최신 시각으로 갱신돼 있었고, `watch_poll=no-watch-symbols`만 들어 있는 빈 state였다.
+- Status: done
+
+## 2026-03-20
 - Context: `master -> develop` sync PR `#10`의 Codex review가 forum resolution helper의 예외 처리 경계를 지적했다.
 - Finding:
 1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 `client.fetch_channel()` 실패를 전부 `None`으로 바꿔, transient Discord API 장애도 `missing_forum`/`no-target-forums`로 오인할 수 있었다.

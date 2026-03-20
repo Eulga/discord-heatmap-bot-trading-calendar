@@ -1,6 +1,61 @@
 # Session Handoff
 
 ## 2026-03-20
+- Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
+- Current state:
+1. 코드 계약상 이 현상은 `오늘자 kheatmap state record 부재` 또는 `기존 thread/message fetch 실패`일 때만 생긴다.
+2. `kosdaq` render timeout 자체는 원인이 아니다. 성공 이미지가 하나라도 있으면 heatmap runner는 그대로 forum upsert를 수행한다.
+3. 운영 봇 프로세스는 `2026-03-20 09:14`에 시작됐고, state 경로를 `data/state/state.json`으로 옮긴 커밋은 `2026-03-20 10:37`에 들어갔다. 즉 실제 런타임은 state 경로 변경 전 코드를 계속 들고 있었을 가능성이 높다.
+4. 로컬 최신 `data/state/state.json`에는 오늘자 `kheatmap` record가 없고 `auto_screenshot_enabled=false`라서, 15:35 자동 게시를 만든 state로 설명되지 않는다.
+5. 레거시 `data/heatmaps/state.json`은 조사 시점에 비어 있는 형태로 다시 생성돼 있었고, 아직 레거시 state 경로를 바라보는 런타임/state drift가 있음을 시사한다.
+- Next:
+1. 운영 배포 시에는 봇 프로세스를 완전히 내린 뒤 브랜치 checkout/코드 변경/상태 마이그레이션을 수행한다.
+2. 실제 운영 재기동 후에는 `STATE_FILE` 경로와 오늘자 `kheatmap` state entry 기록을 로그로 남기도록 운영 체크를 추가하는 편이 안전하다.
+3. 같은 Discord 토큰으로 다른 호스트/세션이 동시에 떠 있는지도 한 번 점검한다.
+- Status: open
+
+## 2026-03-20
+- Context: KIS 단독 전략 보완을 위해 watch/name 중심의 local instrument registry, hybrid news, paused EOD 기준선을 구현했다.
+- Current state:
+1. `bot/intel/data/instrument_registry.json` generated artifact가 추가됐고, 현재 registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건으로 총 7,538건이다.
+2. `/watch add`, `/watch remove`는 이제 종목명/코드/티커를 모두 받고 autocomplete를 지원하며, 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)이다.
+3. `bot/forum/repository.py`는 legacy watchlist/baseline/cooldown 키를 읽을 때 canonical symbol로 자동 승격한다.
+4. watch alert 메시지와 `/watch list`는 `이름 + canonical symbol` 형식으로 보여준다.
+5. news provider는 `NEWS_PROVIDER_KIND=marketaux|hybrid`를 지원하고, `hybrid`는 국내 Naver + 해외 Marketaux 조합이다.
+6. `/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해 보여준다.
+7. `EOD_SUMMARY_ENABLED` 기본값은 이제 `false`고, EOD는 문서/상태상 pause 기준으로 정리됐다.
+8. 전체 테스트는 `.\.venv\Scripts\python.exe -m pytest -q` 기준 전부 통과했다.
+- Next:
+1. 국내 종목명 커버리지를 full master로 넓히려면 `DART_API_KEY`를 넣고 `scripts/build_instrument_registry.py`를 다시 실행한다.
+2. `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 실제 값으로 넣고 global news fetch 품질을 한 번 실반영으로 점검한다.
+3. `Polygon`을 US fallback quote/reference로 붙이고, `OpenFIGI`/`Twelve Data`는 reconciliation/future EOD slot으로 이어 붙인다.
+- Status: open
+
+## 2026-03-20
+- Context: runtime state 파일과 외부 참고문서 위치를 정리하는 구조 변경을 반영했다.
+- Current state:
+1. 앱 state 기본 경로는 이제 `data/state/state.json`이다.
+2. `bot/forum/repository.py`는 기존 `data/heatmaps/state.json`이 남아 있으면 새 경로로 자동 마이그레이션한다.
+3. 외부 벤더 문서/스프레드시트/PDF는 앞으로 `docs/references/external/` 아래에 모아 둔다.
+4. 워크스페이스에 남아 있던 기존 `data/heatmaps/state.json`과 외부 참고 xlsx도 각각 새 위치 기준으로 정리했다.
+5. 관련 문서 기준도 `AGENTS.md`, `README.md`, `docs/context/goals.md`까지 새 경로로 맞췄고, 전체 테스트는 `89 passed, 2 deselected`다.
+- Next:
+1. 새 외부 참고문서가 생기면 `docs/references/external/` 아래에만 보관한다.
+- Status: done
+
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10`까지 마무리한 뒤, 앞으로의 릴리스/약속 문서화 규칙을 정리했다.
+- Current state:
+1. `PR #10`은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`에서 `develop`으로 squash merge 완료됐고, 현재 로컬 기준 브랜치는 `develop`이다.
+2. `develop` 최신 상태는 `master` 릴리스 수정과 후속 scheduler 보정까지 포함하며, 전체 테스트는 `88 passed, 2 deselected`다.
+3. 앞으로 `develop -> master` 릴리스는 별도 release branch를 만들지 않고 `develop` 브랜치에서 직접 `master` 대상으로 PR을 연다.
+4. 새 운영 약속이나 브랜치 전략 변경은 앞으로 `AGENTS.md`와 `docs/context/*`에 함께 남기는 것을 기본 규칙으로 삼는다.
+- Next:
+1. 다음 릴리스 요청이 오면 `develop`에서 바로 `master`로 direct PR을 연다.
+2. 다음 세션에서도 새 약속이 생기면 공통 규칙은 `AGENTS.md`, 이유는 `design-decisions.md`, 실행 결과는 `development-log.md`, 최신 상태는 `session-handoff.md`에 남긴다.
+- Status: open
+
+## 2026-03-20
 - Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
 - Current state:
 1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.

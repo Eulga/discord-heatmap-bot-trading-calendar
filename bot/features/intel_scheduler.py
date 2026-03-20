@@ -10,6 +10,10 @@ from bot.app.settings import (
     EOD_TARGET_FORUM_ID,
     INTEL_API_RETRY_COUNT,
     INTEL_API_TIMEOUT_SECONDS,
+    MARKETAUX_API_TOKEN,
+    MARKETAUX_NEWS_COUNTRIES,
+    MARKETAUX_NEWS_GLOBAL_QUERIES,
+    MARKETAUX_NEWS_LANGUAGE,
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
     NAVER_NEWS_DOMESTIC_QUERIES,
@@ -58,9 +62,12 @@ from bot.forum.repository import (
     set_watch_baseline,
 )
 from bot.forum.service import upsert_daily_post
+from bot.intel.instrument_registry import format_watch_symbol
 from bot.intel.providers.market import MockEodSummaryProvider, MockMarketDataProvider
 from bot.intel.providers.news import (
     ErrorNewsProvider,
+    HybridNewsProvider,
+    MarketauxNewsProvider,
     MockNewsProvider,
     NaverNewsProvider,
     NewsAnalysis,
@@ -95,6 +102,47 @@ def _build_news_provider() -> NewsProvider:
             timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
             retry_count=INTEL_API_RETRY_COUNT,
         )
+    if NEWS_PROVIDER_KIND == "marketaux":
+        if not MARKETAUX_API_TOKEN:
+            return ErrorNewsProvider("marketaux-api-token-missing")
+        return MarketauxNewsProvider(
+            api_token=MARKETAUX_API_TOKEN,
+            global_query=MARKETAUX_NEWS_GLOBAL_QUERIES,
+            countries=MARKETAUX_NEWS_COUNTRIES,
+            language=MARKETAUX_NEWS_LANGUAGE,
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+    if NEWS_PROVIDER_KIND == "hybrid":
+        if not NAVER_NEWS_CLIENT_ID or not NAVER_NEWS_CLIENT_SECRET:
+            return ErrorNewsProvider("naver-news-credentials-missing")
+        if not MARKETAUX_API_TOKEN:
+            return ErrorNewsProvider("marketaux-api-token-missing")
+        domestic_provider = NaverNewsProvider(
+            client_id=NAVER_NEWS_CLIENT_ID,
+            client_secret=NAVER_NEWS_CLIENT_SECRET,
+            domestic_query=NAVER_NEWS_DOMESTIC_QUERIES,
+            global_query=[],
+            domestic_stock_query=NAVER_NEWS_DOMESTIC_STOCK_QUERIES,
+            global_stock_query=[],
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+        global_provider = MarketauxNewsProvider(
+            api_token=MARKETAUX_API_TOKEN,
+            global_query=MARKETAUX_NEWS_GLOBAL_QUERIES,
+            countries=MARKETAUX_NEWS_COUNTRIES,
+            language=MARKETAUX_NEWS_LANGUAGE,
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+        return HybridNewsProvider(domestic_provider=domestic_provider, global_provider=global_provider)
     return ErrorNewsProvider(f"unsupported-news-provider:{NEWS_PROVIDER_KIND}")
 
 
@@ -231,8 +279,16 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         analysis = await _analyze_news_provider(news_provider, now)
         items = list(analysis.briefing_items)
         set_provider_status(state, "news_provider", True, f"fetched={len(items)}")
+        if NEWS_PROVIDER_KIND in {"naver", "hybrid"}:
+            set_provider_status(state, "naver_news", True, f"fetched={len([item for item in items if item.region == 'domestic'])}")
+        if NEWS_PROVIDER_KIND in {"marketaux", "hybrid"}:
+            set_provider_status(state, "marketaux_news", True, f"fetched={len([item for item in items if item.region == 'global'])}")
     except Exception as exc:
         set_provider_status(state, "news_provider", False, str(exc))
+        if "naver" in str(exc):
+            set_provider_status(state, "naver_news", False, str(exc))
+        if "marketaux" in str(exc):
+            set_provider_status(state, "marketaux_news", False, str(exc))
         set_job_last_run(state, "news_briefing", "failed", str(exc))
         set_job_last_run(state, "trend_briefing", "failed", str(exc))
         save_state(state)
@@ -543,9 +599,10 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             if should_send:
                 alert_attempts += 1
                 emoji = "📈" if direction == "up" else "📉"
+                display_symbol = format_watch_symbol(symbol)
                 try:
                     await channel.send(
-                        f"{emoji} `{symbol}` 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
+                        f"{emoji} {display_symbol} 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
                     )
                     sent += 1
                 except Exception:

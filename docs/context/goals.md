@@ -47,7 +47,7 @@
 - Done when:
 1. 로그로 `reason=holiday` / `reason=calendar-check-failed` / success 흐름을 구분 가능
 2. 동일 토큰 다중 실행 여부와 배포 이미지 상태를 점검
-3. 필요 시 `data/heatmaps/state.json`과 런타임 로그로 마지막 실행 상태를 추적 가능
+3. 필요 시 `data/state/state.json`과 런타임 로그로 마지막 실행 상태를 추적 가능
 - Status: active
 
 ### 5) 운영 가시성 강화

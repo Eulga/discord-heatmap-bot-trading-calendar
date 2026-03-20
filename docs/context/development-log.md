@@ -1,6 +1,52 @@
 # Development Log
 
 ## 2026-03-20
+- Context: 사용자가 KIS 단독 전략의 한계를 보완하되, 당장은 watch 종목명 추가를 우선하고 `eod_summary`는 pause 하길 원했다.
+- Change:
+1. `bot/intel/instrument_registry.py`, `scripts/build_instrument_registry.py`, `bot/intel/data/instrument_registry*.json`을 추가해 local instrument registry 계층과 generated artifact 흐름을 만들었다.
+2. 현재 generated registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건을 합친 7,538건이며, watch 입력은 이를 기준으로 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 정규화된다.
+3. `bot/forum/repository.py`는 watchlist/baseline/cooldown의 legacy 값(`005930`, bare US ticker)을 읽을 때 canonical symbol로 자동 승격하고 상태 키도 함께 마이그레이션한다.
+4. `bot/features/watch/command.py`는 `/watch add`, `/watch remove`에 autocomplete와 ambiguity handling을 추가했고, `/watch list`와 watch alert는 이제 `이름 + canonical symbol` 형식으로 보여준다.
+5. `bot/intel/providers/news.py`에는 `MarketauxNewsProvider`와 `HybridNewsProvider`를 추가했고, `bot/features/intel_scheduler.py`는 `NEWS_PROVIDER_KIND=marketaux|hybrid`와 source별 provider status 기록을 지원한다.
+6. `bot/features/status/command.py`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해서 보여준다.
+7. `bot/app/settings.py`, `.env.example`, `README.md`, `docs/specs/external-intel-api-spec.md`, `AGENTS.md`를 새 provider key, registry 흐름, watch name search, `EOD_SUMMARY_ENABLED=false` 기본값에 맞춰 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe scripts/build_instrument_registry.py` 기준 generated registry artifact 생성 성공 (`records=7538`)
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_instrument_registry.py tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/unit/test_status_command.py tests/unit/test_news_provider.py tests/integration/test_intel_scheduler_logic.py -q` 기준 전체 통과
+3. `.\.venv\Scripts\python.exe -m pytest -q` 기준 전체 통과
+- Next:
+1. DART API key를 넣고 registry를 다시 생성하면 국내 종목명 커버리지를 full master로 넓힐 수 있다.
+2. 실제 운영 전 `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 넣고 global news fetch 품질을 1회 실반영 검증한다.
+3. `Polygon`/`Twelve Data`/`OpenFIGI`는 현재 source-status slot만 열려 있으므로, 다음 단계에서 US fallback quote와 reconciliation job으로 확장한다.
+- Status: done
+
+## 2026-03-20
+- Context: 사용자가 runtime state 파일은 heatmap 캐시와 분리하고, 외부 참고문서는 한 디렉터리에 모이길 원했다.
+- Change:
+1. state 기본 경로를 `data/heatmaps/state.json`에서 `data/state/state.json`으로 옮겼다.
+2. `bot/forum/repository.py`는 새 경로를 기본으로 쓰되, 기존 `data/heatmaps/state.json`이 남아 있으면 자동으로 새 위치로 옮기도록 레거시 마이그레이션을 추가했다.
+3. `docs/references/external/README.md`를 추가해 외부 벤더 문서/스프레드시트/PDF의 단일 보관 위치를 만들었다.
+4. `.gitignore`, `AGENTS.md`, `README.md`, `docs/context/goals.md`를 새 state 경로와 외부 참고문서 위치 기준으로 갱신했다.
+5. 워크스페이스에 남아 있던 `data/heatmaps/state.json`과 외부 참고 xlsx도 각각 `data/state/state.json`, `docs/references/external/` 기준으로 정리했다.
+- Verification:
+1. `tests/unit/test_state_atomic.py`에 legacy state 파일이 새 경로로 마이그레이션되는 회귀 테스트를 추가했다.
+2. `.\.venv\Scripts\python.exe -m pytest` 기준 `89 passed, 2 deselected`
+- Status: done
+
+## 2026-03-20
+- Context: 사용자가 앞으로의 약속은 모두 문서화하고, 특히 `develop -> master` 릴리스는 release branch 없이 direct PR로 고정하길 원했다.
+- Change:
+1. `AGENTS.md`에 새 운영 약속은 공통 규칙과 컨텍스트 문서에 함께 남긴다는 문서화 규칙을 추가했다.
+2. 같은 문서에 `develop -> master` 릴리스는 앞으로 `develop`에서 바로 `master`로 PR을 연다는 브랜치 운영 약속을 추가했다.
+3. `docs/context/design-decisions.md`에 이번 release branch 역동기화 경험을 근거로 direct PR 정책을 설계 결정으로 남겼다.
+4. `docs/context/session-handoff.md`에 `PR #10` merge 완료와 현재 direct PR 약속을 최신 상태로 반영했다.
+- Verification:
+1. 문서 간 기준이 서로 모순되지 않도록 `AGENTS.md`, `docs/context/design-decisions.md`, `docs/context/session-handoff.md`를 교차 확인했다.
+- Next:
+1. 다음 `develop -> master` 릴리스부터는 별도 release branch를 만들지 않고 direct PR 흐름으로 진행한다.
+- Status: done
+
+## 2026-03-20
 - Context: `master -> develop` sync PR `#10` review에서 forum channel resolution API 오류를 `missing_forum`으로 숨기지 말아야 한다는 P1 finding이 나왔다.
 - Change:
 1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 이제 `discord.NotFound`만 진짜 missing channel로 취급하고, 다른 `fetch_channel()` 오류는 그대로 상위로 올린다.
