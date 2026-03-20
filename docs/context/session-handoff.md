@@ -1,6 +1,20 @@
 # Session Handoff
 
 ## 2026-03-20
+- Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
+- Current state:
+1. 코드 계약상 이 현상은 `오늘자 kheatmap state record 부재` 또는 `기존 thread/message fetch 실패`일 때만 생긴다.
+2. `kosdaq` render timeout 자체는 원인이 아니다. 성공 이미지가 하나라도 있으면 heatmap runner는 그대로 forum upsert를 수행한다.
+3. 운영 봇 프로세스는 `2026-03-20 09:14`에 시작됐고, state 경로를 `data/state/state.json`으로 옮긴 커밋은 `2026-03-20 10:37`에 들어갔다. 즉 실제 런타임은 state 경로 변경 전 코드를 계속 들고 있었을 가능성이 높다.
+4. 로컬 최신 `data/state/state.json`에는 오늘자 `kheatmap` record가 없고 `auto_screenshot_enabled=false`라서, 15:35 자동 게시를 만든 state로 설명되지 않는다.
+5. 레거시 `data/heatmaps/state.json`은 조사 시점에 비어 있는 형태로 다시 생성돼 있었고, 아직 레거시 state 경로를 바라보는 런타임/state drift가 있음을 시사한다.
+- Next:
+1. 운영 배포 시에는 봇 프로세스를 완전히 내린 뒤 브랜치 checkout/코드 변경/상태 마이그레이션을 수행한다.
+2. 실제 운영 재기동 후에는 `STATE_FILE` 경로와 오늘자 `kheatmap` state entry 기록을 로그로 남기도록 운영 체크를 추가하는 편이 안전하다.
+3. 같은 Discord 토큰으로 다른 호스트/세션이 동시에 떠 있는지도 한 번 점검한다.
+- Status: open
+
+## 2026-03-20
 - Context: KIS 단독 전략 보완을 위해 watch/name 중심의 local instrument registry, hybrid news, paused EOD 기준선을 구현했다.
 - Current state:
 1. `bot/intel/data/instrument_registry.json` generated artifact가 추가됐고, 현재 registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건으로 총 7,538건이다.
