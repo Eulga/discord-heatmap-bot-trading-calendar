@@ -4,10 +4,11 @@
 - Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
 - Current state:
 1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.
-2. `bot/features/intel_scheduler.py`는 forum channel resolution 중 `fetch_channel()` API 오류를 더 이상 `missing_forum`으로 숨기지 않고, 해당 guild만 failure로 집계한 채 다른 guild 처리를 계속한다.
-3. 뉴스/EOD run detail은 `forum_resolution_failures`를 남기고, 같은 run에 resolution 오류가 있으면 `failed`를 기록한다.
-4. `tests/integration/test_intel_scheduler_logic.py`는 뉴스/EOD forum resolution API failure와 mixed guild continuation 회귀를 포함한다.
-5. 관련 타깃 테스트는 `22 passed, 4 deselected`다.
+2. `bot/features/intel_scheduler.py`는 trading-day skip을 forum resolution보다 먼저 처리해, 휴장일에는 forum lookup 장애가 있어도 `holiday` semantics를 유지한다.
+3. forum channel resolution 중 `fetch_channel()` API 오류는 더 이상 `missing_forum`으로 숨기지 않고, 해당 guild만 failure로 집계한 채 다른 guild 처리를 계속한다.
+4. 뉴스/EOD run detail은 `forum_resolution_failures`를 남기고, 같은 run에 resolution 오류가 있으면 `failed`를 기록한다.
+5. `tests/integration/test_intel_scheduler_logic.py`는 뉴스/EOD forum resolution API failure, mixed guild continuation, holiday-precedence 회귀를 포함한다.
+6. 관련 타깃 테스트는 `24 passed, 4 deselected`다.
 - Next:
 1. PR `#10`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
 2. review가 clean이면 `develop`에 merge하고 sync branch를 정리한다.

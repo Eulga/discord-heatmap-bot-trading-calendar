@@ -155,6 +155,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    unresolved_pending_guilds: list[tuple[int, int]] = []
     completed_guilds = 0
     missing_forum = 0
     resolution_failures = 0
@@ -177,6 +178,31 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
+        unresolved_pending_guilds.append((guild_id, forum_channel_id))
+
+    if not unresolved_pending_guilds:
+        if resolution_failures > 0:
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "failed", detail)
+            set_job_last_run(state, "trend_briefing", "failed", detail)
+            save_state(state)
+            return
+        if missing_forum > 0 and completed_guilds == 0:
+            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
+        return
+
+    if NEWS_BRIEFING_TRADING_DAYS_ONLY:
+        is_trading_day, err = safe_check_krx_trading_day(now)
+        if is_trading_day is not True:
+            reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
+            set_job_last_run(state, "news_briefing", "skipped", reason)
+            set_job_last_run(state, "trend_briefing", "skipped", reason)
+            save_state(state)
+            return
+
+    for guild_id, forum_channel_id in unresolved_pending_guilds:
         try:
             resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
         except Exception as exc:
@@ -200,15 +226,6 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
             save_state(state)
         return
-
-    if NEWS_BRIEFING_TRADING_DAYS_ONLY:
-        is_trading_day, err = safe_check_krx_trading_day(now)
-        if is_trading_day is not True:
-            reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
-            set_job_last_run(state, "news_briefing", "skipped", reason)
-            set_job_last_run(state, "trend_briefing", "skipped", reason)
-            save_state(state)
-            return
 
     try:
         analysis = await _analyze_news_provider(news_provider, now)
@@ -356,6 +373,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    unresolved_pending_guilds: list[tuple[int, int]] = []
     completed_guilds = 0
     missing_forum = 0
     resolution_failures = 0
@@ -372,6 +390,31 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
+        unresolved_pending_guilds.append((guild_id, forum_channel_id))
+
+    if not unresolved_pending_guilds:
+        if resolution_failures > 0:
+            set_job_last_run(
+                state,
+                "eod_summary",
+                "failed",
+                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
+            )
+            save_state(state)
+            return
+        if missing_forum > 0 and completed_guilds == 0:
+            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
+        return
+
+    is_trading_day, err = safe_check_krx_trading_day(now)
+    if is_trading_day is not True:
+        reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
+        set_job_last_run(state, "eod_summary", "skipped", reason)
+        save_state(state)
+        return
+
+    for guild_id, forum_channel_id in unresolved_pending_guilds:
         try:
             resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
         except Exception as exc:
@@ -396,13 +439,6 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         if missing_forum > 0 and completed_guilds == 0:
             set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
             save_state(state)
-        return
-
-    is_trading_day, err = safe_check_krx_trading_day(now)
-    if is_trading_day is not True:
-        reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
-        set_job_last_run(state, "eod_summary", "skipped", reason)
-        save_state(state)
         return
 
     try:

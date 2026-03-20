@@ -6,13 +6,15 @@
 1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 `client.fetch_channel()` 실패를 전부 `None`으로 바꿔, transient Discord API 장애도 `missing_forum`/`no-target-forums`로 오인할 수 있었다.
 2. 그 결과 `_run_news_job()`와 `_run_eod_job()`는 운영 장애를 `skipped`처럼 보이게 만들어 `/health`와 run log에서 실제 outage를 숨길 수 있었다.
 - 3. 첫 번째 guild의 forum resolution 오류에서 job 전체를 바로 `return`하면, 다른 guild까지 같은 tick에서 함께 막히는 cross-guild outage가 생길 수 있었다.
+- 4. trading-day skip보다 forum resolution failure를 먼저 처리하면, 휴장일에도 `holiday` 대신 `failed`가 기록되는 false failure가 생길 수 있었다.
 - Resolution:
 1. `discord.NotFound`만 missing channel로 처리하고, 다른 fetch 오류는 job 레벨까지 전파하도록 helper를 좁혔다.
-2. 뉴스/EOD job은 forum resolution API 오류를 길드별 failure로 집계하면서, 다른 guild는 계속 처리하도록 바꿨다.
-3. 같은 run detail에 `forum_resolution_failures`를 남기고 `failed` status를 기록하도록 맞췄다.
-4. 뉴스/EOD 각각에 forum resolution API failure와 mixed guild continuation 회귀 테스트를 추가했다.
+2. 뉴스/EOD job은 거래일 skip 판정을 forum resolution보다 먼저 수행하도록 순서를 조정했다.
+3. forum resolution API 오류는 길드별 failure로 집계하면서, 다른 guild는 계속 처리하도록 바꿨다.
+4. 같은 run detail에 `forum_resolution_failures`를 남기고 `failed` status를 기록하도록 맞췄다.
+5. 뉴스/EOD 각각에 forum resolution API failure, mixed guild continuation, holiday-precedence 회귀 테스트를 추가했다.
 - Verification:
-1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py -k "forum_resolution or fallback_forum or news_job or eod_job"` 통과 (`22 passed, 4 deselected`)
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py -k "forum_resolution or fallback_forum or news_job or eod_job"` 통과 (`24 passed, 4 deselected`)
 - Status: done
 
 ## 2026-03-19
