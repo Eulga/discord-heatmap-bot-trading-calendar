@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.intel.providers import news as news_module
-from bot.intel.providers.news import NaverNewsProvider
+from bot.intel.providers.news import HybridNewsProvider, MarketauxNewsProvider, NewsAnalysis, NewsItem, NaverNewsProvider, TrendThemeReport
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -37,6 +37,24 @@ class StubNaverNewsProvider(NaverNewsProvider):
 
     def _request_json(self, query: str) -> dict:
         return self.payloads.get(query, {"items": []})
+
+
+class StubMarketauxNewsProvider(MarketauxNewsProvider):
+    def __init__(self, payloads: dict[str, dict], *, global_query: str | list[str] = "Nasdaq") -> None:
+        super().__init__(
+            api_token="marketaux-token",
+            global_query=global_query,
+            countries=["us"],
+            language=["en"],
+            limit_per_region=5,
+            max_age_hours=24,
+            timeout_seconds=5,
+            retry_count=0,
+        )
+        self.payloads = payloads
+
+    def _request_json(self, query: str) -> dict:
+        return self.payloads.get(query, {"data": []})
 
 
 @pytest.mark.asyncio
@@ -738,3 +756,54 @@ async def test_naver_news_provider_analyze_filters_noisy_theme_and_limits_extra_
     domestic_names = [theme.theme_name for theme in analysis.trend_report.for_region("domestic")]
     assert "바이오" not in domestic_names
     assert {"반도체", "건설/원전", "전력설비", "방산"}.issubset(domestic_names)
+
+
+@pytest.mark.asyncio
+async def test_marketaux_news_provider_normalizes_payload():
+    provider = StubMarketauxNewsProvider(
+        {
+            "Nasdaq": {
+                "data": [
+                    {
+                        "title": "Nasdaq climbs as Treasury yields cool",
+                        "url": "https://global.example.com/article-1",
+                        "source": "global.example.com",
+                        "published_at": "2026-03-19T04:20:00+00:00",
+                    }
+                ]
+            }
+        }
+    )
+
+    now = datetime(2026, 3, 19, 13, 50, tzinfo=KST)
+    items = await provider.fetch(now)
+
+    assert len(items) == 1
+    assert items[0].region == "global"
+    assert items[0].title == "Nasdaq climbs as Treasury yields cool"
+    assert items[0].link == "https://global.example.com/article-1"
+    assert items[0].source == "global.example.com"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_news_provider_merges_domestic_and_global_items():
+    now = datetime(2026, 3, 19, 13, 50, tzinfo=KST)
+
+    class DomesticProvider:
+        async def analyze(self, _now):
+            return NewsAnalysis(
+                briefing_items=(NewsItem("국내 기사", "https://kr.example.com/1", "kr.example.com", now, "domestic"),),
+                trend_report=TrendThemeReport(generated_at=now, themes_by_region={"domestic": (), "global": ()}),
+            )
+
+    class GlobalProvider:
+        async def analyze(self, _now):
+            return NewsAnalysis(
+                briefing_items=(NewsItem("해외 기사", "https://global.example.com/1", "global.example.com", now, "global"),),
+                trend_report=TrendThemeReport(generated_at=now, themes_by_region={"domestic": (), "global": ()}),
+            )
+
+    provider = HybridNewsProvider(DomesticProvider(), GlobalProvider())
+    analysis = await provider.analyze(now)
+
+    assert {item.region for item in analysis.briefing_items} == {"domestic", "global"}

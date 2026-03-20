@@ -95,6 +95,13 @@ NEWS_BRIEFING_ENABLED = _env_bool("NEWS_BRIEFING_ENABLED", True)
 NEWS_BRIEFING_TIME = os.getenv("NEWS_BRIEFING_TIME", "07:30").strip() or "07:30"
 NEWS_BRIEFING_TRADING_DAYS_ONLY = _env_bool("NEWS_BRIEFING_TRADING_DAYS_ONLY", False)
 NEWS_PROVIDER_KIND = os.getenv("NEWS_PROVIDER_KIND", "mock").strip().lower() or "mock"
+DART_API_KEY = os.getenv("DART_API_KEY", "").strip()
+KIS_APP_KEY = os.getenv("KIS_APP_KEY", "").strip()
+KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "").strip()
+MARKETAUX_API_TOKEN = os.getenv("MARKETAUX_API_TOKEN", "").strip()
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "").strip()
+TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
+OPENFIGI_API_KEY = os.getenv("OPENFIGI_API_KEY", "").strip()
 NAVER_NEWS_CLIENT_ID = os.getenv("NAVER_NEWS_CLIENT_ID", "").strip()
 NAVER_NEWS_CLIENT_SECRET = os.getenv("NAVER_NEWS_CLIENT_SECRET", "").strip()
 NAVER_NEWS_DOMESTIC_QUERY = os.getenv("NAVER_NEWS_DOMESTIC_QUERY", "국내 증시").strip() or "국내 증시"
@@ -115,12 +122,27 @@ NAVER_NEWS_GLOBAL_STOCK_QUERIES = _env_list(
     "NAVER_NEWS_GLOBAL_STOCK_QUERIES",
     ["엔비디아", "애플", "마이크로소프트", "테슬라", "마이크론"],
 )
+MARKETAUX_NEWS_GLOBAL_QUERY = (
+    os.getenv("MARKETAUX_NEWS_GLOBAL_QUERY", "Nasdaq OR S&P 500 OR Federal Reserve OR FOMC OR Treasury yields").strip()
+    or "Nasdaq OR S&P 500 OR Federal Reserve OR FOMC OR Treasury yields"
+)
+MARKETAUX_NEWS_GLOBAL_QUERIES = _env_list(
+    "MARKETAUX_NEWS_GLOBAL_QUERIES",
+    [
+        MARKETAUX_NEWS_GLOBAL_QUERY,
+        "US stocks OR Nasdaq",
+        "Federal Reserve OR FOMC",
+        "Treasury yields OR CPI OR PCE",
+    ],
+)
+MARKETAUX_NEWS_COUNTRIES = _env_list("MARKETAUX_NEWS_COUNTRIES", ["us"])
+MARKETAUX_NEWS_LANGUAGE = _env_list("MARKETAUX_NEWS_LANGUAGE", ["en"])
 NAVER_NEWS_LIMIT_PER_REGION = max(1, min(_env_int("NAVER_NEWS_LIMIT_PER_REGION", 20), 20))
 NAVER_NEWS_MAX_AGE_HOURS = max(1, min(_env_int("NAVER_NEWS_MAX_AGE_HOURS", 24), 72))
 INTEL_API_TIMEOUT_SECONDS = max(1, min(_env_int("INTEL_API_TIMEOUT_SECONDS", 5), 10))
 INTEL_API_RETRY_COUNT = max(0, min(_env_int("INTEL_API_RETRY_COUNT", 1), 1))
 
-EOD_SUMMARY_ENABLED = _env_bool("EOD_SUMMARY_ENABLED", True)
+EOD_SUMMARY_ENABLED = _env_bool("EOD_SUMMARY_ENABLED", False)
 EOD_SUMMARY_TIME = os.getenv("EOD_SUMMARY_TIME", "16:20").strip() or "16:20"
 
 WATCH_POLL_ENABLED = _env_bool("WATCH_POLL_ENABLED", True)

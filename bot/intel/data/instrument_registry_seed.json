@@ -1,0 +1,202 @@
+[
+  {
+    "canonical_symbol": "KRX:005930",
+    "market_code": "KRX",
+    "ticker_or_code": "005930",
+    "display_name_ko": "삼성전자",
+    "display_name_en": "Samsung Electronics",
+    "aliases": ["005930", "KRX:005930", "Samsung Electronics", "삼성전자", "삼전"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:000660",
+    "market_code": "KRX",
+    "ticker_or_code": "000660",
+    "display_name_ko": "SK하이닉스",
+    "display_name_en": "SK hynix",
+    "aliases": ["000660", "KRX:000660", "SK HYNIX", "SK하이닉스", "하이닉스"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:035420",
+    "market_code": "KRX",
+    "ticker_or_code": "035420",
+    "display_name_ko": "NAVER",
+    "display_name_en": "NAVER",
+    "aliases": ["035420", "KRX:035420", "NAVER", "네이버"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:035720",
+    "market_code": "KRX",
+    "ticker_or_code": "035720",
+    "display_name_ko": "카카오",
+    "display_name_en": "Kakao",
+    "aliases": ["035720", "KRX:035720", "Kakao", "카카오"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:005380",
+    "market_code": "KRX",
+    "ticker_or_code": "005380",
+    "display_name_ko": "현대차",
+    "display_name_en": "Hyundai Motor",
+    "aliases": ["005380", "KRX:005380", "HYUNDAI MOTOR", "현대자동차", "현대차"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:012330",
+    "market_code": "KRX",
+    "ticker_or_code": "012330",
+    "display_name_ko": "현대모비스",
+    "display_name_en": "Hyundai Mobis",
+    "aliases": ["012330", "KRX:012330", "HYUNDAI MOBIS", "현대모비스"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:373220",
+    "market_code": "KRX",
+    "ticker_or_code": "373220",
+    "display_name_ko": "LG에너지솔루션",
+    "display_name_en": "LG Energy Solution",
+    "aliases": ["373220", "KRX:373220", "LG ENERGY SOLUTION", "LG에너지솔루션"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:066570",
+    "market_code": "KRX",
+    "ticker_or_code": "066570",
+    "display_name_ko": "LG전자",
+    "display_name_en": "LG Electronics",
+    "aliases": ["066570", "KRX:066570", "LG ELECTRONICS", "LG전자"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:051910",
+    "market_code": "KRX",
+    "ticker_or_code": "051910",
+    "display_name_ko": "LG화학",
+    "display_name_en": "LG Chem",
+    "aliases": ["051910", "KRX:051910", "LG CHEM", "LG화학"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:068270",
+    "market_code": "KRX",
+    "ticker_or_code": "068270",
+    "display_name_ko": "셀트리온",
+    "display_name_en": "Celltrion",
+    "aliases": ["068270", "KRX:068270", "CELLTRION", "셀트리온"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:207940",
+    "market_code": "KRX",
+    "ticker_or_code": "207940",
+    "display_name_ko": "삼성바이오로직스",
+    "display_name_en": "Samsung Biologics",
+    "aliases": ["207940", "KRX:207940", "SAMSUNG BIOLOGICS", "삼성바이오로직스", "삼바"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:105560",
+    "market_code": "KRX",
+    "ticker_or_code": "105560",
+    "display_name_ko": "KB금융",
+    "display_name_en": "KB Financial Group",
+    "aliases": ["105560", "KRX:105560", "KB FINANCIAL GROUP", "KB금융"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:055550",
+    "market_code": "KRX",
+    "ticker_or_code": "055550",
+    "display_name_ko": "신한지주",
+    "display_name_en": "Shinhan Financial Group",
+    "aliases": ["055550", "KRX:055550", "SHINHAN FINANCIAL GROUP", "신한지주"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:086790",
+    "market_code": "KRX",
+    "ticker_or_code": "086790",
+    "display_name_ko": "하나금융지주",
+    "display_name_en": "Hana Financial Group",
+    "aliases": ["086790", "KRX:086790", "HANA FINANCIAL GROUP", "하나금융지주"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:003670",
+    "market_code": "KRX",
+    "ticker_or_code": "003670",
+    "display_name_ko": "포스코퓨처엠",
+    "display_name_en": "POSCO Future M",
+    "aliases": ["003670", "KRX:003670", "POSCO FUTURE M", "포스코퓨처엠"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:329180",
+    "market_code": "KRX",
+    "ticker_or_code": "329180",
+    "display_name_ko": "HD현대중공업",
+    "display_name_en": "HD Hyundai Heavy Industries",
+    "aliases": ["329180", "KRX:329180", "HD HYUNDAI HEAVY INDUSTRIES", "HD현대중공업"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:042660",
+    "market_code": "KRX",
+    "ticker_or_code": "042660",
+    "display_name_ko": "한화오션",
+    "display_name_en": "Hanwha Ocean",
+    "aliases": ["042660", "KRX:042660", "HANWHA OCEAN", "한화오션"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:012450",
+    "market_code": "KRX",
+    "ticker_or_code": "012450",
+    "display_name_ko": "한화에어로스페이스",
+    "display_name_en": "Hanwha Aerospace",
+    "aliases": ["012450", "KRX:012450", "HANWHA AEROSPACE", "한화에어로스페이스", "한화에어로"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:267260",
+    "market_code": "KRX",
+    "ticker_or_code": "267260",
+    "display_name_ko": "HD현대일렉트릭",
+    "display_name_en": "HD Hyundai Electric",
+    "aliases": ["267260", "KRX:267260", "HD HYUNDAI ELECTRIC", "HD현대일렉트릭"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  },
+  {
+    "canonical_symbol": "KRX:316140",
+    "market_code": "KRX",
+    "ticker_or_code": "316140",
+    "display_name_ko": "우리금융지주",
+    "display_name_en": "Woori Financial Group",
+    "aliases": ["316140", "KRX:316140", "WOORI FINANCIAL GROUP", "우리금융지주"],
+    "provider_ids": {"kis_exchange_code": "KRX", "twelve_mic_code": "XKRX"},
+    "source": "seed"
+  }
+]

@@ -1,6 +1,23 @@
 # Session Handoff
 
 ## 2026-03-20
+- Context: KIS 단독 전략 보완을 위해 watch/name 중심의 local instrument registry, hybrid news, paused EOD 기준선을 구현했다.
+- Current state:
+1. `bot/intel/data/instrument_registry.json` generated artifact가 추가됐고, 현재 registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건으로 총 7,538건이다.
+2. `/watch add`, `/watch remove`는 이제 종목명/코드/티커를 모두 받고 autocomplete를 지원하며, 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)이다.
+3. `bot/forum/repository.py`는 legacy watchlist/baseline/cooldown 키를 읽을 때 canonical symbol로 자동 승격한다.
+4. watch alert 메시지와 `/watch list`는 `이름 + canonical symbol` 형식으로 보여준다.
+5. news provider는 `NEWS_PROVIDER_KIND=marketaux|hybrid`를 지원하고, `hybrid`는 국내 Naver + 해외 Marketaux 조합이다.
+6. `/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해 보여준다.
+7. `EOD_SUMMARY_ENABLED` 기본값은 이제 `false`고, EOD는 문서/상태상 pause 기준으로 정리됐다.
+8. 전체 테스트는 `.\.venv\Scripts\python.exe -m pytest -q` 기준 전부 통과했다.
+- Next:
+1. 국내 종목명 커버리지를 full master로 넓히려면 `DART_API_KEY`를 넣고 `scripts/build_instrument_registry.py`를 다시 실행한다.
+2. `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 실제 값으로 넣고 global news fetch 품질을 한 번 실반영으로 점검한다.
+3. `Polygon`을 US fallback quote/reference로 붙이고, `OpenFIGI`/`Twelve Data`는 reconciliation/future EOD slot으로 이어 붙인다.
+- Status: open
+
+## 2026-03-20
 - Context: runtime state 파일과 외부 참고문서 위치를 정리하는 구조 변경을 반영했다.
 - Current state:
 1. 앱 state 기본 경로는 이제 `data/state/state.json`이다.

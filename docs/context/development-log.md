@@ -1,6 +1,26 @@
 # Development Log
 
 ## 2026-03-20
+- Context: 사용자가 KIS 단독 전략의 한계를 보완하되, 당장은 watch 종목명 추가를 우선하고 `eod_summary`는 pause 하길 원했다.
+- Change:
+1. `bot/intel/instrument_registry.py`, `scripts/build_instrument_registry.py`, `bot/intel/data/instrument_registry*.json`을 추가해 local instrument registry 계층과 generated artifact 흐름을 만들었다.
+2. 현재 generated registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건을 합친 7,538건이며, watch 입력은 이를 기준으로 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 정규화된다.
+3. `bot/forum/repository.py`는 watchlist/baseline/cooldown의 legacy 값(`005930`, bare US ticker)을 읽을 때 canonical symbol로 자동 승격하고 상태 키도 함께 마이그레이션한다.
+4. `bot/features/watch/command.py`는 `/watch add`, `/watch remove`에 autocomplete와 ambiguity handling을 추가했고, `/watch list`와 watch alert는 이제 `이름 + canonical symbol` 형식으로 보여준다.
+5. `bot/intel/providers/news.py`에는 `MarketauxNewsProvider`와 `HybridNewsProvider`를 추가했고, `bot/features/intel_scheduler.py`는 `NEWS_PROVIDER_KIND=marketaux|hybrid`와 source별 provider status 기록을 지원한다.
+6. `bot/features/status/command.py`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해서 보여준다.
+7. `bot/app/settings.py`, `.env.example`, `README.md`, `docs/specs/external-intel-api-spec.md`, `AGENTS.md`를 새 provider key, registry 흐름, watch name search, `EOD_SUMMARY_ENABLED=false` 기본값에 맞춰 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe scripts/build_instrument_registry.py` 기준 generated registry artifact 생성 성공 (`records=7538`)
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_instrument_registry.py tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/unit/test_status_command.py tests/unit/test_news_provider.py tests/integration/test_intel_scheduler_logic.py -q` 기준 전체 통과
+3. `.\.venv\Scripts\python.exe -m pytest -q` 기준 전체 통과
+- Next:
+1. DART API key를 넣고 registry를 다시 생성하면 국내 종목명 커버리지를 full master로 넓힐 수 있다.
+2. 실제 운영 전 `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 넣고 global news fetch 품질을 1회 실반영 검증한다.
+3. `Polygon`/`Twelve Data`/`OpenFIGI`는 현재 source-status slot만 열려 있으므로, 다음 단계에서 US fallback quote와 reconciliation job으로 확장한다.
+- Status: done
+
+## 2026-03-20
 - Context: 사용자가 runtime state 파일은 heatmap 캐시와 분리하고, 외부 참고문서는 한 디렉터리에 모이길 원했다.
 - Change:
 1. state 기본 경로를 `data/heatmaps/state.json`에서 `data/state/state.json`으로 옮겼다.

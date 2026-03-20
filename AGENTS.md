@@ -207,11 +207,11 @@ pytest -m live
 참고: 현재 프로젝트 작업 자체는 위 두 스킬 없이도 수행 가능하며, 필요 시에만 사용한다.
 
 ## 9) 다음 세션 즉시 실행 TODO (5개)
-1. `docs/specs/external-intel-api-spec.md` 기준으로 뉴스/장마감/watch 외부 API 후보와 인증 방식을 확정
-2. `NewsProvider` 실제 구현과 `/setnewsforum` 게시 흐름 검증
-3. `EodSummaryProvider` 실제 구현과 장마감 포럼 업서트 검증
-4. `MarketDataProvider` 실제 구현과 watch alert 임계값/쿨다운 실운영 검증
-5. `python -m bot.main` 및 `pytest`로 스케줄러 부트/기본 회귀 확인
+1. `DART_API_KEY`를 확보해 `scripts/build_instrument_registry.py`로 국내 종목 master를 seed 기반이 아니라 full master로 재생성
+2. `NEWS_PROVIDER_KIND=hybrid` + `MARKETAUX_API_TOKEN` 기준으로 해외 뉴스 fetch와 `/setnewsforum` 게시 흐름 실반영 검증
+3. `Polygon` US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
+4. `OpenFIGI` reconciliation job 또는 offline 보강 스크립트로 provider 간 symbol mapping 정합성 보강
+5. `eod_summary`는 현재 pause 상태를 유지하고, 재개 요청이 생길 때만 `Twelve Data`/기타 매크로 소스로 재설계
 
 ## 10) 세션 종료 체크
 1. 이번 작업이 검토/개발/설계 중 어디에 속하는지 판단

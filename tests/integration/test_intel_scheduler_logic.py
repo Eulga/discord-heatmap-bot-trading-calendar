@@ -1076,7 +1076,7 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     assert "send_failures=1" in run["detail"]
     provider = state["system"]["provider_status"]["market_data_provider"]
     assert provider["ok"] is True
-    assert provider["message"] == "quote:005930"
+    assert provider["message"] == "quote:KRX:005930"
 
 
 @pytest.mark.asyncio
@@ -1088,7 +1088,7 @@ async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_
 
     class Provider:
         async def get_quote(self, symbol, now):
-            if symbol == "005930":
+            if symbol == "KRX:005930":
                 return SimpleNamespace(price=73100.0)
             raise RuntimeError("quote provider down")
 
@@ -1105,3 +1105,40 @@ async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_
     assert run["status"] == "failed"
     assert "processed=1" in run["detail"]
     assert "quote_failures=1" in run["detail"]
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_uses_friendly_symbol_display(monkeypatch):
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watchlist": ["005930"], "watch_alert_channel_id": 123}},
+        "system": {
+            "watch_baselines": {
+                "1": {
+                    "005930": {
+                        "price": 100.0,
+                        "checked_at": now.isoformat(),
+                    }
+                }
+            }
+        },
+    }
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            assert symbol == "KRX:005930"
+            return SimpleNamespace(price=110.0)
+
+    channel = FakeWatchChannel(guild_id=1)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(channel), now=now)
+
+    assert channel.messages
+    assert "삼성전자 (KRX:005930)" in channel.messages[0]
