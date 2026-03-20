@@ -1,5 +1,103 @@
 # Review Log
 
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10`의 Codex review가 forum resolution helper의 예외 처리 경계를 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 `client.fetch_channel()` 실패를 전부 `None`으로 바꿔, transient Discord API 장애도 `missing_forum`/`no-target-forums`로 오인할 수 있었다.
+2. 그 결과 `_run_news_job()`와 `_run_eod_job()`는 운영 장애를 `skipped`처럼 보이게 만들어 `/health`와 run log에서 실제 outage를 숨길 수 있었다.
+- 3. 첫 번째 guild의 forum resolution 오류에서 job 전체를 바로 `return`하면, 다른 guild까지 같은 tick에서 함께 막히는 cross-guild outage가 생길 수 있었다.
+- 4. trading-day skip보다 forum resolution failure를 먼저 처리하면, 휴장일에도 `holiday` 대신 `failed`가 기록되는 false failure가 생길 수 있었다.
+- Resolution:
+1. `discord.NotFound`만 missing channel로 처리하고, 다른 fetch 오류는 job 레벨까지 전파하도록 helper를 좁혔다.
+2. 뉴스/EOD job은 거래일 skip 판정을 forum resolution보다 먼저 수행하도록 순서를 조정했다.
+3. forum resolution API 오류는 길드별 failure로 집계하면서, 다른 guild는 계속 처리하도록 바꿨다.
+4. 같은 run detail에 `forum_resolution_failures`를 남기고 `failed` status를 기록하도록 맞췄다.
+5. 뉴스/EOD 각각에 forum resolution API failure, mixed guild continuation, holiday-precedence 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py -k "forum_resolution or fallback_forum or news_job or eod_job"` 통과 (`24 passed, 4 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 여섯 번째 Codex review가 `news_briefing`과 `trend_briefing`도 partial guild post failure를 `ok`로 숨기고 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `news_briefing` run에서 일부 guild posting이 실패해도, 다른 guild가 성공해 `posted > 0`이면 `news_briefing=ok`를 기록할 수 있었다.
+2. 같은 함수는 `trendbriefing`이 일부 guild에서 실패해도 `trend_posted > 0`이면 `trend_briefing=ok`를 남겨 partial outage를 가릴 수 있었다.
+- Resolution:
+1. `news_briefing`은 이제 `posted > 0 and failed == 0`일 때만 `ok`를 기록한다.
+2. `trend_briefing`도 `trend_posted > 0 and trend_failed == 0`일 때만 `ok`를 기록하도록 맞췄다.
+3. `tests/integration/test_intel_scheduler_logic.py`에 뉴스 partial post failure, 트렌드 partial post failure 회귀 테스트를 각각 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py -k "news_job or eod_job"` 통과 (`18 passed, 4 deselected`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`82 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 다섯 번째 Codex review가 `eod_summary`가 일부 guild 실패를 `ok`로 숨길 수 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 같은 run 안에서 일부 guild EOD post가 실패해도, 다른 guild가 성공해 `posted > 0`이면 `eod_summary=ok`를 남겨 false healthy signal을 만들 수 있었다.
+- Resolution:
+1. `eod_summary` status는 이제 `posted > 0 and failed == 0`일 때만 `ok`가 되고, 같은 run 안에 실패 guild가 하나라도 있으면 `failed`를 기록하도록 바꿨다.
+2. `tests/integration/test_intel_scheduler_logic.py`에 2개 guild 중 1개만 posting 실패하는 partial-failure 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py -k "eod_job"` 통과 (`5 passed, 15 deselected`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`80 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 네 번째 Codex review가 mixed watch_poll failure 가시성과 forum content state drift를 추가로 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 일부 symbol/guild가 성공해 `processed > 0`이면, 같은 run 안의 `quote_failures`나 `channel_failures`가 있어도 `watch_poll=ok`로 기록할 수 있었다.
+2. `bot/forum/service.py`는 삭제 대상 follow-up message가 이미 사라진 경우 `content_message_ids`에서 stale id를 지우지 않아 상태 드리프트가 남을 수 있었다.
+- Resolution:
+1. `watch_poll`은 `quote_failures`, `channel_failures`, `send_failures` 중 하나라도 있으면 `failed`로 기록하도록 보수적으로 조정했다.
+2. 성공 후 quote failure가 뒤따르는 mixed-result watch poll 회귀 테스트를 추가했다.
+3. follow-up deletion 루프는 `discord.NotFound`일 때 stale content id를 상태에서 제거하도록 바꿨다.
+4. 이미 삭제된 follow-up message id가 state에서 정리되는 forum upsert 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py tests/integration/test_forum_upsert_flow.py` 통과 (`27 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`79 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 세 번째 Codex review에서 뉴스/EOD 전역 forum fallback의 cross-guild leak 가능성이 지적됐다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `NEWS_TARGET_FORUM_ID`와 `EOD_TARGET_FORUM_ID` fallback을 사용할 때, 해당 forum channel이 현재 `guild_id` 소속인지 검증하지 않아 다른 서버 포럼으로 자동 게시가 새어 나갈 수 있었다.
+- Resolution:
+1. 뉴스/EOD가 공통으로 쓰는 `_resolve_guild_forum_channel_id()` helper를 추가해 resolved forum channel이 `discord.ForumChannel`이면서 현재 guild 소속일 때만 pending guild로 넣도록 바꿨다.
+2. 다른 guild 소속 global fallback forum은 `missing_forum`으로 처리해 provider fetch/posting을 시작하지 않게 했다.
+3. 뉴스/EOD 각각에 cross-guild global fallback forum 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`18 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`77 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 두 번째 Codex review가 `watch_poll` delivery failure를 여전히 `ok`로 숨길 수 있다고 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 `channel.send(...)`가 실패해도 `processed > 0`이면 `watch_poll=ok`를 남겨, 실제 알림 delivery 실패가 `/health`에 드러나지 않을 수 있었다.
+- Resolution:
+1. watch poll run detail에 `alert_attempts`를 추가했다.
+2. 알림 전송이 한 건이라도 실패하면 `watch_poll` status를 `failed`로 기록해 false positive를 없앴다.
+3. 실제 alert signal은 발생했지만 `channel.send(...)`가 실패하는 회귀 테스트를 `tests/integration/test_intel_scheduler_logic.py`에 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`16 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`75 passed, 2 deselected`)
+- Status: done
+
+## 2026-03-19
+- Context: PR `#9`의 Codex review에서 `watch_poll` 운영 정합성 관련 2건이 나왔다.
+- Finding:
+1. `bot/features/intel_scheduler.py`는 guild별 watch alert channel이 비어 있을 때 전역 `WATCH_ALERT_CHANNEL_ID` fallback 채널이 다른 guild 소속이어도 그대로 사용해, 멀티 guild 환경에서 다른 서버 채널로 watch alert가 새어 나갈 수 있었다.
+2. 같은 함수는 quote fetch나 channel resolution이 전부 실패해도 마지막에 `watch_poll=ok`로 기록해 `/health`가 장애를 숨길 수 있었다.
+- Resolution:
+1. resolved watch channel은 `discord.abc.Messageable`이면서 현재 `guild_id`와 동일한 guild 소속인지 검증하고, 아니면 해당 guild를 실패로 처리하도록 바꿨다.
+2. `watch_poll`은 이번 run의 `processed`, `quote_failures`, `channel_failures`, `missing_channel_guilds`, `send_failures`를 집계해 전부 실패하면 `failed`, 대상이 없으면 `skipped`, 일부라도 처리되면 `ok`로 남기도록 수정했다.
+3. 다른 guild fallback 채널 차단과 all-quote-failure status 회귀 테스트를 `tests/integration/test_intel_scheduler_logic.py`에 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python -m pytest tests/integration/test_intel_scheduler_logic.py` 통과 (`15 passed`)
+2. `.\.venv\Scripts\python -m pytest` 통과 (`74 passed, 2 deselected`)
+- Status: done
+
 ## 2026-03-19
 - Context: PR `#8`의 Codex review에서 `trendbriefing` 멀티-message upsert와 trend chunking 쪽으로 2건의 후속 이슈가 나왔다.
 - Finding:

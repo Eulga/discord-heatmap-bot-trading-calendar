@@ -102,7 +102,12 @@ async def upsert_daily_post(
         try:
             content_message = await thread.fetch_message(content_message_id)
             await content_message.delete()
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        except discord.NotFound:
+            if content_message_id in persisted_content_ids:
+                persisted_content_ids.remove(content_message_id)
+                persist_record(persisted_content_ids)
+            continue
+        except (discord.Forbidden, discord.HTTPException):
             continue
         if content_message_id in persisted_content_ids:
             persisted_content_ids.remove(content_message_id)

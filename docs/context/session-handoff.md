@@ -1,5 +1,91 @@
 # Session Handoff
 
+## 2026-03-20
+- Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
+- Current state:
+1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.
+2. `bot/features/intel_scheduler.py`는 trading-day skip을 forum resolution보다 먼저 처리해, 휴장일에는 forum lookup 장애가 있어도 `holiday` semantics를 유지한다.
+3. forum channel resolution 중 `fetch_channel()` API 오류는 더 이상 `missing_forum`으로 숨기지 않고, 해당 guild만 failure로 집계한 채 다른 guild 처리를 계속한다.
+4. 뉴스/EOD run detail은 `forum_resolution_failures`를 남기고, 같은 run에 resolution 오류가 있으면 `failed`를 기록한다.
+5. `tests/integration/test_intel_scheduler_logic.py`는 뉴스/EOD forum resolution API failure, mixed guild continuation, holiday-precedence 회귀를 포함한다.
+6. 관련 타깃 테스트는 `24 passed, 4 deselected`다.
+- Next:
+1. PR `#10`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `develop`에 merge하고 sync branch를 정리한다.
+- Status: open
+
+## 2026-03-19
+- Context: release PR `#9`의 여섯 번째 review까지 반영해 `news_briefing`과 `trend_briefing` partial guild failure false positive도 닫았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `news_briefing`, `trend_briefing`, `eod_summary`, `watch_poll` 모두 partial delivery failure를 `ok`로 숨기지 않는다.
+2. `tests/integration/test_intel_scheduler_logic.py`는 뉴스 partial failure, 트렌드 partial failure, EOD partial failure, watch mixed failure 회귀를 모두 포함한다.
+3. 전체 기본 테스트는 `82 passed, 2 deselected`다.
+4. release PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이며, 최신 수정이 반영된 fresh Codex review 결과만 남아 있다.
+- Next:
+1. PR `#9`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `master`로 squash merge하고 release branch를 정리한다.
+- Status: open
+
+## 2026-03-19
+- Context: release PR `#9`의 다섯 번째 Codex review까지 반영해 `eod_summary` partial guild failure false positive도 닫았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 EOD summary posting이 일부 guild에서만 성공한 경우에도 `failed > 0`이면 `eod_summary=failed`를 기록한다.
+2. `tests/integration/test_intel_scheduler_logic.py`는 one-success/one-failure mixed-result EOD 회귀를 포함한다.
+3. 전체 기본 테스트는 `80 passed, 2 deselected`다.
+4. release PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이며, 최신 수정이 반영된 fresh Codex review가 끝나면 `master` merge를 진행하면 된다.
+- Next:
+1. PR `#9`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `master`로 squash merge하고 release branch를 정리한다.
+- Status: open
+
+## 2026-03-19
+- Context: release PR `#9`의 네 번째 review까지 반영해 watch_poll mixed failure와 forum stale content id drift도 막았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 partial success가 있어도 quote/channel/send failure가 한 건이라도 있으면 `watch_poll=failed`를 남긴다.
+2. `bot/forum/service.py`는 삭제된 follow-up message id가 남아 있을 때 stale `content_message_ids`를 state에서 정리한다.
+3. 관련 회귀를 포함한 전체 기본 테스트는 `79 passed, 2 deselected`다.
+4. release PR은 여전히 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 다음 단계는 이 수정 커밋 푸시 후 `@codex review` 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
+- Context: release PR `#9`의 추가 P1 review까지 반영해 뉴스/EOD 전역 forum fallback cross-guild leak도 막았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 뉴스/EOD/watch 모두 resolved target channel의 guild ownership을 검증한다.
+2. 뉴스/EOD는 다른 guild 소속 global fallback forum이면 provider fetch/posting을 시작하지 않고 `missing_forum`으로 건너뛴다.
+3. 관련 회귀 테스트를 포함한 전체 기본 테스트는 `77 passed, 2 deselected`다.
+4. release PR은 여전히 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 다음 단계는 이 수정 커밋 푸시 후 `@codex review` 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
+- Context: release PR `#9`의 추가 Codex review까지 반영해 `watch_poll` delivery failure false positive를 닫았다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `alert_attempts`를 detail에 남기고, `channel.send(...)` 실패가 한 건이라도 있으면 `watch_poll=failed`를 기록한다.
+2. watch poll 관련 회귀 테스트는 cross-guild fallback, all-quote-failure, alert-delivery-failure까지 포함한다.
+3. 전체 기본 테스트는 `75 passed, 2 deselected`다.
+4. release PR은 여전히 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 다음 단계는 이 수정 커밋 푸시 후 `@codex review` 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
+## 2026-03-19
+- Context: `develop` 내용을 `master`로 보내는 release branch PR `#9`에서 Codex review 후속 수정 2건을 반영했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 watch alert channel이 현재 guild 소속인지 검증해, 전역 fallback channel이 다른 guild 채널로 새는 경우 해당 guild를 실패로 처리한다.
+2. `watch_poll` 마지막 status는 더 이상 무조건 `ok`가 아니고, `processed/quote_failures/channel_failures/missing_channel_guilds/send_failures`를 바탕으로 `ok|failed|skipped`를 기록한다.
+3. 관련 회귀를 포함한 전체 기본 테스트는 `74 passed, 2 deselected`다.
+4. release PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/9`이고, 현재 다음 단계는 수정 커밋 푸시 후 Codex review 재요청이다.
+- Next:
+1. PR `#9` 수정 커밋을 푸시한다.
+2. `@codex review`를 다시 요청하고 clean이면 `master`에 merge한다.
+- Status: open
+
 ## 2026-03-19
 - Context: 오래된 원격 작업 브랜치를 `origin/develop` 기준으로 다시 점검했다.
 - Current state:
