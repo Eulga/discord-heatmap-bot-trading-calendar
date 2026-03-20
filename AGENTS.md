@@ -66,6 +66,19 @@
 3. 관련 문서와 컨텍스트 로그가 필요한 만큼 갱신되었다.
 4. 남은 이슈, 가정, 다음 액션이 있으면 마지막에 짧게 정리한다.
 
+## 1-3) 브랜치/약속 문서화 규칙
+- 운영 약속 문서화 원칙:
+1. 세션 중 새로 합의한 운영 약속, 브랜치 전략, merge 방식, shipping 예외 규칙은 말로만 두지 않고 반드시 문서에 남긴다.
+2. 공통 규칙으로 계속 써야 하는 약속은 `AGENTS.md`에 반영한다.
+3. 왜 그렇게 하기로 했는지와 영향 범위는 `docs/context/design-decisions.md`에 남긴다.
+4. 이번 세션에서 실제로 적용했거나 확인한 결과는 `docs/context/development-log.md`에 남긴다.
+5. 다음 세션이 바로 알아야 하는 최신 약속 상태는 `docs/context/session-handoff.md`에 남긴다.
+
+- 현재 브랜치 운영 약속:
+1. `develop -> master` 릴리스 PR은 앞으로 별도 release 브랜치를 만들지 않고, `develop` 브랜치에서 바로 `master` 대상으로 연다.
+2. 이유 없이 `master`에만 먼저 들어가고 `develop`에는 빠지는 흐름을 만들지 않는다.
+3. 예외적으로 다른 흐름이 필요하면, 진행 전에 이유와 정리 계획을 먼저 문서화한다.
+
 ## 2) 현재 아키텍처 스냅샷
 - 엔트리포인트: `bot/main.py`
 - 부트스트랩/커맨드 등록: `bot/app/bot_client.py`
@@ -86,7 +99,7 @@
 ## 3) 운영 규칙 (Rules)
 - 서버별 포럼 채널 매핑:
 1. `/setforumchannel`로 길드별 채널 ID 저장
-2. 저장 위치: `data/heatmaps/state.json` -> `guilds.{guild_id}.forum_channel_id`
+2. 저장 위치: `data/state/state.json` -> `guilds.{guild_id}.forum_channel_id`
 
 - 히트맵 게시 규칙:
 1. `kheatmap/usheatmap`는 명령어별로 하루 1포스트 유지
@@ -119,9 +132,10 @@
 - `DISCORD_GLOBAL_ADMIN_USER_IDS=<OPTIONAL_USER_ID_LIST>`
 
 데이터 경로:
-- `data/heatmaps/state.json`
+- `data/state/state.json`
 - `data/heatmaps/kheatmap/*.png`
 - `data/heatmaps/usheatmap/*.png`
+- `docs/references/external/*` (외부 원문 참고문서 보관 위치)
 
 ## 5) 실행/운영 체크리스트
 - 로컬 실행:

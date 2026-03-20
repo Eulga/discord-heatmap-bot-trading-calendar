@@ -35,6 +35,7 @@ docker compose logs -f discord-bot
 
 Runtime logs are also written to `data/logs/bot.log` by default.
 When you use Docker, `data/logs/` is mounted so log files survive container recreation.
+App state is stored separately at `data/state/state.json`.
 
 Stop:
 
@@ -103,6 +104,8 @@ git commit -m "chore: bootstrap python discord bot"
 ```
 
 `git init` is already done. `.gitignore` excludes venv/cache/.env.
+
+외부 벤더 문서, 스프레드시트, PDF 같은 참고 원문은 `docs/references/external/` 아래에 모아 둡니다.
 
 
 ## 8) MVP 확장 기능 (뉴스/장마감/watch)

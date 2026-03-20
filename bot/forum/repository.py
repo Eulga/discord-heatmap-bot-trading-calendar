@@ -1,7 +1,7 @@
 import json
 from typing import Any, cast
 
-from bot.app.settings import STATE_FILE
+from bot.app.settings import LEGACY_STATE_FILE, STATE_FILE
 from bot.app.types import AppState, CommandState, DailyPostEntry
 from bot.common.fs import atomic_write_json
 
@@ -10,11 +10,33 @@ def _empty_state() -> AppState:
     return {"commands": {}, "guilds": {}}
 
 
+def _migrate_legacy_state_file() -> None:
+    if STATE_FILE == LEGACY_STATE_FILE:
+        return
+    if STATE_FILE.exists() or not LEGACY_STATE_FILE.exists():
+        return
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LEGACY_STATE_FILE.replace(STATE_FILE)
+    except OSError:
+        return
+
+
+def _get_state_file_for_read() -> Any:
+    _migrate_legacy_state_file()
+    if STATE_FILE.exists():
+        return STATE_FILE
+    if LEGACY_STATE_FILE.exists():
+        return LEGACY_STATE_FILE
+    return STATE_FILE
+
+
 def load_state() -> AppState:
-    if not STATE_FILE.exists():
+    state_file = _get_state_file_for_read()
+    if not state_file.exists():
         return _empty_state()
     try:
-        with STATE_FILE.open("r", encoding="utf-8") as f:
+        with state_file.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return _empty_state()
@@ -34,6 +56,11 @@ def load_state() -> AppState:
 
 def save_state(state: AppState) -> None:
     atomic_write_json(STATE_FILE, state)
+    if LEGACY_STATE_FILE != STATE_FILE and LEGACY_STATE_FILE.exists():
+        try:
+            LEGACY_STATE_FILE.unlink()
+        except OSError:
+            pass
 
 
 def get_command_state(state: AppState, command_key: str) -> CommandState:

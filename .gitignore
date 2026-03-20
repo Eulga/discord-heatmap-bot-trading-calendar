@@ -16,7 +16,10 @@ venv/
 .ruff_cache/
 .mypy_cache/
 data/heatmaps/
+data/state/
 data/logs/
+docs/references/external/*
+!docs/references/external/README.md
 
 # IDE/editor
 .vscode/

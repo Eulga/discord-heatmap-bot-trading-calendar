@@ -1,6 +1,30 @@
 # Session Handoff
 
 ## 2026-03-20
+- Context: runtime state 파일과 외부 참고문서 위치를 정리하는 구조 변경을 반영했다.
+- Current state:
+1. 앱 state 기본 경로는 이제 `data/state/state.json`이다.
+2. `bot/forum/repository.py`는 기존 `data/heatmaps/state.json`이 남아 있으면 새 경로로 자동 마이그레이션한다.
+3. 외부 벤더 문서/스프레드시트/PDF는 앞으로 `docs/references/external/` 아래에 모아 둔다.
+4. 워크스페이스에 남아 있던 기존 `data/heatmaps/state.json`과 외부 참고 xlsx도 각각 새 위치 기준으로 정리했다.
+5. 관련 문서 기준도 `AGENTS.md`, `README.md`, `docs/context/goals.md`까지 새 경로로 맞췄고, 전체 테스트는 `89 passed, 2 deselected`다.
+- Next:
+1. 새 외부 참고문서가 생기면 `docs/references/external/` 아래에만 보관한다.
+- Status: done
+
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10`까지 마무리한 뒤, 앞으로의 릴리스/약속 문서화 규칙을 정리했다.
+- Current state:
+1. `PR #10`은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`에서 `develop`으로 squash merge 완료됐고, 현재 로컬 기준 브랜치는 `develop`이다.
+2. `develop` 최신 상태는 `master` 릴리스 수정과 후속 scheduler 보정까지 포함하며, 전체 테스트는 `88 passed, 2 deselected`다.
+3. 앞으로 `develop -> master` 릴리스는 별도 release branch를 만들지 않고 `develop` 브랜치에서 직접 `master` 대상으로 PR을 연다.
+4. 새 운영 약속이나 브랜치 전략 변경은 앞으로 `AGENTS.md`와 `docs/context/*`에 함께 남기는 것을 기본 규칙으로 삼는다.
+- Next:
+1. 다음 릴리스 요청이 오면 `develop`에서 바로 `master`로 direct PR을 연다.
+2. 다음 세션에서도 새 약속이 생기면 공통 규칙은 `AGENTS.md`, 이유는 `design-decisions.md`, 실행 결과는 `development-log.md`, 최신 상태는 `session-handoff.md`에 남긴다.
+- Status: open
+
+## 2026-03-20
 - Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
 - Current state:
 1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.
