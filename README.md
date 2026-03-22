@@ -95,6 +95,8 @@ pytest -m live
 ```
 
 Live tests call real websites, so they can be flaky due to network/site-side protections.
+Detailed non-live integration case mapping: `docs/specs/integration-test-cases.md`
+Detailed live capture case mapping: `docs/specs/integration-live-test-cases.md`
 
 ## 7) Git workflow (recommended)
 

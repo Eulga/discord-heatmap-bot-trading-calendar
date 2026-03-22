@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: 통합 테스트 케이스를 실행/리뷰/운영 해석용 문서로 분리 정리했다.
+- Current state:
+1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)에 현재 non-live 통합 테스트 43건이 기능 계약 단위로 정리돼 있다.
+2. [docs/specs/integration-live-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-live-test-cases.md)에 live 캡처 2건과 flaky 해석 규칙이 별도로 정리돼 있다.
+3. [README.md](C:/Users/kin50/Documents/test/README.md)와 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md) 테스트 가이드에서 두 문서를 바로 찾을 수 있다.
+4. 초안 계획의 `NB-01~NB-13`, `EO-01~EO-07`와 달리 현재 source suite는 news core 12건, EOD 8건이라 문서 번호는 source truth에 맞춰 `NB-01~NB-12`, `EO-01~EO-08`을 사용한다.
+- Next:
+1. integration 테스트가 늘면 먼저 source 테스트와 marker를 수정하고, 같은 변경에서 두 문서를 같이 갱신한다.
+2. 누락 고위험 케이스 섹션의 항목을 우선순위 후보로 삼아 다음 회귀 테스트 추가 작업을 잡는다.
+- Status: done
+
+## 2026-03-22
 - Context: 기능 전체 통합 테스트 전용 subagent를 추가하고, 실제로 같은 역할 지침으로 integration suite를 실행했다.
 - Current state:
 1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)이 추가돼 `integration_tester` custom agent가 정의됐다.

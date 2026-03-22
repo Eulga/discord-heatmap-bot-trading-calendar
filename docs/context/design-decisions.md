@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-03-22
+- Context: 사용자가 `tests/integration` 전체를 기능 계약 중심 테스트 케이스 문서로 풀어 쓰고, live 캡처 테스트는 별도 문서로 분리해 달라고 요청했다.
+- Decision: 통합 테스트 문서는 source of truth인 현재 `tests/integration/*.py`와 `pytest.ini`를 기준으로 유지하고, non-live 케이스는 `docs/specs/integration-test-cases.md`, live 케이스는 `docs/specs/integration-live-test-cases.md`로 분리한다.
+- Why:
+1. 기본 `pytest`가 `-m "not live"`를 쓰는 현재 구조에서는 live 캡처 2건과 나머지 43건의 운영 의미가 다르므로 문서도 분리하는 편이 해석이 명확하다.
+2. 테스트 파일 순서 대신 기능 계약 단위로 재서술해야 구현자, 리뷰어, future subagent가 "무엇을 깨뜨렸는지"를 더 빨리 읽을 수 있다.
+3. 초안 계획의 뉴스/EOD 케이스 수와 현재 소스 테스트 수가 1건씩 어긋나 있어, 문서 번호 체계도 계획안보다 source truth를 우선하는 편이 맞다.
+- Impact:
+1. 새 테스트 케이스 문서는 `README.md`, `AGENTS.md`의 테스트 가이드에서 바로 찾을 수 있다.
+2. 현재 기준 non-live는 `AS 6 + FU 8 + NB 12 + TR 4 + EO 8 + WP 5 = 43`, live는 2건으로 읽는다.
+3. 이후 테스트가 늘거나 재분류되면 먼저 source 테스트와 marker를 갱신하고, 문서는 그 구조를 그대로 따라간다.
+- Status: accepted
+
+## 2026-03-22
 - Context: 사용자가 "기능 전체 통합 테스트 전용 subagent"를 하나 따로 두고, 이 agent가 테스트할 때는 항상 전체 integration suite를 돌리길 원했다.
 - Decision: project custom agent에 `integration_tester`를 추가하고, 이 agent의 테스트 기본 동작을 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 실행으로 고정한다.
 - Why:

@@ -188,6 +188,8 @@ pytest -m live
 - flaky 대응:
 1. 네트워크/사이트 차단 이슈 가능
 2. 라이브 실패 시 1~2회 재시도 후 판정
+3. non-live 통합 테스트 케이스 문서는 `docs/specs/integration-test-cases.md`를 기준으로 본다.
+4. live 캡처 통합 테스트 케이스 문서는 `docs/specs/integration-live-test-cases.md`를 기준으로 본다.
 
 ## 7) 트러블슈팅 플레이북
 - 명령어가 안 보일 때:

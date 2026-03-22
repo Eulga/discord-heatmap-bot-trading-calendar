@@ -1,6 +1,22 @@
 # Development Log
 
 ## 2026-03-22
+- Context: 사용자가 통합 테스트를 실행하거나 검토할 때 바로 참조할 수 있는 상세 케이스 문서를 요청했다.
+- Change:
+1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)를 추가해 현재 non-live 통합 테스트 43건을 기능 계약 단위로 문서화했다.
+2. [docs/specs/integration-live-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-live-test-cases.md)를 추가해 live 캡처 2건을 별도 관리하도록 분리했다.
+3. [README.md](C:/Users/kin50/Documents/test/README.md)와 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md) 테스트 가이드에 새 문서 링크를 추가했다.
+4. source truth인 현재 `tests/integration/test_intel_scheduler_logic.py` 기준 실제 분포가 `NB 12`, `TR 4`, `EO 8`, `WP 5`라서, 초안 계획의 `NB 13`/`EO 7` 대신 source 수에 맞춘 번호 체계를 사용했다.
+- Verification:
+1. `pytest.ini`의 `-m "not live"` 규칙과 live marker 문구를 문서에 반영했는지 확인한다.
+2. 문서 매핑 수는 non-live 43건, live 2건으로 맞췄다.
+3. `README.md`와 `AGENTS.md`에서 새 문서 경로가 정확히 연결되는지 교차 확인한다.
+- Next:
+1. integration 테스트가 추가되면 먼저 source test 수와 marker를 업데이트하고, 같은 날 문서 케이스 매핑도 같이 갱신한다.
+2. 누락 고위험 케이스 섹션에 적어 둔 항목부터 실제 회귀 테스트 후보로 순차 반영한다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 기능 전체 통합 테스트 전용 subagent를 새로 만들고, 실제로 그 agent 역할로 테스트를 돌려 달라고 요청했다.
 - Change:
 1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)을 추가해 `integration_tester` custom agent를 정의했다.
