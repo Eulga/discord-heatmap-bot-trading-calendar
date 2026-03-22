@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-03-22
+- Context: 사용자가 기능 전체 통합 테스트 전용 subagent를 새로 만들고, 실제로 그 agent 역할로 테스트를 돌려 달라고 요청했다.
+- Change:
+1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)을 추가해 `integration_tester` custom agent를 정의했다.
+2. 이 agent는 `workspace-write` sandbox에서 동작하고, 테스트나 검증 요청 시 항상 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 suite를 먼저 실행하도록 developer instructions를 고정했다.
+3. [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)에 `integration_tester` 역할과 "부분 테스트 대체 금지, 전체 integration 우선" 규칙을 추가했다.
+- Verification:
+1. `tomllib`로 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml` 전체 파싱 성공을 확인한다.
+2. worker subagent를 `integration_tester` 역할로 실행해 `.\.venv\Scripts\python.exe -m pytest tests/integration`를 실제로 수행했고, 결과는 `43 passed, 2 deselected`였다.
+- Next:
+1. 다음 세션에서 통합 검증이 필요하면 `integration_tester`를 먼저 호출하고, targeted test는 full integration 이후 추가로만 수행한다.
+- Status: done
+
+## 2026-03-22
 - Context: PR `#12`의 Codex review가 auto screenshot success 후 `load_state()`를 다시 읽는 보완에 새로운 data-loss 경로가 있다고 지적했다.
 - Change:
 1. [bot/features/auto_scheduler.py](C:/Users/kin50/Documents/test/bot/features/auto_scheduler.py)에 `_should_skip_last_auto_run_save(...)` 가드를 추가해, refresh read가 비정상적인 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남기도록 조정했다.

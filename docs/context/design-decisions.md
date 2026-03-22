@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-03-22
+- Context: 사용자가 "기능 전체 통합 테스트 전용 subagent"를 하나 따로 두고, 이 agent가 테스트할 때는 항상 전체 integration suite를 돌리길 원했다.
+- Decision: project custom agent에 `integration_tester`를 추가하고, 이 agent의 테스트 기본 동작을 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 실행으로 고정한다.
+- Why:
+1. 이 저장소는 단일 파일 회귀만 보면 놓치는 scheduler/forum/state 연동 문제가 자주 나와, 기능 검증용 agent는 부분 테스트보다 전체 integration suite를 기본값으로 가져가는 편이 안전하다.
+2. 테스트 전용 역할을 별도로 분리하면 `repo_explorer`/`reviewer`와 책임이 섞이지 않고, 검증 요청 시 기대 동작이 명확해진다.
+3. unit/targeted test는 빠르지만 이번 저장소의 운영 리스크를 충분히 대변하지 못하므로, integration_tester는 기본적으로 subset 실행을 허용하지 않는 편이 맞다.
+- Impact:
+1. `.codex/agents/integration-tester.toml`이 새로 추가되고, `AGENTS.md`의 subagent 역할 목록에도 같은 규칙이 반영된다.
+2. 향후 integration_tester를 통한 검증 요청은 전체 `tests/integration` 실행을 먼저 수행한 뒤에만 추가 targeted repro로 내려간다.
+3. full integration suite를 돌릴 수 없으면 blocker를 그대로 보고하고, 부분 테스트로 조용히 대체하지 않는다.
+- Status: accepted
+
+## 2026-03-22
 - Context: Codex app에서 project custom agent 3종이 모두 동작하는 것을 확인한 뒤, 사용자는 앞으로 같은 subagent 패턴을 매번 긴 문장으로 다시 지시하지 않길 원했다.
 - Decision: 이 저장소의 Codex 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`로 두고, 새 스레드에서 한 번 명시된 뒤에는 같은 스레드 안에서 축약 표현으로 재사용한다.
 - Why:

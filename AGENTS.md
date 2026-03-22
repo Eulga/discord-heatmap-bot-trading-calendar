@@ -84,6 +84,7 @@
 1. `repo_explorer`: 코드 경로/영향 범위 탐색
 2. `reviewer`: 결함/회귀/테스트 리스크 검토
 3. `docs_researcher`: 공식 문서/외부 계약 확인
+4. `integration_tester`: 기능 단위 전체 통합 테스트 실행 및 실패 요약
 
 - 호출 약속:
 1. 새 스레드에서는 사용자가 subagent 사용 의사를 한 번은 명시해야 한다.
@@ -94,6 +95,7 @@
 1. 사용자가 `기본 3-agent 패턴`이라고 하면 `repo_explorer + reviewer + docs_researcher` 조합으로 해석한다.
 2. 문서 확인이 필요 없는 로컬 코드 작업이면 `docs_researcher`는 생략할 수 있다.
 3. 구현이 급한 blocking 작업은 메인 세션이 직접 처리하고, 탐색/리뷰/문서확인은 sidecar로 subagent에 나눈다.
+4. `integration_tester`가 테스트를 맡을 때는 기본적으로 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체를 먼저 실행한다.
 
 ## 2) 현재 아키텍처 스냅샷
 - 엔트리포인트: `bot/main.py`

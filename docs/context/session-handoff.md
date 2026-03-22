@@ -1,6 +1,16 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: 기능 전체 통합 테스트 전용 subagent를 추가하고, 실제로 같은 역할 지침으로 integration suite를 실행했다.
+- Current state:
+1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)이 추가돼 `integration_tester` custom agent가 정의됐다.
+2. 이 agent는 테스트 시 기본적으로 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 suite를 먼저 실행하도록 고정돼 있다.
+3. 이번 세션에서 같은 역할의 worker subagent로 full integration suite를 실행했고 결과는 `43 passed, 2 deselected`였다.
+- Next:
+1. 이후 검증 요청에서는 `integration_tester`를 먼저 쓰고, targeted test는 full integration 이후 필요할 때만 추가한다.
+- Status: done
+
+## 2026-03-22
 - Context: PR `#12` review finding으로 auto screenshot state 보존 fix를 한 번 더 보강했다.
 - Current state:
 1. `bot/features/auto_scheduler.py`는 이제 success 후 refresh read가 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남긴다.
