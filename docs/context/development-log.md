@@ -78,6 +78,8 @@
 3. `tests/integration/test_auto_scheduler_logic.py`에 runner가 먼저 오늘자 thread/message state를 저장한 뒤 scheduler가 `last_auto_runs`만 추가하는 회귀 테스트를 넣었다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py tests/integration/test_forum_upsert_flow.py -q` 기준 `13 passed`
+3. ad-hoc `scheduler -> manual` 재현 시나리오에서 `CREATE_CALLS=1`, `kheatmap 포스트 수정 완료`를 확인해 같은 날짜 thread가 새로 생성되지 않고 수정 경로를 타는 것을 확인했다.
 - Next:
 1. 필요하면 `origin/codex/fix-auto-screenshot-state`와 현재 로컬 적용분을 기준으로 PR/브랜치 정리를 이어간다.
 2. 실제 운영 재기동 후 오늘자 auto screenshot tick에서 `daily_posts_by_guild`와 `last_auto_runs`가 함께 남는지 한 번 더 확인한다.

@@ -56,6 +56,7 @@
 2. `origin/codex/fix-auto-screenshot-state`의 핵심 수정은 최신 `develop`에도 여전히 유효했고, 로컬 `develop`에 같은 보완을 적용했다.
 3. `bot/features/auto_scheduler.py`는 성공 후 `load_state()`를 다시 읽고 `last_auto_runs`만 기록해, runner가 저장한 오늘자 `daily_posts_by_guild`/cache state를 덮어쓰지 않는다.
 4. `tests/integration/test_auto_scheduler_logic.py`에는 runner 저장 state 보존 회귀 테스트가 추가됐다.
+5. 로컬 `scheduler -> manual` 재현에서도 `CREATE_CALLS=1`, `kheatmap 포스트 수정 완료`로 확인돼 같은 날 수동 `/kheatmap`은 기존 thread 수정 경로를 사용한다.
 - Next:
 1. 필요하면 이 fix를 기준으로 별도 브랜치/PR 정리를 진행한다.
 2. 운영 봇 재기동 후 auto screenshot 실행에서 오늘자 state entry와 `last_auto_runs`가 함께 남는지 확인한다.
