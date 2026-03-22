@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-03-22
+- Context: 사용자가 auto screenshot state 유실 fix를 실제 디스크 쓰기 흐름까지 검증해 달라고 요청했다.
+- Change:
+1. 별도 임시 state 파일을 두고 `process_auto_screenshot_tick()`을 isolated 환경에서 실행해, runner가 먼저 저장한 `daily_posts_by_guild`와 `last_images`가 scheduler의 `last_auto_runs` 기록 뒤에도 유지되는지 확인했다.
+2. 실 Discord API 호출은 생략하고, `execute_heatmap_for_guild()`만 동일 tick 안에서 state를 먼저 저장하는 형태로 대체해 on-disk 경쟁 구도를 재현했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -`로 ad-hoc 검증 스크립트를 실행해 최종 `state.json`에 `commands.kheatmap.daily_posts_by_guild`, `commands.kheatmap.last_images`, `guilds.1.last_auto_runs.kheatmap`가 함께 남는 것을 확인했다.
+- Next:
+1. live 운영 검증이 필요하면 봇 재기동 후 실제 auto tick에서 `data/state/state.json`과 운영 로그를 같이 확인한다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 project custom agent 기본 사용 패턴을 앞으로 재사용 가능한 운영 규칙으로 문서화해 달라고 요청했다.
 - Change:
 1. [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)에 `Codex Subagent 운영 규칙` 섹션을 추가했다.

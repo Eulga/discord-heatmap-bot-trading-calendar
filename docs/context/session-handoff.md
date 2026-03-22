@@ -1,6 +1,16 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: auto screenshot state 유실 fix가 테스트뿐 아니라 실제 파일 저장 흐름에서도 유지되는지 로컬에서 다시 검증했다.
+- Current state:
+1. 임시 `state.json` 기준 `process_auto_screenshot_tick()` 실행 후 `daily_posts_by_guild`, `last_images`, `last_auto_runs`가 함께 남는 것을 확인했다.
+2. 즉 현재 수정은 "runner가 먼저 저장한 오늘자 post/cache state를 scheduler가 마지막 save에서 덮어쓰는 문제"를 on-disk 재현에서도 막는다.
+3. 이번 검증은 isolated local state 파일과 fake runner로 수행했고, 실 Discord API 호출이나 운영 포럼 posting은 하지 않았다.
+- Next:
+1. live 확인이 필요하면 운영 봇 재기동 후 실제 auto run 직후 `data/state/state.json`과 auto-screenshot 로그를 함께 본다.
+- Status: done
+
+## 2026-03-22
 - Context: project custom agent 3종이 app UI에서 모두 정상 생성되는 기준선이 확보됐고, subagent 호출 약속도 문서화했다.
 - Current state:
 1. `repo_explorer`, `reviewer`, `docs_researcher`는 현재 app UI에서 모두 생성 가능하다.
