@@ -1,6 +1,16 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: PR `#12` review finding으로 auto screenshot state 보존 fix를 한 번 더 보강했다.
+- Current state:
+1. `bot/features/auto_scheduler.py`는 이제 success 후 refresh read가 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남긴다.
+2. 즉 `load_state()`가 transient read/parse failure로 empty state를 돌려줘도, runner가 이미 저장한 `daily_posts_by_guild`/`last_images`를 near-empty save로 덮어쓰지 않는다.
+3. `tests/integration/test_auto_scheduler_logic.py`에는 refresh read empty-state guard 회귀 테스트가 추가됐다.
+- Next:
+1. PR `#12`에 이 수정 커밋을 올리고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-22
 - Context: auto screenshot state 유실 fix가 테스트뿐 아니라 실제 파일 저장 흐름에서도 유지되는지 로컬에서 다시 검증했다.
 - Current state:
 1. 임시 `state.json` 기준 `process_auto_screenshot_tick()` 실행 후 `daily_posts_by_guild`, `last_images`, `last_auto_runs`가 함께 남는 것을 확인했다.

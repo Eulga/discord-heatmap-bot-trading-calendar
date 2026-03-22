@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-03-22
+- Context: PR `#12`의 Codex review가 auto screenshot success 후 `load_state()`를 다시 읽는 보완에 새로운 data-loss 경로가 있다고 지적했다.
+- Change:
+1. [bot/features/auto_scheduler.py](C:/Users/kin50/Documents/test/bot/features/auto_scheduler.py)에 `_should_skip_last_auto_run_save(...)` 가드를 추가해, refresh read가 비정상적인 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남기도록 조정했다.
+2. 이 변경으로 state refresh가 `JSONDecodeError`/`OSError` 등으로 실패해 empty state를 돌려주는 순간에도, runner가 이미 저장한 `daily_posts_by_guild`/`last_images`를 near-empty save로 덮어쓰지 않게 됐다.
+3. [tests/integration/test_auto_scheduler_logic.py](C:/Users/kin50/Documents/test/tests/integration/test_auto_scheduler_logic.py)에 refresh read가 empty state를 반환할 때 scheduler가 추가 save를 하지 않고 기존 daily post state를 유지하는 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q`
+- Next:
+1. 이 수정 커밋을 PR `#12`에 반영하고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 auto screenshot state 유실 fix를 실제 디스크 쓰기 흐름까지 검증해 달라고 요청했다.
 - Change:
 1. 별도 임시 state 파일을 두고 `process_auto_screenshot_tick()`을 isolated 환경에서 실행해, runner가 먼저 저장한 `daily_posts_by_guild`와 `last_images`가 scheduler의 `last_auto_runs` 기록 뒤에도 유지되는지 확인했다.

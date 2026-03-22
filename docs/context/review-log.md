@@ -1,6 +1,18 @@
 # Review Log
 
 ## 2026-03-22
+- Context: PR `#12`의 Codex review가 auto screenshot state 보존 fix에 추가 data-loss 경로가 남아 있다고 지적했다.
+- Finding:
+1. `bot/features/auto_scheduler.py`는 `execute_heatmap_for_guild()` 성공 후 `load_state()`를 다시 읽도록 바뀌었지만, 이 코드베이스의 `load_state()`는 `OSError`/`JSONDecodeError`에서 empty state를 반환한다.
+2. 따라서 refresh read가 transient failure로 empty state를 돌려주면, 직후 `save_state(state)`가 `last_auto_runs`만 있는 near-empty state를 디스크에 써서 runner가 저장한 forum/cache state를 다시 잃게 만들 수 있었다.
+- Resolution:
+1. refresh read 결과가 guild/command state가 비어 있는 suspicious empty state면 `last_auto_runs` 저장을 건너뛰고 warning만 남기도록 가드를 추가했다.
+2. refresh read empty-state 회귀 테스트를 추가해 scheduler가 추가 save를 하지 않는지 검증했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q` 통과 (`6 passed`)
+- Status: done
+
+## 2026-03-22
 - Context: 프로젝트의 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml) 내용을 점검해 subagent 전역 설정이 현재 Codex 규약과 맞는지 확인했다.
 - Finding: 블로킹 이슈는 찾지 못했다.
 - Residual risk:
