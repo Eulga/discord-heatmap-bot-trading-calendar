@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: 사용자가 `master` 반영 후 Docker 배포까지 요청했다.
+- Current state:
+1. [docker-compose.yml](C:/Users/kin50/Documents/test/docker-compose.yml)은 이제 `data/heatmaps`, `data/state`, `data/logs`를 모두 bind mount 한다.
+2. Docker Desktop daemon을 올린 뒤 `docker compose up -d --build`로 `discord-heatmap-bot`을 recreate 했고, 현재 컨테이너는 `Up` 상태다.
+3. [data/logs/bot.log](C:/Users/kin50/Documents/test/data/logs/bot.log)에는 `2026-03-22 22:26:43` 기준 `11 commands synced`, `Auto screenshot scheduler started`, `Intel scheduler started`, `Logged in as Drumstick#9496`가 남아 있다.
+4. [data/state/state.json](C:/Users/kin50/Documents/test/data/state/state.json)도 새 컨테이너 기동 직후 시각으로 갱신돼 state mount가 실제로 동작한다.
+- Next:
+1. 운영 env의 `WATCH_ALERT_CHANNEL_ID`와 `ADMIN_STATUS_CHANNEL_ID` 적합성은 앞선 Discord smoke 결과를 기준으로 다시 정리한다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 env의 채널/포럼 ID를 갱신한 뒤 실제 Discord 검증을 다시 요청했다.
 - Current state:
 1. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`는 현재 모두 같은 forum 채널(`1471842980787917005`)을 가리키며, 이 forum에서 create/update smoke thread가 다시 성공했다.

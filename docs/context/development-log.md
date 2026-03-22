@@ -1,6 +1,22 @@
 # Development Log
 
 ## 2026-03-22
+- Context: 사용자가 `master` 반영 직후 Docker 배포와 compose 점검을 요청했다.
+- Change:
+1. [docker-compose.yml](C:/Users/kin50/Documents/test/docker-compose.yml)에 `./data/state:/app/data/state` bind mount를 추가했다.
+2. 이유는 현재 앱 runtime state 경로가 `data/state/state.json`인데, 기존 compose는 `data/heatmaps`와 `data/logs`만 마운트해 컨테이너 recreate 시 state가 유실될 수 있었기 때문이다.
+3. Docker Desktop daemon을 올린 뒤 `docker compose up -d --build`로 `discord-heatmap-bot` 컨테이너를 새 이미지로 recreate 했다.
+- Verification:
+1. `docker compose config`로 compose 문법과 bind mount 구성이 유효한지 확인했다.
+2. `docker compose ps` 기준 `discord-heatmap-bot`이 새 컨테이너로 `Up` 상태다.
+3. `data/logs/bot.log` 기준 `2026-03-22 22:26:43`에 `11 commands synced`, `Auto screenshot scheduler started`, `Intel scheduler started`, `Logged in as Drumstick#9496`가 기록됐다.
+4. `data/state/state.json`의 `system.job_last_runs.command-sync.status=ok`, `detail=11 commands synced`와 `watch_poll=no-watch-symbols`가 새 컨테이너 기동 직후 시각으로 갱신된 것을 확인했다.
+5. `docker inspect discord-heatmap-bot` 기준 bind mount는 `data/heatmaps`, `data/state`, `data/logs` 3개가 모두 연결됐다.
+- Next:
+1. env 기준 `WATCH_ALERT_CHANNEL_ID`, `ADMIN_STATUS_CHANNEL_ID` 운영값은 별도 Discord smoke 결과대로 여전히 점검 대상이다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 env의 채널/포럼 ID를 새로 바꾼 뒤 실제 Discord 검증을 다시 요청했다.
 - Change:
 1. 업데이트된 env 기준으로 `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`, `ADMIN_STATUS_CHANNEL_ID`를 다시 읽고 실제 Discord에서 fetch 검증을 수행했다.
