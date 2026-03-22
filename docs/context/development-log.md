@@ -1,5 +1,64 @@
 # Development Log
 
+## 2026-03-22
+- Context: 사용자가 project custom agent 기본 사용 패턴을 앞으로 재사용 가능한 운영 규칙으로 문서화해 달라고 요청했다.
+- Change:
+1. [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)에 `Codex Subagent 운영 규칙` 섹션을 추가했다.
+2. 기본 3-agent 패턴을 `repo_explorer + reviewer + docs_researcher`로 명시했고, 새 스레드 1회 명시 후 같은 스레드에서는 축약 표현으로 재사용 가능한 약속을 적었다.
+3. [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md)와 [docs/context/session-handoff.md](C:/Users/kin50/Documents/test/docs/context/session-handoff.md)에 같은 규칙의 이유와 현재 상태를 반영했다.
+- Verification:
+1. app UI 기준 `repo_explorer`, `reviewer`, `docs_researcher` custom agent가 모두 생성되는 것을 확인했다.
+2. 문서 간 규칙이 모순되지 않도록 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md), [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md), [docs/context/session-handoff.md](C:/Users/kin50/Documents/test/docs/context/session-handoff.md)를 교차 확인했다.
+- Next:
+1. 다음 새 스레드에서는 subagent 사용 의사를 한 번만 밝히면, 같은 스레드 안에서는 `기본 3-agent 패턴` 같은 축약 표현으로 재사용한다.
+- Status: done
+
+## 2026-03-22
+- Context: app UI smoke test에서 `repo_explorer`와 `reviewer`는 생성됐지만 `docs_researcher`만 `unknown agent_type`로 거절됐다.
+- Change:
+1. [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에서 `web_search = "live"`를 제거했다.
+- Why:
+1. 현재 custom agent 3개 중 `docs_researcher`만 이 키를 추가로 사용했고, 나머지 두 agent는 정상 생성됐다.
+2. 공식 subagent 문서의 custom agent 예시는 `model`, `model_reasoning_effort`, `sandbox_mode`, `mcp_servers`, `skills.config` 중심이며, 이번 수정은 unsupported/partially-supported key 가능성을 제거하는 호환성 우선 조치다.
+- Verification:
+1. `tomllib` 기준 [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml) 파싱은 계속 성공한다.
+2. 이후 app UI에서 `docs_researcher`도 정상 생성되는 것을 확인했다.
+- Next:
+1. 비슷한 custom agent 등록 문제가 다시 나오면 unsupported key 여부를 먼저 점검한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 Codex app 재시작과 새 desktop thread 생성 후 project custom agent smoke test를 다시 실행해 달라고 요청했다.
+- Change:
+1. 코드나 설정 파일은 수정하지 않고, 기존 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml) 및 [`.codex/agents/repo-explorer.toml`](C:/Users/kin50/Documents/test/.codex/agents/repo-explorer.toml), [`.codex/agents/reviewer.toml`](C:/Users/kin50/Documents/test/.codex/agents/reviewer.toml), [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml) 기준으로 runtime smoke test만 재실행했다.
+- Verification:
+1. `Get-Command codex`와 `where.exe codex`로 Codex desktop 번들 실행 파일 경로가 `C:\Program Files\WindowsApps\OpenAI.Codex_26.313.5234.0_x64__2p2nqsd0c76g0\app\resources\codex.exe`로 해석되는 것을 다시 확인했다.
+2. `codex --version`, `codex --help`는 둘 다 `Access is denied`로 실패해 shell 기반 smoke test는 여전히 불가능했다.
+3. developer `spawn_agent`에 `repo_explorer`, `reviewer`, `docs_researcher`를 각각 넣어 다시 호출했지만 모두 `unknown agent_type`로 실패했다.
+4. control로 built-in `explorer` subagent를 띄웠을 때는 [`bot/main.py`](C:/Users/kin50/Documents/test/bot/main.py)를 엔트리포인트로 응답해, desktop thread의 일반 subagent 경로 자체는 계속 정상임을 확인했다.
+5. Codex app 로컬 로그 [`codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log`](C:/Users/kin50/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs/2026/03/22/codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log)에는 `[StdioConnection] stdio_transport_spawned`와 `[AppServerConnection] Codex CLI initialized`가 남아 있어, Electron app 자체는 bundled `codex.exe`를 stdio로 띄우는 데 성공함을 확인했다.
+- Next:
+1. custom agent는 현재 이 대화/tool runtime에서 노출되지 않으므로, 실제 검증은 Codex app UI의 custom agent 선택 경로에서 직접 실행해 봐야 한다.
+2. 필요하면 project custom agents가 desktop UI에 로드되는지와 developer `spawn_agent` 노출 범위가 다른지 분리해서 추가 조사한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 project-scoped Codex 설정을 현재 저장소 작업 방식에 맞게 전체적으로 정리해 달라고 요청했다.
+- Change:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)에 기본 모델(`gpt-5.3-codex`), 기본 reasoning/verbosity, `personality = "pragmatic"`, `plan_mode_reasoning_effort = "high"`, `web_search = "cached"`, `project_doc_max_bytes = 16384`를 추가했다.
+2. 같은 파일의 `[agents]`는 `max_threads = 4`, `max_depth = 1`, `job_max_runtime_seconds = 1800`으로 조정해 현재 custom agent 3종을 병렬로 쓰되 과도한 fan-out은 막는 방향으로 맞췄다.
+3. [`.codex/agents/repo-explorer.toml`](C:/Users/kin50/Documents/test/.codex/agents/repo-explorer.toml), [`.codex/agents/reviewer.toml`](C:/Users/kin50/Documents/test/.codex/agents/reviewer.toml), [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에 각각 역할별 모델과 reasoning 강도를 명시했다.
+4. `docs_researcher`는 문서 검증 작업의 최신성 요구가 높아 `web_search = "live"`를 별도로 설정했다.
+- Verification:
+1. Python `tomllib`로 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml` 전부 파싱 성공을 확인한다.
+2. 공식 OpenAI Codex 문서 기준 `model`, `model_reasoning_effort`, `model_verbosity`, `personality`, `plan_mode_reasoning_effort`, `web_search`, `project_doc_max_bytes`, `[agents].max_threads|max_depth|job_max_runtime_seconds`가 유효 키인지 대조했다.
+3. built-in `explorer` subagent 생성은 성공해 현재 thread의 multi-agent 경로 자체는 살아 있음을 확인했다.
+4. 반면 `spawn_agent`는 project custom agent 이름(`repo_explorer`, `reviewer`, `docs_researcher`)을 인식하지 않았고, PowerShell/`cmd`에서 `codex --help` 실행도 `Access is denied`로 막혀 실제 custom-agent runtime smoke test는 수행하지 못했다.
+- Next:
+1. Codex app을 재시작하거나 custom agents를 직접 선택할 수 있는 UI 경로에서 `repo_explorer`, `reviewer`, `docs_researcher`를 한 번씩 호출해 runtime smoke test를 다시 수행한다.
+2. 병렬 탐색이 잦아 대기열이 느껴지면 `max_threads`를 `5`나 `6`으로 올릴지 다시 판단한다.
+- Status: done
+
 ## 2026-03-20
 - Context: 사용자가 KIS 단독 전략의 한계를 보완하되, 당장은 watch 종목명 추가를 우선하고 `eod_summary`는 pause 하길 원했다.
 - Change:

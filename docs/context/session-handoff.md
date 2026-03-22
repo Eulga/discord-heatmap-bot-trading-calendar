@@ -1,5 +1,44 @@
 # Session Handoff
 
+## 2026-03-22
+- Context: project custom agent 3종이 app UI에서 모두 정상 생성되는 기준선이 확보됐고, subagent 호출 약속도 문서화했다.
+- Current state:
+1. `repo_explorer`, `reviewer`, `docs_researcher`는 현재 app UI에서 모두 생성 가능하다.
+2. `docs_researcher`는 [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에서 `web_search = "live"`를 제거한 뒤 정상 등록됐다.
+3. 이 저장소의 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`이며, 새 스레드에서 한 번 명시한 뒤에는 같은 스레드 안에서 `기본 3-agent 패턴` 같은 축약 표현으로 재사용한다.
+4. 위 약속은 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)와 [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md)에 반영돼 있다.
+- Next:
+1. 다음 subagent 작업에서는 문서 확인이 필요 없는 순수 로컬 코드 작업인지 먼저 보고 `docs_researcher` 생략 여부를 판단한다.
+- Status: done
+
+## 2026-03-22
+- Context: Codex app 재시작 및 새 desktop thread 이후 project custom agent smoke test를 다시 시도했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml`은 그대로 유지했고, 이번 세션에서는 검증만 다시 수행했다.
+2. `Get-Command codex`/`where.exe codex` 기준 desktop 번들 실행 파일 경로 해석은 정상이다.
+3. 하지만 `codex --version`, `codex --help`는 여전히 `Access is denied`로 실패해 shell에서 custom agent runtime을 직접 올릴 수 없었다.
+4. developer `spawn_agent`는 `repo_explorer`, `reviewer`, `docs_researcher`를 여전히 `unknown agent_type`로 반환했다.
+5. control로 built-in `explorer` subagent는 정상 응답했으므로, 현재 문제 범위는 "subagent 전체 장애"가 아니라 "project custom agent가 이 runtime/tool surface에 노출되지 않음" 쪽으로 더 좁혀졌다.
+6. Codex app 로컬 로그 [`codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log`](C:/Users/kin50/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs/2026/03/22/codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log)에는 bundled `codex.exe` stdio spawn과 `Codex CLI initialized`가 남아 있어, app 내부 app-server 초기화 자체는 성공한 상태다.
+- Next:
+1. 실제 custom agent smoke test는 Codex app UI에서 custom agent 선택 후 각각 한 번씩 실행해 결과를 확인한다.
+2. 필요하면 desktop app UI 노출과 developer `spawn_agent` 노출 범위 차이를 별도로 조사한다.
+- Status: done
+
+## 2026-03-22
+- Context: project-scoped Codex 설정을 현재 저장소 작업 패턴에 맞게 보수적으로 정리했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)은 이제 `gpt-5.3-codex` 기본 모델, `model_reasoning_effort=medium`, `model_verbosity=low`, `personality=pragmatic`, `plan_mode_reasoning_effort=high`, `web_search=cached`, `project_doc_max_bytes=16384`를 명시한다.
+2. subagent 전역 설정은 `max_threads=4`, `max_depth=1`, `job_max_runtime_seconds=1800`으로 맞춰져 있다.
+3. `repo_explorer`, `reviewer`, `docs_researcher` custom agent는 각각 역할별 모델과 reasoning 강도가 명시돼 있고, 이후 호환성 보정으로 `docs_researcher`의 `web_search=live` override는 제거됐다.
+4. `review_model` 같은 별도 리뷰 전용 top-level 키는 공식 `config-reference`에서 확인되지 않아 넣지 않았다.
+5. 현재 desktop thread에서 built-in `explorer` subagent 생성은 성공해 multi-agent 경로 자체는 정상이다.
+6. 반면 developer `spawn_agent`는 project custom agent 이름을 인식하지 않았고, shell에서 `codex` 실행도 `Access is denied`라 실제 custom-agent runtime smoke test는 완료하지 못했다.
+- Next:
+1. Codex app 재시작 후 custom agent 선택 경로에서 `repo_explorer`, `reviewer`, `docs_researcher`를 한 번씩 실행해 runtime smoke test를 다시 확인한다.
+2. 병렬성이 부족하면 `max_threads` 상향 여부를 다시 검토한다.
+- Status: done
+
 ## 2026-03-20
 - Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
 - Current state:

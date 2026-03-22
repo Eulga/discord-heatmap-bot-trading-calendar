@@ -1,5 +1,16 @@
 # Review Log
 
+## 2026-03-22
+- Context: 프로젝트의 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml) 내용을 점검해 subagent 전역 설정이 현재 Codex 규약과 맞는지 확인했다.
+- Finding: 블로킹 이슈는 찾지 못했다.
+- Residual risk:
+1. 현재 `[agents]`의 `max_threads = 4`는 유효한 설정이지만, Codex 기본값 `6`보다 더 보수적이라 여러 custom agent를 병렬로 붙이는 작업에서는 의도보다 빨리 concurrency cap에 걸릴 수 있다.
+2. `max_depth = 1`은 현재 프로젝트 목적에는 적절하지만, child agent가 다시 agent를 fan-out해야 하는 workflow는 막는다. 이 제약이 의도된 운영 정책인지 정도만 팀 내에서 유지하면 된다.
+- Evidence:
+1. `tomllib`로 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml) 파싱 성공을 확인했고, 현재 `[agents]`에는 `max_threads = 4`, `max_depth = 1`, `job_max_runtime_seconds = 1800`이 반영돼 있다.
+2. OpenAI Codex 공식 문서 기준 `[agents]` 아래 `max_threads`와 `max_depth`는 유효한 전역 subagent 설정 키이며, `max_threads` 기본값은 `6`, `max_depth` 기본값은 `1`이다.
+- Status: done
+
 ## 2026-03-20
 - Context: 운영 중이던 15:35 자동 `kheatmap` 글이 코스닥 렌더 타임아웃으로 코스피만 게시된 뒤, 같은 날 수동 `/kheatmap`이 기존 thread 수정 대신 새 글을 만든 원인을 조사했다.
 - Finding:

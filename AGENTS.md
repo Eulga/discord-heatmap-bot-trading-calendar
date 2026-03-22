@@ -79,6 +79,22 @@
 2. 이유 없이 `master`에만 먼저 들어가고 `develop`에는 빠지는 흐름을 만들지 않는다.
 3. 예외적으로 다른 흐름이 필요하면, 진행 전에 이유와 정리 계획을 먼저 문서화한다.
 
+## 1-4) Codex Subagent 운영 규칙
+- 기본 역할:
+1. `repo_explorer`: 코드 경로/영향 범위 탐색
+2. `reviewer`: 결함/회귀/테스트 리스크 검토
+3. `docs_researcher`: 공식 문서/외부 계약 확인
+
+- 호출 약속:
+1. 새 스레드에서는 사용자가 subagent 사용 의사를 한 번은 명시해야 한다.
+2. 같은 스레드에서 사용자가 `기본 3-agent 패턴`, `같은 subagent 패턴`, `필요한 agent들 써서 진행`처럼 위임 의사를 한 번 밝혔으면, 이후 같은 작업 흐름에서는 매번 agent 이름을 다시 나열하지 않아도 된다.
+3. 명시가 없는 새 스레드에서는 Codex가 임의로 subagent를 늘리지 않는다.
+
+- 기본 해석:
+1. 사용자가 `기본 3-agent 패턴`이라고 하면 `repo_explorer + reviewer + docs_researcher` 조합으로 해석한다.
+2. 문서 확인이 필요 없는 로컬 코드 작업이면 `docs_researcher`는 생략할 수 있다.
+3. 구현이 급한 blocking 작업은 메인 세션이 직접 처리하고, 탐색/리뷰/문서확인은 sidecar로 subagent에 나눈다.
+
 ## 2) 현재 아키텍처 스냅샷
 - 엔트리포인트: `bot/main.py`
 - 부트스트랩/커맨드 등록: `bot/app/bot_client.py`
