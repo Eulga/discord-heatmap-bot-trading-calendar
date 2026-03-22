@@ -66,6 +66,37 @@
 3. 관련 문서와 컨텍스트 로그가 필요한 만큼 갱신되었다.
 4. 남은 이슈, 가정, 다음 액션이 있으면 마지막에 짧게 정리한다.
 
+## 1-3) 브랜치/약속 문서화 규칙
+- 운영 약속 문서화 원칙:
+1. 세션 중 새로 합의한 운영 약속, 브랜치 전략, merge 방식, shipping 예외 규칙은 말로만 두지 않고 반드시 문서에 남긴다.
+2. 공통 규칙으로 계속 써야 하는 약속은 `AGENTS.md`에 반영한다.
+3. 왜 그렇게 하기로 했는지와 영향 범위는 `docs/context/design-decisions.md`에 남긴다.
+4. 이번 세션에서 실제로 적용했거나 확인한 결과는 `docs/context/development-log.md`에 남긴다.
+5. 다음 세션이 바로 알아야 하는 최신 약속 상태는 `docs/context/session-handoff.md`에 남긴다.
+
+- 현재 브랜치 운영 약속:
+1. `develop -> master` 릴리스 PR은 앞으로 별도 release 브랜치를 만들지 않고, `develop` 브랜치에서 바로 `master` 대상으로 연다.
+2. 이유 없이 `master`에만 먼저 들어가고 `develop`에는 빠지는 흐름을 만들지 않는다.
+3. 예외적으로 다른 흐름이 필요하면, 진행 전에 이유와 정리 계획을 먼저 문서화한다.
+
+## 1-4) Codex Subagent 운영 규칙
+- 기본 역할:
+1. `repo_explorer`: 코드 경로/영향 범위 탐색
+2. `reviewer`: 결함/회귀/테스트 리스크 검토
+3. `docs_researcher`: 공식 문서/외부 계약 확인
+4. `integration_tester`: 기능 단위 전체 통합 테스트 실행 및 실패 요약
+
+- 호출 약속:
+1. 새 스레드에서는 사용자가 subagent 사용 의사를 한 번은 명시해야 한다.
+2. 같은 스레드에서 사용자가 `기본 3-agent 패턴`, `같은 subagent 패턴`, `필요한 agent들 써서 진행`처럼 위임 의사를 한 번 밝혔으면, 이후 같은 작업 흐름에서는 매번 agent 이름을 다시 나열하지 않아도 된다.
+3. 명시가 없는 새 스레드에서는 Codex가 임의로 subagent를 늘리지 않는다.
+
+- 기본 해석:
+1. 사용자가 `기본 3-agent 패턴`이라고 하면 `repo_explorer + reviewer + docs_researcher` 조합으로 해석한다.
+2. 문서 확인이 필요 없는 로컬 코드 작업이면 `docs_researcher`는 생략할 수 있다.
+3. 구현이 급한 blocking 작업은 메인 세션이 직접 처리하고, 탐색/리뷰/문서확인은 sidecar로 subagent에 나눈다.
+4. `integration_tester`가 테스트를 맡을 때는 기본적으로 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체를 먼저 실행한다.
+
 ## 2) 현재 아키텍처 스냅샷
 - 엔트리포인트: `bot/main.py`
 - 부트스트랩/커맨드 등록: `bot/app/bot_client.py`
@@ -86,7 +117,7 @@
 ## 3) 운영 규칙 (Rules)
 - 서버별 포럼 채널 매핑:
 1. `/setforumchannel`로 길드별 채널 ID 저장
-2. 저장 위치: `data/heatmaps/state.json` -> `guilds.{guild_id}.forum_channel_id`
+2. 저장 위치: `data/state/state.json` -> `guilds.{guild_id}.forum_channel_id`
 
 - 히트맵 게시 규칙:
 1. `kheatmap/usheatmap`는 명령어별로 하루 1포스트 유지
@@ -119,9 +150,10 @@
 - `DISCORD_GLOBAL_ADMIN_USER_IDS=<OPTIONAL_USER_ID_LIST>`
 
 데이터 경로:
-- `data/heatmaps/state.json`
+- `data/state/state.json`
 - `data/heatmaps/kheatmap/*.png`
 - `data/heatmaps/usheatmap/*.png`
+- `docs/references/external/*` (외부 원문 참고문서 보관 위치)
 
 ## 5) 실행/운영 체크리스트
 - 로컬 실행:
@@ -156,6 +188,8 @@ pytest -m live
 - flaky 대응:
 1. 네트워크/사이트 차단 이슈 가능
 2. 라이브 실패 시 1~2회 재시도 후 판정
+3. non-live 통합 테스트 케이스 문서는 `docs/specs/integration-test-cases.md`를 기준으로 본다.
+4. live 캡처 통합 테스트 케이스 문서는 `docs/specs/integration-live-test-cases.md`를 기준으로 본다.
 
 ## 7) 트러블슈팅 플레이북
 - 명령어가 안 보일 때:
@@ -193,11 +227,11 @@ pytest -m live
 참고: 현재 프로젝트 작업 자체는 위 두 스킬 없이도 수행 가능하며, 필요 시에만 사용한다.
 
 ## 9) 다음 세션 즉시 실행 TODO (5개)
-1. `docs/specs/external-intel-api-spec.md` 기준으로 뉴스/장마감/watch 외부 API 후보와 인증 방식을 확정
-2. `NewsProvider` 실제 구현과 `/setnewsforum` 게시 흐름 검증
-3. `EodSummaryProvider` 실제 구현과 장마감 포럼 업서트 검증
-4. `MarketDataProvider` 실제 구현과 watch alert 임계값/쿨다운 실운영 검증
-5. `python -m bot.main` 및 `pytest`로 스케줄러 부트/기본 회귀 확인
+1. `DART_API_KEY`를 확보해 `scripts/build_instrument_registry.py`로 국내 종목 master를 seed 기반이 아니라 full master로 재생성
+2. `NEWS_PROVIDER_KIND=hybrid` + `MARKETAUX_API_TOKEN` 기준으로 해외 뉴스 fetch와 `/setnewsforum` 게시 흐름 실반영 검증
+3. `Polygon` US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
+4. `OpenFIGI` reconciliation job 또는 offline 보강 스크립트로 provider 간 symbol mapping 정합성 보강
+5. `eod_summary`는 현재 pause 상태를 유지하고, 재개 요청이 생길 때만 `Twelve Data`/기타 매크로 소스로 재설계
 
 ## 10) 세션 종료 체크
 1. 이번 작업이 검토/개발/설계 중 어디에 속하는지 판단

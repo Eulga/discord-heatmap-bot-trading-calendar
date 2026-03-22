@@ -1,5 +1,194 @@
 # Session Handoff
 
+## 2026-03-22
+- Context: 사용자가 env의 채널/포럼 ID를 갱신한 뒤 실제 Discord 검증을 다시 요청했다.
+- Current state:
+1. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`는 현재 모두 같은 forum 채널(`1471842980787917005`)을 가리키며, 이 forum에서 create/update smoke thread가 다시 성공했다.
+2. smoke thread는 [default/news/eod forum smoke](https://discord.com/channels/332110589969039360/1485250008847614035)다.
+3. `WATCH_ALERT_CHANNEL_ID`도 같은 forum 채널이라 현재 코드의 watch poll fallback 용도에는 맞지 않는다. `discord.ForumChannel`은 이 경로에서 기대하는 messageable text 채널이 아니다.
+4. `ADMIN_STATUS_CHANNEL_ID=1483007026023108739`는 `fetch_channel()` 시 `403 Missing Access`로 실패한다.
+5. 봇 login/Gateway/slash command 11개 sync 자체는 여전히 정상이다.
+- Next:
+1. watch alert fallback을 실제로 쓰려면 `WATCH_ALERT_CHANNEL_ID`를 text channel 계열로 바꾼 뒤 다시 send smoke를 한다.
+2. admin status 채널을 쓸 계획이면 해당 채널 권한을 먼저 열고 다시 fetch/send smoke를 한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 실제 Discord 네트워크까지 포함한 live 실행 검증을 요청했다.
+- Current state:
+1. `.env`의 실제 bot token과 `DEFAULT_FORUM_CHANNEL_ID`로 봇 로그인, Gateway 연결, 글로벌 slash command 11개 sync까지 성공했다.
+2. 기본 포럼 채널 fetch와 posting 권한 확인 후, `discord_live_smoke` key로 실제 forum thread를 생성하고 같은 thread를 다시 update해 Discord write path를 실서버에서 검증했다.
+3. smoke posting에는 실제 `kospi` live capture PNG(`207749` bytes)를 첨부해 Discord attachment 경로도 함께 확인했다.
+4. 추가로 `.\.venv\Scripts\python.exe -m pytest -m live -q` 결과는 `2 passed`였다.
+5. 현재 `data/state/state.json`에는 `system.job_last_runs.command-sync=ok`와 `commands.discord_live_smoke.daily_posts_by_guild` 오늘자 record가 남아 있다.
+- Next:
+1. slash interaction 자체(`/kheatmap`, `/health`)를 사용자 클라이언트에서 직접 누르는 운영 smoke가 필요하면 Discord 앱에서 한 번 더 실행해 interaction ingress까지 닫는다.
+2. `discord_live_smoke` thread/state를 유지할지 정리할지 결정한다.
+- Status: done
+
+## 2026-03-22
+- Context: 통합 테스트 케이스를 실행/리뷰/운영 해석용 문서로 분리 정리했다.
+- Current state:
+1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)에 현재 non-live 통합 테스트 43건이 기능 계약 단위로 정리돼 있다.
+2. [docs/specs/integration-live-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-live-test-cases.md)에 live 캡처 2건과 flaky 해석 규칙이 별도로 정리돼 있다.
+3. [README.md](C:/Users/kin50/Documents/test/README.md)와 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md) 테스트 가이드에서 두 문서를 바로 찾을 수 있다.
+4. 초안 계획의 `NB-01~NB-13`, `EO-01~EO-07`와 달리 현재 source suite는 news core 12건, EOD 8건이라 문서 번호는 source truth에 맞춰 `NB-01~NB-12`, `EO-01~EO-08`을 사용한다.
+- Next:
+1. integration 테스트가 늘면 먼저 source 테스트와 marker를 수정하고, 같은 변경에서 두 문서를 같이 갱신한다.
+2. 누락 고위험 케이스 섹션의 항목을 우선순위 후보로 삼아 다음 회귀 테스트 추가 작업을 잡는다.
+- Status: done
+
+## 2026-03-22
+- Context: 기능 전체 통합 테스트 전용 subagent를 추가하고, 실제로 같은 역할 지침으로 integration suite를 실행했다.
+- Current state:
+1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)이 추가돼 `integration_tester` custom agent가 정의됐다.
+2. 이 agent는 테스트 시 기본적으로 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 suite를 먼저 실행하도록 고정돼 있다.
+3. 이번 세션에서 같은 역할의 worker subagent로 full integration suite를 실행했고 결과는 `43 passed, 2 deselected`였다.
+- Next:
+1. 이후 검증 요청에서는 `integration_tester`를 먼저 쓰고, targeted test는 full integration 이후 필요할 때만 추가한다.
+- Status: done
+
+## 2026-03-22
+- Context: PR `#12` review finding으로 auto screenshot state 보존 fix를 한 번 더 보강했다.
+- Current state:
+1. `bot/features/auto_scheduler.py`는 이제 success 후 refresh read가 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남긴다.
+2. 즉 `load_state()`가 transient read/parse failure로 empty state를 돌려줘도, runner가 이미 저장한 `daily_posts_by_guild`/`last_images`를 near-empty save로 덮어쓰지 않는다.
+3. `tests/integration/test_auto_scheduler_logic.py`에는 refresh read empty-state guard 회귀 테스트가 추가됐다.
+- Next:
+1. PR `#12`에 이 수정 커밋을 올리고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-22
+- Context: auto screenshot state 유실 fix가 테스트뿐 아니라 실제 파일 저장 흐름에서도 유지되는지 로컬에서 다시 검증했다.
+- Current state:
+1. 임시 `state.json` 기준 `process_auto_screenshot_tick()` 실행 후 `daily_posts_by_guild`, `last_images`, `last_auto_runs`가 함께 남는 것을 확인했다.
+2. 즉 현재 수정은 "runner가 먼저 저장한 오늘자 post/cache state를 scheduler가 마지막 save에서 덮어쓰는 문제"를 on-disk 재현에서도 막는다.
+3. 이번 검증은 isolated local state 파일과 fake runner로 수행했고, 실 Discord API 호출이나 운영 포럼 posting은 하지 않았다.
+- Next:
+1. live 확인이 필요하면 운영 봇 재기동 후 실제 auto run 직후 `data/state/state.json`과 auto-screenshot 로그를 함께 본다.
+- Status: done
+
+## 2026-03-22
+- Context: project custom agent 3종이 app UI에서 모두 정상 생성되는 기준선이 확보됐고, subagent 호출 약속도 문서화했다.
+- Current state:
+1. `repo_explorer`, `reviewer`, `docs_researcher`는 현재 app UI에서 모두 생성 가능하다.
+2. `docs_researcher`는 [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에서 `web_search = "live"`를 제거한 뒤 정상 등록됐다.
+3. 이 저장소의 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`이며, 새 스레드에서 한 번 명시한 뒤에는 같은 스레드 안에서 `기본 3-agent 패턴` 같은 축약 표현으로 재사용한다.
+4. 위 약속은 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)와 [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md)에 반영돼 있다.
+- Next:
+1. 다음 subagent 작업에서는 문서 확인이 필요 없는 순수 로컬 코드 작업인지 먼저 보고 `docs_researcher` 생략 여부를 판단한다.
+- Status: done
+
+## 2026-03-22
+- Context: Codex app 재시작 및 새 desktop thread 이후 project custom agent smoke test를 다시 시도했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml`은 그대로 유지했고, 이번 세션에서는 검증만 다시 수행했다.
+2. `Get-Command codex`/`where.exe codex` 기준 desktop 번들 실행 파일 경로 해석은 정상이다.
+3. 하지만 `codex --version`, `codex --help`는 여전히 `Access is denied`로 실패해 shell에서 custom agent runtime을 직접 올릴 수 없었다.
+4. developer `spawn_agent`는 `repo_explorer`, `reviewer`, `docs_researcher`를 여전히 `unknown agent_type`로 반환했다.
+5. control로 built-in `explorer` subagent는 정상 응답했으므로, 현재 문제 범위는 "subagent 전체 장애"가 아니라 "project custom agent가 이 runtime/tool surface에 노출되지 않음" 쪽으로 더 좁혀졌다.
+6. Codex app 로컬 로그 [`codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log`](C:/Users/kin50/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs/2026/03/22/codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log)에는 bundled `codex.exe` stdio spawn과 `Codex CLI initialized`가 남아 있어, app 내부 app-server 초기화 자체는 성공한 상태다.
+- Next:
+1. 실제 custom agent smoke test는 Codex app UI에서 custom agent 선택 후 각각 한 번씩 실행해 결과를 확인한다.
+2. 필요하면 desktop app UI 노출과 developer `spawn_agent` 노출 범위 차이를 별도로 조사한다.
+- Status: done
+
+## 2026-03-22
+- Context: project-scoped Codex 설정을 현재 저장소 작업 패턴에 맞게 보수적으로 정리했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)은 이제 `gpt-5.3-codex` 기본 모델, `model_reasoning_effort=medium`, `model_verbosity=low`, `personality=pragmatic`, `plan_mode_reasoning_effort=high`, `web_search=cached`, `project_doc_max_bytes=16384`를 명시한다.
+2. subagent 전역 설정은 `max_threads=4`, `max_depth=1`, `job_max_runtime_seconds=1800`으로 맞춰져 있다.
+3. `repo_explorer`, `reviewer`, `docs_researcher` custom agent는 각각 역할별 모델과 reasoning 강도가 명시돼 있고, 이후 호환성 보정으로 `docs_researcher`의 `web_search=live` override는 제거됐다.
+4. `review_model` 같은 별도 리뷰 전용 top-level 키는 공식 `config-reference`에서 확인되지 않아 넣지 않았다.
+5. 현재 desktop thread에서 built-in `explorer` subagent 생성은 성공해 multi-agent 경로 자체는 정상이다.
+6. 반면 developer `spawn_agent`는 project custom agent 이름을 인식하지 않았고, shell에서 `codex` 실행도 `Access is denied`라 실제 custom-agent runtime smoke test는 완료하지 못했다.
+- Next:
+1. Codex app 재시작 후 custom agent 선택 경로에서 `repo_explorer`, `reviewer`, `docs_researcher`를 한 번씩 실행해 runtime smoke test를 다시 확인한다.
+2. 병렬성이 부족하면 `max_threads` 상향 여부를 다시 검토한다.
+- Status: done
+
+## 2026-03-20
+- Context: 원격 최신 상태를 fetch한 뒤 로컬 `develop`를 fast-forward 하고, auto screenshot state 유실 fix 필요 여부를 바로 점검했다.
+- Current state:
+1. 로컬 `develop`는 이제 `origin/develop` 최신 `2a69fcd codex/watch registry hybrid news (#11)`까지 반영된 상태다.
+2. `origin/codex/fix-auto-screenshot-state`의 핵심 수정은 최신 `develop`에도 여전히 유효했고, 로컬 `develop`에 같은 보완을 적용했다.
+3. `bot/features/auto_scheduler.py`는 성공 후 `load_state()`를 다시 읽고 `last_auto_runs`만 기록해, runner가 저장한 오늘자 `daily_posts_by_guild`/cache state를 덮어쓰지 않는다.
+4. `tests/integration/test_auto_scheduler_logic.py`에는 runner 저장 state 보존 회귀 테스트가 추가됐다.
+5. 로컬 `scheduler -> manual` 재현에서도 `CREATE_CALLS=1`, `kheatmap 포스트 수정 완료`로 확인돼 같은 날 수동 `/kheatmap`은 기존 thread 수정 경로를 사용한다.
+- Next:
+1. 필요하면 이 fix를 기준으로 별도 브랜치/PR 정리를 진행한다.
+2. 운영 봇 재기동 후 auto screenshot 실행에서 오늘자 state entry와 `last_auto_runs`가 함께 남는지 확인한다.
+- Status: open
+
+## 2026-03-20
+- Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
+- Current state:
+1. 코드 계약상 이 현상은 `오늘자 kheatmap state record 부재` 또는 `기존 thread/message fetch 실패`일 때만 생긴다.
+2. `kosdaq` render timeout 자체는 원인이 아니다. 성공 이미지가 하나라도 있으면 heatmap runner는 그대로 forum upsert를 수행한다.
+3. 운영 봇 프로세스는 `2026-03-20 09:14`에 시작됐고, state 경로를 `data/state/state.json`으로 옮긴 커밋은 `2026-03-20 10:37`에 들어갔다. 즉 실제 런타임은 state 경로 변경 전 코드를 계속 들고 있었을 가능성이 높다.
+4. 로컬 최신 `data/state/state.json`에는 오늘자 `kheatmap` record가 없고 `auto_screenshot_enabled=false`라서, 15:35 자동 게시를 만든 state로 설명되지 않는다.
+5. 레거시 `data/heatmaps/state.json`은 조사 시점에 비어 있는 형태로 다시 생성돼 있었고, 아직 레거시 state 경로를 바라보는 런타임/state drift가 있음을 시사한다.
+- Next:
+1. 운영 배포 시에는 봇 프로세스를 완전히 내린 뒤 브랜치 checkout/코드 변경/상태 마이그레이션을 수행한다.
+2. 실제 운영 재기동 후에는 `STATE_FILE` 경로와 오늘자 `kheatmap` state entry 기록을 로그로 남기도록 운영 체크를 추가하는 편이 안전하다.
+3. 같은 Discord 토큰으로 다른 호스트/세션이 동시에 떠 있는지도 한 번 점검한다.
+- Status: open
+
+## 2026-03-20
+- Context: KIS 단독 전략 보완을 위해 watch/name 중심의 local instrument registry, hybrid news, paused EOD 기준선을 구현했다.
+- Current state:
+1. `bot/intel/data/instrument_registry.json` generated artifact가 추가됐고, 현재 registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건으로 총 7,538건이다.
+2. `/watch add`, `/watch remove`는 이제 종목명/코드/티커를 모두 받고 autocomplete를 지원하며, 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)이다.
+3. `bot/forum/repository.py`는 legacy watchlist/baseline/cooldown 키를 읽을 때 canonical symbol로 자동 승격한다.
+4. watch alert 메시지와 `/watch list`는 `이름 + canonical symbol` 형식으로 보여준다.
+5. news provider는 `NEWS_PROVIDER_KIND=marketaux|hybrid`를 지원하고, `hybrid`는 국내 Naver + 해외 Marketaux 조합이다.
+6. `/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해 보여준다.
+7. `EOD_SUMMARY_ENABLED` 기본값은 이제 `false`고, EOD는 문서/상태상 pause 기준으로 정리됐다.
+8. 전체 테스트는 `.\.venv\Scripts\python.exe -m pytest -q` 기준 전부 통과했다.
+- Next:
+1. 국내 종목명 커버리지를 full master로 넓히려면 `DART_API_KEY`를 넣고 `scripts/build_instrument_registry.py`를 다시 실행한다.
+2. `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 실제 값으로 넣고 global news fetch 품질을 한 번 실반영으로 점검한다.
+3. `Polygon`을 US fallback quote/reference로 붙이고, `OpenFIGI`/`Twelve Data`는 reconciliation/future EOD slot으로 이어 붙인다.
+- Status: open
+
+## 2026-03-20
+- Context: runtime state 파일과 외부 참고문서 위치를 정리하는 구조 변경을 반영했다.
+- Current state:
+1. 앱 state 기본 경로는 이제 `data/state/state.json`이다.
+2. `bot/forum/repository.py`는 기존 `data/heatmaps/state.json`이 남아 있으면 새 경로로 자동 마이그레이션한다.
+3. 외부 벤더 문서/스프레드시트/PDF는 앞으로 `docs/references/external/` 아래에 모아 둔다.
+4. 워크스페이스에 남아 있던 기존 `data/heatmaps/state.json`과 외부 참고 xlsx도 각각 새 위치 기준으로 정리했다.
+5. 관련 문서 기준도 `AGENTS.md`, `README.md`, `docs/context/goals.md`까지 새 경로로 맞췄고, 전체 테스트는 `89 passed, 2 deselected`다.
+- Next:
+1. 새 외부 참고문서가 생기면 `docs/references/external/` 아래에만 보관한다.
+- Status: done
+
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10`까지 마무리한 뒤, 앞으로의 릴리스/약속 문서화 규칙을 정리했다.
+- Current state:
+1. `PR #10`은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`에서 `develop`으로 squash merge 완료됐고, 현재 로컬 기준 브랜치는 `develop`이다.
+2. `develop` 최신 상태는 `master` 릴리스 수정과 후속 scheduler 보정까지 포함하며, 전체 테스트는 `88 passed, 2 deselected`다.
+3. 앞으로 `develop -> master` 릴리스는 별도 release branch를 만들지 않고 `develop` 브랜치에서 직접 `master` 대상으로 PR을 연다.
+4. 새 운영 약속이나 브랜치 전략 변경은 앞으로 `AGENTS.md`와 `docs/context/*`에 함께 남기는 것을 기본 규칙으로 삼는다.
+- Next:
+1. 다음 릴리스 요청이 오면 `develop`에서 바로 `master`로 direct PR을 연다.
+2. 다음 세션에서도 새 약속이 생기면 공통 규칙은 `AGENTS.md`, 이유는 `design-decisions.md`, 실행 결과는 `development-log.md`, 최신 상태는 `session-handoff.md`에 남긴다.
+- Status: open
+
+## 2026-03-20
+- Context: `master`의 release fix를 `develop`에 되돌려 넣기 위한 sync PR `#10`에서 Codex review finding 1건을 반영했다.
+- Current state:
+1. sync branch/PR은 `https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/10`이다.
+2. `bot/features/intel_scheduler.py`는 trading-day skip을 forum resolution보다 먼저 처리해, 휴장일에는 forum lookup 장애가 있어도 `holiday` semantics를 유지한다.
+3. forum channel resolution 중 `fetch_channel()` API 오류는 더 이상 `missing_forum`으로 숨기지 않고, 해당 guild만 failure로 집계한 채 다른 guild 처리를 계속한다.
+4. 뉴스/EOD run detail은 `forum_resolution_failures`를 남기고, 같은 run에 resolution 오류가 있으면 `failed`를 기록한다.
+5. `tests/integration/test_intel_scheduler_logic.py`는 뉴스/EOD forum resolution API failure, mixed guild continuation, holiday-precedence 회귀를 포함한다.
+6. 관련 타깃 테스트는 `24 passed, 4 deselected`다.
+- Next:
+1. PR `#10`에 현재 수정 커밋을 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `develop`에 merge하고 sync branch를 정리한다.
+- Status: open
+
 ## 2026-03-19
 - Context: release PR `#9`의 여섯 번째 review까지 반영해 `news_briefing`과 `trend_briefing` partial guild failure false positive도 닫았다.
 - Current state:

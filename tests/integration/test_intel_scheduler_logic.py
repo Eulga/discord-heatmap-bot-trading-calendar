@@ -42,6 +42,28 @@ class FakeForumClient:
         return self._channel
 
 
+class FailingFetchForumClient:
+    def get_channel(self, _channel_id: int):
+        return None
+
+    async def fetch_channel(self, _channel_id: int):
+        raise RuntimeError("discord api down")
+
+
+class MixedForumClient:
+    def __init__(self, channels_by_id: dict[int, object], failing_ids: set[int]):
+        self._channels_by_id = channels_by_id
+        self._failing_ids = failing_ids
+
+    def get_channel(self, channel_id: int):
+        return self._channels_by_id.get(channel_id)
+
+    async def fetch_channel(self, channel_id: int):
+        if channel_id in self._failing_ids:
+            raise RuntimeError("discord api down")
+        return self._channels_by_id.get(channel_id)
+
+
 @pytest.mark.asyncio
 async def test_news_job_records_provider_failure(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
@@ -122,6 +144,118 @@ async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch
     assert runs["news_briefing"]["status"] == "skipped"
     assert "missing_forum=1" in runs["news_briefing"]["detail"]
     assert runs["trend_briefing"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"fetch": 0}
+
+    class Provider:
+        async def fetch(self, now):
+            called["fetch"] += 1
+            return []
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["fetch"] == 0
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "failed"
+    assert runs["trend_briefing"]["status"] == "failed"
+    assert runs["news_briefing"]["detail"] == "forum-resolution-failed count=1 missing_forum=0"
+
+
+@pytest.mark.asyncio
+async def test_news_job_skips_holiday_before_forum_resolution_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
+    called = {"fetch": 0}
+
+    class Provider:
+        async def fetch(self, now):
+            called["fetch"] += 1
+            return []
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_TRADING_DAYS_ONLY", True)
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
+
+    now = datetime(2026, 2, 14, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["fetch"] == 0
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "skipped"
+    assert runs["news_briefing"]["detail"] == "holiday"
+    assert runs["trend_briefing"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_news_job_continues_after_one_forum_resolution_api_error(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"forum_channel_id": 123},
+            "2": {"forum_channel_id": 999},
+        },
+    }
+
+    class Provider:
+        async def analyze(self, now):
+            return NewsAnalysis(
+                briefing_items=(
+                    NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                    NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+                ),
+                trend_report=TrendThemeReport(
+                    generated_at=now,
+                    themes_by_region={
+                        "domestic": (
+                            _theme_brief("domestic", "반도체", now, "https://example.com/semi"),
+                            _theme_brief("domestic", "건설/원전", now, "https://example.com/nuke"),
+                            _theme_brief("domestic", "전력설비", now, "https://example.com/power"),
+                        ),
+                        "global": (
+                            _theme_brief("global", "AI/반도체", now, "https://example.com/ai"),
+                            _theme_brief("global", "금리/Fed", now, "https://example.com/fed"),
+                            _theme_brief("global", "에너지/원유", now, "https://example.com/oil"),
+                        ),
+                    },
+                ),
+            )
+
+    async def ok_post(**kwargs):
+        return None
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
+
+    client = MixedForumClient({123: FakeForumChannel(guild_id=1)}, {999})
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=client, now=now)
+
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "failed"
+    assert "posted=1 failed=1" in runs["news_briefing"]["detail"]
+    assert "forum_resolution_failures=1" in runs["news_briefing"]["detail"]
+    assert runs["trend_briefing"]["status"] == "failed"
+    assert "posted=1 failed=1" in runs["trend_briefing"]["detail"]
+    assert state["guilds"]["1"]["last_auto_runs"]["newsbriefing"] == "2026-02-13"
+    assert state["guilds"]["1"]["last_auto_runs"]["trendbriefing"] == "2026-02-13"
+    assert "last_auto_runs" not in state["guilds"]["2"]
 
 
 @pytest.mark.asyncio
@@ -713,6 +847,115 @@ async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch)
     assert "missing_forum=1" in run["detail"]
 
 
+@pytest.mark.asyncio
+async def test_eod_job_fails_when_forum_resolution_api_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {}}}
+    called = {"summary": 0}
+
+    class Provider:
+        async def get_summary(self, now):
+            called["summary"] += 1
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", 999)
+
+    now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["summary"] == 0
+    run = state["system"]["job_last_runs"]["eod_summary"]
+    assert run["status"] == "failed"
+    assert run["detail"] == "forum-resolution-failed count=1 missing_forum=0"
+
+
+@pytest.mark.asyncio
+async def test_eod_job_skips_holiday_before_forum_resolution_errors(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
+    called = {"summary": 0}
+
+    class Provider:
+        async def get_summary(self, now):
+            called["summary"] += 1
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", None)
+
+    now = datetime(2026, 2, 14, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=FailingFetchForumClient(), now=now)
+
+    assert called["summary"] == 0
+    run = state["system"]["job_last_runs"]["eod_summary"]
+    assert run["status"] == "skipped"
+    assert run["detail"] == "holiday"
+
+
+@pytest.mark.asyncio
+async def test_eod_job_continues_after_one_forum_resolution_api_error(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"forum_channel_id": 123},
+            "2": {"forum_channel_id": 999},
+        },
+    }
+
+    class Provider:
+        async def get_summary(self, now):
+            return EodSummary(
+                date_text="2026-02-13",
+                kospi_change_pct=0.82,
+                kosdaq_change_pct=-0.27,
+                top_gainers=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+                top_losers=[EodRow("068270", "셀트리온", -2.9, 250.1)],
+                top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
+            )
+
+    async def ok_post(**kwargs):
+        return None
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
+    monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", None)
+
+    client = MixedForumClient({123: FakeForumChannel(guild_id=1)}, {999})
+    now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
+    await intel_scheduler._run_eod_job(client=client, now=now)
+
+    run = state["system"]["job_last_runs"]["eod_summary"]
+    assert run["status"] == "failed"
+    assert "posted=1 failed=1" in run["detail"]
+    assert "forum_resolution_failures=1" in run["detail"]
+    assert state["guilds"]["1"]["last_auto_runs"]["eodsummary"] == "2026-02-13"
+    assert "last_auto_runs" not in state["guilds"]["2"]
+
+
 class FakeMessageable:
     async def send(self, message: str) -> None:
         raise NotImplementedError
@@ -833,7 +1076,7 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     assert "send_failures=1" in run["detail"]
     provider = state["system"]["provider_status"]["market_data_provider"]
     assert provider["ok"] is True
-    assert provider["message"] == "quote:005930"
+    assert provider["message"] == "quote:KRX:005930"
 
 
 @pytest.mark.asyncio
@@ -845,7 +1088,7 @@ async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_
 
     class Provider:
         async def get_quote(self, symbol, now):
-            if symbol == "005930":
+            if symbol == "KRX:005930":
                 return SimpleNamespace(price=73100.0)
             raise RuntimeError("quote provider down")
 
@@ -862,3 +1105,40 @@ async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_
     assert run["status"] == "failed"
     assert "processed=1" in run["detail"]
     assert "quote_failures=1" in run["detail"]
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_uses_friendly_symbol_display(monkeypatch):
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watchlist": ["005930"], "watch_alert_channel_id": 123}},
+        "system": {
+            "watch_baselines": {
+                "1": {
+                    "005930": {
+                        "price": 100.0,
+                        "checked_at": now.isoformat(),
+                    }
+                }
+            }
+        },
+    }
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            assert symbol == "KRX:005930"
+            return SimpleNamespace(price=110.0)
+
+    channel = FakeWatchChannel(guild_id=1)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(channel), now=now)
+
+    assert channel.messages
+    assert "삼성전자 (KRX:005930)" in channel.messages[0]

@@ -1,5 +1,87 @@
 # Design Decisions
 
+## 2026-03-22
+- Context: 사용자가 `tests/integration` 전체를 기능 계약 중심 테스트 케이스 문서로 풀어 쓰고, live 캡처 테스트는 별도 문서로 분리해 달라고 요청했다.
+- Decision: 통합 테스트 문서는 source of truth인 현재 `tests/integration/*.py`와 `pytest.ini`를 기준으로 유지하고, non-live 케이스는 `docs/specs/integration-test-cases.md`, live 케이스는 `docs/specs/integration-live-test-cases.md`로 분리한다.
+- Why:
+1. 기본 `pytest`가 `-m "not live"`를 쓰는 현재 구조에서는 live 캡처 2건과 나머지 43건의 운영 의미가 다르므로 문서도 분리하는 편이 해석이 명확하다.
+2. 테스트 파일 순서 대신 기능 계약 단위로 재서술해야 구현자, 리뷰어, future subagent가 "무엇을 깨뜨렸는지"를 더 빨리 읽을 수 있다.
+3. 초안 계획의 뉴스/EOD 케이스 수와 현재 소스 테스트 수가 1건씩 어긋나 있어, 문서 번호 체계도 계획안보다 source truth를 우선하는 편이 맞다.
+- Impact:
+1. 새 테스트 케이스 문서는 `README.md`, `AGENTS.md`의 테스트 가이드에서 바로 찾을 수 있다.
+2. 현재 기준 non-live는 `AS 6 + FU 8 + NB 12 + TR 4 + EO 8 + WP 5 = 43`, live는 2건으로 읽는다.
+3. 이후 테스트가 늘거나 재분류되면 먼저 source 테스트와 marker를 갱신하고, 문서는 그 구조를 그대로 따라간다.
+- Status: accepted
+
+## 2026-03-22
+- Context: 사용자가 "기능 전체 통합 테스트 전용 subagent"를 하나 따로 두고, 이 agent가 테스트할 때는 항상 전체 integration suite를 돌리길 원했다.
+- Decision: project custom agent에 `integration_tester`를 추가하고, 이 agent의 테스트 기본 동작을 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 실행으로 고정한다.
+- Why:
+1. 이 저장소는 단일 파일 회귀만 보면 놓치는 scheduler/forum/state 연동 문제가 자주 나와, 기능 검증용 agent는 부분 테스트보다 전체 integration suite를 기본값으로 가져가는 편이 안전하다.
+2. 테스트 전용 역할을 별도로 분리하면 `repo_explorer`/`reviewer`와 책임이 섞이지 않고, 검증 요청 시 기대 동작이 명확해진다.
+3. unit/targeted test는 빠르지만 이번 저장소의 운영 리스크를 충분히 대변하지 못하므로, integration_tester는 기본적으로 subset 실행을 허용하지 않는 편이 맞다.
+- Impact:
+1. `.codex/agents/integration-tester.toml`이 새로 추가되고, `AGENTS.md`의 subagent 역할 목록에도 같은 규칙이 반영된다.
+2. 향후 integration_tester를 통한 검증 요청은 전체 `tests/integration` 실행을 먼저 수행한 뒤에만 추가 targeted repro로 내려간다.
+3. full integration suite를 돌릴 수 없으면 blocker를 그대로 보고하고, 부분 테스트로 조용히 대체하지 않는다.
+- Status: accepted
+
+## 2026-03-22
+- Context: Codex app에서 project custom agent 3종이 모두 동작하는 것을 확인한 뒤, 사용자는 앞으로 같은 subagent 패턴을 매번 긴 문장으로 다시 지시하지 않길 원했다.
+- Decision: 이 저장소의 Codex 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`로 두고, 새 스레드에서 한 번 명시된 뒤에는 같은 스레드 안에서 축약 표현으로 재사용한다.
+- Why:
+1. Codex는 subagent를 명시 요청 시에만 spawn하는 쪽이 기본이므로, 완전 자동보다 "새 스레드 1회 명시 후 같은 스레드 재사용" 규칙이 더 예측 가능하다.
+2. 이 저장소 작업은 코드 경로 탐색, 리스크 리뷰, 공식 문서 확인이 자주 함께 필요해 3-agent 조합의 재사용성이 높다.
+3. 모든 작업에서 문서 조사까지 항상 붙이면 비용과 대기 시간이 늘어나므로, `docs_researcher`는 필요 없는 로컬 코드 작업에서는 생략 가능해야 한다.
+- Impact:
+1. 새 스레드에서는 subagent 사용 의사를 한 번은 받아야 한다.
+2. 같은 스레드에서는 `기본 3-agent 패턴`, `같은 subagent 패턴` 같은 축약 표현만으로도 같은 조합을 재사용할 수 있다.
+3. `AGENTS.md`와 `session-handoff.md`에 같은 규칙을 남겨 다음 세션에서도 해석이 흔들리지 않게 한다.
+- Status: accepted
+
+## 2026-03-20
+- Context: KIS 단독으로는 watch 종목명 검색, 뉴스 링크 품질, 보조 reference 확장성이 부족했고, 사용자는 `watch`를 우선 살리되 `eod_summary`는 잠정 중단하길 원했다.
+- Decision: 외부 인텔 스택은 역할 분리형으로 간다. `watch 이름 검색`은 live vendor search 대신 local instrument registry를 쓰고, 시세는 `KIS primary`, 뉴스는 `Naver domestic + Marketaux global`, 보조 정규화는 `Polygon/Twelve Data/OpenFIGI` 슬롯으로 분리한다.
+- Why:
+1. KIS는 quote에는 강하지만 자유검색형 symbol master와 기사 URL 기반 뉴스 계약이 약해, 모든 역할을 한 벤더에 몰면 command UX와 news 품질이 같이 흔들린다.
+2. `watch add`는 slash command에서 빠르고 안정적으로 후보를 보여주는 게 중요하므로, 외부 rate limit과 auth에 직접 걸리는 live search보다 generated registry + autocomplete가 더 운영 친화적이다.
+3. 국내 상장사와 미국 상장사의 authoritative source가 다르기 때문에, `OpenDART + SEC`를 symbol master base로 두고 vendor별 mapping은 별도 필드로 보관하는 편이 장기적으로 덜 묶인다.
+4. 사용자는 확장형 스택을 원했지만 hot path 복잡도는 낮추길 원했으므로, `Polygon`, `Twelve Data`, `OpenFIGI`는 즉시 core path에 넣지 않고 optional slot으로 여는 쪽이 균형이 좋다.
+5. `eod_summary`는 현재 요구 우선순위에서 밀렸기 때문에, half-built 확장을 이어가기보다 명시적으로 pause 해 두는 편이 운영 판단 기준이 더 선명하다.
+- Impact:
+1. watch 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 통일되고, legacy raw symbol은 점진적으로 canonical로 승격된다.
+2. instrument registry는 repo에 체크인된 generated artifact를 runtime이 읽고, raw source는 `docs/references/external/`에만 둔다.
+3. global news 실제 운영 전환의 기본선은 `NEWS_PROVIDER_KIND=hybrid`이며, source-status는 configured/disabled/paused semantics를 합성해서 보여준다.
+4. `Polygon`, `Twelve Data`, `OpenFIGI`는 이번 단계에서 hot path fail-open 보조 슬롯으로만 열리고, 다음 단계에서 quote fallback/reconciliation job으로 확장한다.
+5. `eod_summary`는 기본 설정상 비활성화되고, spec/상태 화면에도 pause 상태를 드러낸다.
+- Status: accepted
+
+## 2026-03-20
+- Context: runtime 상태 파일이 heatmap 이미지 캐시 디렉터리(`data/heatmaps/`) 안에 섞여 있고, 외부 참고문서도 저장 위치가 분산돼 있어 운영 파일과 참고 자료가 헷갈리기 쉬웠다.
+- Decision: runtime state는 `data/state/state.json`으로 분리하고, 외부 벤더 참고문서는 `docs/references/external/` 한 곳에 모은다.
+- Why:
+1. `state.json`은 이미지 캐시와 성격이 달라서 `data/heatmaps/` 아래에 있으면 캡처 결과물과 운영 상태가 뒤섞여 보인다.
+2. 상태 파일을 별도 디렉터리로 분리하면 런타임 상태, 로그, 이미지 캐시를 목적별로 구분해 관리하기 쉬워진다.
+3. 외부 참고문서는 내부 설계/리포트 문서와 달리 원문 보관 성격이 강하므로, `docs/context`, `docs/specs`, `docs/reports`와 분리된 단일 보관 위치가 있는 편이 탐색이 쉽다.
+- Impact:
+1. 앱 state 기본 경로는 `data/state/state.json`이 되고, 기존 `data/heatmaps/state.json`은 레거시 마이그레이션 대상으로 취급한다.
+2. 외부 API 벤더 문서, 원문 가이드, 비교용 스프레드시트는 앞으로 `docs/references/external/` 아래에 둔다.
+3. 내부 문서(`context/specs/reports`)와 외부 원문 문서가 역할별로 분리된다.
+- Status: accepted
+
+## 2026-03-20
+- Context: `develop -> master` 릴리스를 별도 release branch로 진행한 뒤 `master`에만 squash merge되면서, 같은 수정이 `develop`에는 다시 sync PR `#10`으로 역반영돼야 했다.
+- Decision: 앞으로 `master` 릴리스는 별도 release branch를 만들지 않고, `develop` 브랜치에서 직접 `master` 대상으로 PR을 연다.
+- Why:
+1. 이번 흐름에서 release branch가 `master`에만 들어가고 `develop`에는 자동 반영되지 않아, 같은 변경을 다시 `develop`으로 되돌려 넣는 추가 작업과 리뷰 루프가 필요했다.
+2. 이 저장소의 실질적인 작업 기준선은 `develop`이므로, 릴리스도 `develop` 자신을 source branch로 쓰는 편이 기준선 관리가 단순하다.
+3. 별도 release branch는 특별한 release-only patch가 있을 때만 의미가 있고, 평소에는 브랜치 분기와 역동기화 비용이 더 크다.
+- Impact:
+1. 이후 `develop에서 master로 올려` 류 요청은 `develop -> master` 직접 PR을 기본 경로로 사용한다.
+2. `master`로만 먼저 들어간 수정이 생기지 않아, release 후 `develop` 재동기화 작업 빈도가 줄어든다.
+3. 예외적으로 release branch가 필요하면, 왜 direct PR로 안 되는지와 release 후 `develop` 정리 계획을 같이 남겨야 한다.
+- Status: accepted
+
 ## 2026-03-19
 - Context: 사용자가 보수적인 경제 뉴스 브리핑은 유지하되, 따로 읽을 수 있는 `트렌드 테마 뉴스` 게시글을 원했다.
 - Decision: 트렌드 테마는 기존 국내/해외 뉴스 브리핑에 섞지 않고, 같은 스케줄에서 별도 `trendbriefing` thread 하나로 생성한다.

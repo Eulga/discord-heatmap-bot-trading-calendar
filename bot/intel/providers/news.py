@@ -444,6 +444,180 @@ class MockNewsProvider:
         )
 
 
+async def _coerce_news_analysis(provider: NewsProvider, now: datetime) -> NewsAnalysis:
+    analyze = getattr(provider, "analyze", None)
+    if callable(analyze):
+        return await analyze(now)
+    items = await provider.fetch(now)
+    return _build_news_analysis(
+        items=items,
+        candidates_by_region=_fallback_candidates_by_region(items, now),
+        generated_at=now,
+    )
+
+
+class HybridNewsProvider:
+    def __init__(self, domestic_provider: NewsProvider, global_provider: NewsProvider) -> None:
+        self.domestic_provider = domestic_provider
+        self.global_provider = global_provider
+
+    async def fetch(self, now: datetime) -> list[NewsItem]:
+        analysis = await self.analyze(now)
+        return list(analysis.briefing_items)
+
+    async def analyze(self, now: datetime) -> NewsAnalysis:
+        domestic_analysis, global_analysis = await asyncio.gather(
+            _coerce_news_analysis(self.domestic_provider, now),
+            _coerce_news_analysis(self.global_provider, now),
+        )
+        best_by_key: dict[str, NewsItem] = {}
+        for item in (*domestic_analysis.briefing_items, *global_analysis.briefing_items):
+            current = best_by_key.get(item.dedup_key())
+            if current is None or current.published_at < item.published_at:
+                best_by_key[item.dedup_key()] = item
+        merged_items = tuple(
+            sorted(best_by_key.values(), key=lambda item: (item.region, item.published_at), reverse=True)
+        )
+        return NewsAnalysis(
+            briefing_items=merged_items,
+            trend_report=TrendThemeReport(
+                generated_at=now,
+                themes_by_region={
+                    "domestic": domestic_analysis.trend_report.for_region("domestic"),
+                    "global": global_analysis.trend_report.for_region("global"),
+                },
+            ),
+        )
+
+
+class MarketauxNewsProvider:
+    def __init__(
+        self,
+        api_token: str,
+        global_query: str | Sequence[str],
+        *,
+        countries: str | Sequence[str] = ("us",),
+        language: str | Sequence[str] = ("en",),
+        limit_per_region: int = 20,
+        max_age_hours: int = 24,
+        timeout_seconds: int = 5,
+        retry_count: int = 1,
+    ) -> None:
+        self.api_token = api_token.strip()
+        self.global_queries = _normalize_queries(global_query)
+        self.countries = _normalize_queries(countries)
+        self.language = _normalize_queries(language)
+        self.limit_per_region = max(1, min(limit_per_region, 20))
+        self.max_age_hours = max(1, max_age_hours)
+        self.timeout_seconds = max(1, min(timeout_seconds, 10))
+        self.retry_count = max(0, min(retry_count, 1))
+
+    async def fetch(self, now: datetime) -> list[NewsItem]:
+        analysis = await self.analyze(now)
+        return list(analysis.briefing_items)
+
+    async def analyze(self, now: datetime) -> NewsAnalysis:
+        cutoff = now - timedelta(hours=self.max_age_hours)
+        latest_allowed = now + timedelta(minutes=5)
+        queries = self.global_queries or [""]
+        best_by_key: dict[str, NewsItem] = {}
+
+        for query in queries:
+            payload = await asyncio.to_thread(self._request_json, query)
+            raw_items = payload.get("data")
+            if not isinstance(raw_items, list):
+                raise RuntimeError("marketaux-invalid-response")
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    continue
+                item = self._normalize_item(raw_item, cutoff, latest_allowed)
+                if item is None:
+                    continue
+                current = best_by_key.get(item.dedup_key())
+                if current is None or current.published_at < item.published_at:
+                    best_by_key[item.dedup_key()] = item
+
+        items = sorted(best_by_key.values(), key=lambda item: item.published_at, reverse=True)[: self.limit_per_region]
+        return _build_news_analysis(
+            items=items,
+            candidates_by_region=_fallback_candidates_by_region(items, now),
+            generated_at=now,
+        )
+
+    def _request_json(self, query: str) -> dict[str, Any]:
+        params = {
+            "api_token": self.api_token,
+            "countries": ",".join(self.countries) if self.countries else "",
+            "language": ",".join(self.language) if self.language else "",
+            "filter_entities": "true",
+            "must_have_entities": "true",
+            "group_similar": "true",
+            "sort": "published_at",
+            "sort_order": "desc",
+            "limit": str(self.limit_per_region),
+        }
+        if query:
+            params["search"] = query
+        request = Request(
+            f"https://api.marketaux.com/v1/news/all?{urlencode(params)}",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "discord-heatmap-bot/1.0",
+            },
+        )
+        for attempt in range(self.retry_count + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise RuntimeError("marketaux-invalid-response")
+                return payload
+            except HTTPError as exc:
+                if exc.code in {401, 403}:
+                    raise RuntimeError(f"marketaux-auth-failed:{exc.code}") from exc
+                if exc.code == 429:
+                    raise RuntimeError("marketaux-rate-limited") from exc
+                if exc.code in {400, 404}:
+                    raise RuntimeError(f"marketaux-request-invalid:{exc.code}") from exc
+                if attempt >= self.retry_count:
+                    raise RuntimeError(f"marketaux-upstream-error:{exc.code}") from exc
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("marketaux-invalid-response") from exc
+            except URLError as exc:
+                if attempt >= self.retry_count:
+                    raise RuntimeError("marketaux-unreachable") from exc
+        raise RuntimeError("marketaux-unreachable")
+
+    def _normalize_item(
+        self,
+        raw_item: dict[str, Any],
+        cutoff: datetime,
+        latest_allowed: datetime,
+    ) -> NewsItem | None:
+        title = str(raw_item.get("title") or "").strip()
+        link = str(raw_item.get("url") or "").strip()
+        source = str(raw_item.get("source") or "").strip()
+        published_at_text = str(raw_item.get("published_at") or "").strip()
+        if not title or not link or not published_at_text:
+            return None
+        parsed_link = urlparse(link)
+        if parsed_link.scheme not in {"http", "https"} or not parsed_link.netloc:
+            return None
+        try:
+            published_at = datetime.fromisoformat(published_at_text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if published_at.tzinfo is None or published_at < cutoff or published_at > latest_allowed:
+            return None
+        return NewsItem(
+            title=title,
+            link=link,
+            source=source or _source_from_link(link),
+            published_at=published_at,
+            region="global",
+        )
+
+
 class NaverNewsProvider:
     def __init__(
         self,

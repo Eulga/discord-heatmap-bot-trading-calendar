@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 TradingDayCheck = Callable[[datetime], tuple[bool | None, str | None]]
 
 
+def _should_skip_last_auto_run_save(previous_state: dict, refreshed_state: dict, guild_id: int) -> bool:
+    guild_key = str(guild_id)
+    had_guild_state = guild_key in previous_state.get("guilds", {})
+    if not had_guild_state:
+        return False
+    return not refreshed_state.get("commands") and not refreshed_state.get("guilds")
+
+
 def _jobs_for_now(now: datetime) -> list[tuple[str, dict[str, str], object, object, object, int, int, TradingDayCheck]]:
     jobs: list[tuple[str, dict[str, str], object, object, object, int, int, TradingDayCheck]] = []
     if now.hour == 15 and now.minute == 35:
@@ -119,6 +127,17 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
             )
 
             if ok:
+                # The runner persists daily post/cache state through its own load/save cycle,
+                # so refresh before writing scheduler metadata to avoid clobbering it.
+                refreshed_state = load_state()
+                if _should_skip_last_auto_run_save(state, refreshed_state, guild_id):
+                    logger.warning(
+                        "[auto-screenshot] skipped last_auto_runs save guild=%s command=%s because state refresh returned empty",
+                        guild_id,
+                        command_key,
+                    )
+                    continue
+                state = refreshed_state
                 set_guild_last_auto_run_date(state, guild_id, command_key, current_date)
                 save_state(state)
                 logger.info(

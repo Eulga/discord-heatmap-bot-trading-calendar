@@ -10,6 +10,10 @@ from bot.app.settings import (
     EOD_TARGET_FORUM_ID,
     INTEL_API_RETRY_COUNT,
     INTEL_API_TIMEOUT_SECONDS,
+    MARKETAUX_API_TOKEN,
+    MARKETAUX_NEWS_COUNTRIES,
+    MARKETAUX_NEWS_GLOBAL_QUERIES,
+    MARKETAUX_NEWS_LANGUAGE,
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
     NAVER_NEWS_DOMESTIC_QUERIES,
@@ -58,9 +62,12 @@ from bot.forum.repository import (
     set_watch_baseline,
 )
 from bot.forum.service import upsert_daily_post
+from bot.intel.instrument_registry import format_watch_symbol
 from bot.intel.providers.market import MockEodSummaryProvider, MockMarketDataProvider
 from bot.intel.providers.news import (
     ErrorNewsProvider,
+    HybridNewsProvider,
+    MarketauxNewsProvider,
     MockNewsProvider,
     NaverNewsProvider,
     NewsAnalysis,
@@ -95,6 +102,47 @@ def _build_news_provider() -> NewsProvider:
             timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
             retry_count=INTEL_API_RETRY_COUNT,
         )
+    if NEWS_PROVIDER_KIND == "marketaux":
+        if not MARKETAUX_API_TOKEN:
+            return ErrorNewsProvider("marketaux-api-token-missing")
+        return MarketauxNewsProvider(
+            api_token=MARKETAUX_API_TOKEN,
+            global_query=MARKETAUX_NEWS_GLOBAL_QUERIES,
+            countries=MARKETAUX_NEWS_COUNTRIES,
+            language=MARKETAUX_NEWS_LANGUAGE,
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+    if NEWS_PROVIDER_KIND == "hybrid":
+        if not NAVER_NEWS_CLIENT_ID or not NAVER_NEWS_CLIENT_SECRET:
+            return ErrorNewsProvider("naver-news-credentials-missing")
+        if not MARKETAUX_API_TOKEN:
+            return ErrorNewsProvider("marketaux-api-token-missing")
+        domestic_provider = NaverNewsProvider(
+            client_id=NAVER_NEWS_CLIENT_ID,
+            client_secret=NAVER_NEWS_CLIENT_SECRET,
+            domestic_query=NAVER_NEWS_DOMESTIC_QUERIES,
+            global_query=[],
+            domestic_stock_query=NAVER_NEWS_DOMESTIC_STOCK_QUERIES,
+            global_stock_query=[],
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+        global_provider = MarketauxNewsProvider(
+            api_token=MARKETAUX_API_TOKEN,
+            global_query=MARKETAUX_NEWS_GLOBAL_QUERIES,
+            countries=MARKETAUX_NEWS_COUNTRIES,
+            language=MARKETAUX_NEWS_LANGUAGE,
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            max_age_hours=NAVER_NEWS_MAX_AGE_HOURS,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+        return HybridNewsProvider(domestic_provider=domestic_provider, global_provider=global_provider)
     return ErrorNewsProvider(f"unsupported-news-provider:{NEWS_PROVIDER_KIND}")
 
 
@@ -141,7 +189,7 @@ async def _resolve_guild_forum_channel_id(
     if channel is None and callable(fetch_channel):
         try:
             channel = await fetch_channel(forum_channel_id)
-        except Exception:
+        except discord.NotFound:
             return None
     if channel is None:
         return forum_channel_id
@@ -155,8 +203,10 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    unresolved_pending_guilds: list[tuple[int, int]] = []
     completed_guilds = 0
     missing_forum = 0
+    resolution_failures = 0
 
     for guild_id in list_guild_ids(state):
         _migrate_legacy_news_post_if_needed(state, guild_id, run_date)
@@ -176,13 +226,15 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
-        if resolved_forum_channel_id is None:
-            missing_forum += 1
-            continue
-        pending_guilds.append((guild_id, resolved_forum_channel_id))
+        unresolved_pending_guilds.append((guild_id, forum_channel_id))
 
-    if not pending_guilds:
+    if not unresolved_pending_guilds:
+        if resolution_failures > 0:
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "failed", detail)
+            set_job_last_run(state, "trend_briefing", "failed", detail)
+            save_state(state)
+            return
         if missing_forum > 0 and completed_guilds == 0:
             set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
             set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
@@ -198,12 +250,45 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             save_state(state)
             return
 
+    for guild_id, forum_channel_id in unresolved_pending_guilds:
+        try:
+            resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        except Exception as exc:
+            resolution_failures += 1
+            logger.exception("[intel] news forum resolution failed guild=%s: %s", guild_id, exc)
+            continue
+        if resolved_forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, resolved_forum_channel_id))
+
+    if not pending_guilds:
+        if resolution_failures > 0:
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "failed", detail)
+            set_job_last_run(state, "trend_briefing", "failed", detail)
+            save_state(state)
+            return
+        if missing_forum > 0 and completed_guilds == 0:
+            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
+        return
+
     try:
         analysis = await _analyze_news_provider(news_provider, now)
         items = list(analysis.briefing_items)
         set_provider_status(state, "news_provider", True, f"fetched={len(items)}")
+        if NEWS_PROVIDER_KIND in {"naver", "hybrid"}:
+            set_provider_status(state, "naver_news", True, f"fetched={len([item for item in items if item.region == 'domestic'])}")
+        if NEWS_PROVIDER_KIND in {"marketaux", "hybrid"}:
+            set_provider_status(state, "marketaux_news", True, f"fetched={len([item for item in items if item.region == 'global'])}")
     except Exception as exc:
         set_provider_status(state, "news_provider", False, str(exc))
+        if "naver" in str(exc):
+            set_provider_status(state, "naver_news", False, str(exc))
+        if "marketaux" in str(exc):
+            set_provider_status(state, "marketaux_news", False, str(exc))
         set_job_last_run(state, "news_briefing", "failed", str(exc))
         set_job_last_run(state, "trend_briefing", "failed", str(exc))
         save_state(state)
@@ -297,21 +382,27 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         if guild_failed > 0:
             continue
 
-    news_status = "ok" if posted > 0 and failed == 0 else "failed"
+    total_failures = failed + resolution_failures
+    news_status = "ok" if posted > 0 and total_failures == 0 else "failed"
     set_job_last_run(
         state,
         "news_briefing",
         news_status,
-        f"posted={posted} failed={failed} missing_forum={missing_forum} domestic={len(domestic)} global={len(global_items)}",
+        (
+            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+            f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
+        ),
     )
     if trend_can_post:
-        trend_status = "ok" if trend_posted > 0 and trend_failed == 0 else "failed"
+        trend_total_failures = trend_failed + resolution_failures
+        trend_status = "ok" if trend_posted > 0 and trend_total_failures == 0 else "failed"
         set_job_last_run(
             state,
             "trend_briefing",
             trend_status,
             (
-                f"posted={trend_posted} failed={trend_failed} missing_forum={missing_forum} "
+                f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
+                f"forum_resolution_failures={resolution_failures} "
                 f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
             ),
         )
@@ -338,8 +429,10 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
     state = load_state()
     run_date = date_key(now)
     pending_guilds: list[tuple[int, int]] = []
+    unresolved_pending_guilds: list[tuple[int, int]] = []
     completed_guilds = 0
     missing_forum = 0
+    resolution_failures = 0
 
     for guild_id in list_guild_ids(state):
         if get_guild_last_auto_run_date(state, guild_id, "eodsummary") == run_date:
@@ -353,13 +446,18 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         if forum_channel_id is None:
             missing_forum += 1
             continue
-        resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
-        if resolved_forum_channel_id is None:
-            missing_forum += 1
-            continue
-        pending_guilds.append((guild_id, resolved_forum_channel_id))
+        unresolved_pending_guilds.append((guild_id, forum_channel_id))
 
-    if not pending_guilds:
+    if not unresolved_pending_guilds:
+        if resolution_failures > 0:
+            set_job_last_run(
+                state,
+                "eod_summary",
+                "failed",
+                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
+            )
+            save_state(state)
+            return
         if missing_forum > 0 and completed_guilds == 0:
             set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
             save_state(state)
@@ -370,6 +468,33 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
         set_job_last_run(state, "eod_summary", "skipped", reason)
         save_state(state)
+        return
+
+    for guild_id, forum_channel_id in unresolved_pending_guilds:
+        try:
+            resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
+        except Exception as exc:
+            resolution_failures += 1
+            logger.exception("[intel] eod forum resolution failed guild=%s: %s", guild_id, exc)
+            continue
+        if resolved_forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, resolved_forum_channel_id))
+
+    if not pending_guilds:
+        if resolution_failures > 0:
+            set_job_last_run(
+                state,
+                "eod_summary",
+                "failed",
+                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
+            )
+            save_state(state)
+            return
+        if missing_forum > 0 and completed_guilds == 0:
+            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            save_state(state)
         return
 
     try:
@@ -404,12 +529,16 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
             failed += 1
             logger.exception("[intel] eod post failed guild=%s: %s", guild_id, exc)
 
-    status = "ok" if posted > 0 and failed == 0 else "failed"
+    total_failures = failed + resolution_failures
+    status = "ok" if posted > 0 and total_failures == 0 else "failed"
     set_job_last_run(
         state,
         "eod_summary",
         status,
-        f"posted={posted} failed={failed} missing_forum={missing_forum} date={summary.date_text}",
+        (
+            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+            f"forum_resolution_failures={resolution_failures} date={summary.date_text}"
+        ),
     )
     save_state(state)
 
@@ -470,9 +599,10 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             if should_send:
                 alert_attempts += 1
                 emoji = "📈" if direction == "up" else "📉"
+                display_symbol = format_watch_symbol(symbol)
                 try:
                     await channel.send(
-                        f"{emoji} `{symbol}` 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
+                        f"{emoji} {display_symbol} 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
                     )
                     sent += 1
                 except Exception:

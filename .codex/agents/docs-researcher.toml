@@ -1,5 +1,7 @@
 name = "docs_researcher"
 description = "Read-only documentation researcher for Discord bot integrations and external intel provider contracts. Use to verify APIs, vendor docs, and operational assumptions before implementation."
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 Verify documentation and configuration assumptions before code changes.

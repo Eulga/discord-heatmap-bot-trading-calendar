@@ -1,5 +1,227 @@
 # Development Log
 
+## 2026-03-22
+- Context: 사용자가 env의 채널/포럼 ID를 새로 바꾼 뒤 실제 Discord 검증을 다시 요청했다.
+- Change:
+1. 업데이트된 env 기준으로 `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`, `ADMIN_STATUS_CHANNEL_ID`를 다시 읽고 실제 Discord에서 fetch 검증을 수행했다.
+2. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`는 모두 같은 forum 채널(`1471842980787917005`)을 가리키는 것을 확인했고, 해당 forum에 `discord-env-smoke-default_forum-news_forum-eod_forum` key로 thread 생성 1회와 update 1회를 다시 수행했다.
+3. `WATCH_ALERT_CHANNEL_ID`도 같은 forum 채널을 가리키고 있어, watch poll 코드가 기대하는 `discord.abc.Messageable` 텍스트 채널 fallback으로는 사용할 수 없다는 점을 실제 채널 타입 확인으로 검증했다.
+4. `ADMIN_STATUS_CHANNEL_ID`는 fetch 시 `403 Missing Access`가 발생해 현재 봇이 그 채널을 읽을 권한조차 갖고 있지 않음을 확인했다.
+- Verification:
+1. Discord login, Gateway 연결, 글로벌 slash command 11개 sync 재확인.
+2. forum env smoke 결과: [default/news/eod forum smoke thread](https://discord.com/channels/332110589969039360/1485250008847614035) 생성 후 즉시 update 성공.
+3. watch alert env 결과: forum 채널이라 send smoke를 의도적으로 건너뛰었고, 현재 코드 기준 `watch_alert` fallback으로는 부적합하다는 점을 확인.
+4. admin status env 결과: `fetch_channel(1483007026023108739)`가 `403 Forbidden (50001 Missing Access)`로 실패.
+- Next:
+1. `WATCH_ALERT_CHANNEL_ID`는 forum이 아니라 같은 guild의 일반 text channel 또는 thread/messageable channel로 바꿔야 실제 watch alert fallback이 동작한다.
+2. `ADMIN_STATUS_CHANNEL_ID`를 계속 쓸 계획이면 해당 채널에 봇 접근 권한을 먼저 열어야 한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 "실제 디스코드까지 실행"하는 live 검증을 요청했다.
+- Change:
+1. 실제 `.env`의 `DISCORD_BOT_TOKEN`과 `DEFAULT_FORUM_CHANNEL_ID`를 사용해 봇을 Discord Gateway에 로그인시키고, `tree.sync()`가 11개 글로벌 커맨드를 정상 동기화하는지 확인했다.
+2. 검증 중 scheduler 부작용을 막기 위해 ad-hoc 부트 스크립트에서는 `auto_screenshot_scheduler`, `intel_scheduler`를 no-op으로 바꿔 짧게 부트했다.
+3. 실제 기본 포럼 채널 fallback 경로를 사용해 `discord_live_smoke` key로 forum thread를 1회 생성하고, 같은 thread를 즉시 1회 업데이트해 Discord forum upsert의 create/update 경로를 모두 확인했다.
+4. 실제 캡처 이미지 첨부까지 포함해 end-to-end로 확인하기 위해 `kospi` live capture를 수행했고, 생성된 PNG 파일 크기는 `207749` bytes였다.
+5. 추가 검증으로 `.\.venv\Scripts\python.exe -m pytest -m live -q`를 실행해 live capture suite 2건도 모두 통과했다.
+- Verification:
+1. ad-hoc Discord 부트 결과: login 성공, guild 2개 인식, 기본 포럼 채널 fetch 성공, forum posting 관련 권한(`view_channel`, `send_messages`, `send_messages_in_threads`, `create_public_threads`, `manage_threads`, `attach_files`) 확인.
+2. command sync 결과: `setforumchannel`, `setnewsforum`, `seteodforum`, `setwatchchannel`, `autoscreenshot`, `health`, `last-run`, `source-status`, `watch`, `kheatmap`, `usheatmap` 총 11개 글로벌 커맨드 sync 성공.
+3. 실제 forum upsert 결과: `discord_live_smoke` thread 생성 1회, 같은 thread update 1회 성공.
+4. `.\.venv\Scripts\python.exe -m pytest -m live -q` 결과: `2 passed`.
+- Next:
+1. 이번 검증은 실제 bot login/sync/forum posting까지는 포함했지만, slash interaction 자체를 Discord 사용자 클라이언트에서 눌러 실행한 것은 아니므로 필요하면 운영 서버에서 `/kheatmap` 또는 `/health`를 직접 한 번 더 눌러 interaction 경로를 마저 확인한다.
+2. `data/state/state.json`에는 `discord_live_smoke` 오늘자 thread record가 남아 있으니, 같은 key를 다시 쓸지 정리할지 다음 운영 판단에서 결정한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 통합 테스트를 실행하거나 검토할 때 바로 참조할 수 있는 상세 케이스 문서를 요청했다.
+- Change:
+1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)를 추가해 현재 non-live 통합 테스트 43건을 기능 계약 단위로 문서화했다.
+2. [docs/specs/integration-live-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-live-test-cases.md)를 추가해 live 캡처 2건을 별도 관리하도록 분리했다.
+3. [README.md](C:/Users/kin50/Documents/test/README.md)와 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md) 테스트 가이드에 새 문서 링크를 추가했다.
+4. source truth인 현재 `tests/integration/test_intel_scheduler_logic.py` 기준 실제 분포가 `NB 12`, `TR 4`, `EO 8`, `WP 5`라서, 초안 계획의 `NB 13`/`EO 7` 대신 source 수에 맞춘 번호 체계를 사용했다.
+- Verification:
+1. `pytest.ini`의 `-m "not live"` 규칙과 live marker 문구를 문서에 반영했는지 확인한다.
+2. 문서 매핑 수는 non-live 43건, live 2건으로 맞췄다.
+3. `README.md`와 `AGENTS.md`에서 새 문서 경로가 정확히 연결되는지 교차 확인한다.
+- Next:
+1. integration 테스트가 추가되면 먼저 source test 수와 marker를 업데이트하고, 같은 날 문서 케이스 매핑도 같이 갱신한다.
+2. 누락 고위험 케이스 섹션에 적어 둔 항목부터 실제 회귀 테스트 후보로 순차 반영한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 기능 전체 통합 테스트 전용 subagent를 새로 만들고, 실제로 그 agent 역할로 테스트를 돌려 달라고 요청했다.
+- Change:
+1. [`.codex/agents/integration-tester.toml`](C:/Users/kin50/Documents/test/.codex/agents/integration-tester.toml)을 추가해 `integration_tester` custom agent를 정의했다.
+2. 이 agent는 `workspace-write` sandbox에서 동작하고, 테스트나 검증 요청 시 항상 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 suite를 먼저 실행하도록 developer instructions를 고정했다.
+3. [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)에 `integration_tester` 역할과 "부분 테스트 대체 금지, 전체 integration 우선" 규칙을 추가했다.
+- Verification:
+1. `tomllib`로 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml` 전체 파싱 성공을 확인한다.
+2. worker subagent를 `integration_tester` 역할로 실행해 `.\.venv\Scripts\python.exe -m pytest tests/integration`를 실제로 수행했고, 결과는 `43 passed, 2 deselected`였다.
+- Next:
+1. 다음 세션에서 통합 검증이 필요하면 `integration_tester`를 먼저 호출하고, targeted test는 full integration 이후 추가로만 수행한다.
+- Status: done
+
+## 2026-03-22
+- Context: PR `#12`의 Codex review가 auto screenshot success 후 `load_state()`를 다시 읽는 보완에 새로운 data-loss 경로가 있다고 지적했다.
+- Change:
+1. [bot/features/auto_scheduler.py](C:/Users/kin50/Documents/test/bot/features/auto_scheduler.py)에 `_should_skip_last_auto_run_save(...)` 가드를 추가해, refresh read가 비정상적인 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남기도록 조정했다.
+2. 이 변경으로 state refresh가 `JSONDecodeError`/`OSError` 등으로 실패해 empty state를 돌려주는 순간에도, runner가 이미 저장한 `daily_posts_by_guild`/`last_images`를 near-empty save로 덮어쓰지 않게 됐다.
+3. [tests/integration/test_auto_scheduler_logic.py](C:/Users/kin50/Documents/test/tests/integration/test_auto_scheduler_logic.py)에 refresh read가 empty state를 반환할 때 scheduler가 추가 save를 하지 않고 기존 daily post state를 유지하는 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q`
+- Next:
+1. 이 수정 커밋을 PR `#12`에 반영하고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 auto screenshot state 유실 fix를 실제 디스크 쓰기 흐름까지 검증해 달라고 요청했다.
+- Change:
+1. 별도 임시 state 파일을 두고 `process_auto_screenshot_tick()`을 isolated 환경에서 실행해, runner가 먼저 저장한 `daily_posts_by_guild`와 `last_images`가 scheduler의 `last_auto_runs` 기록 뒤에도 유지되는지 확인했다.
+2. 실 Discord API 호출은 생략하고, `execute_heatmap_for_guild()`만 동일 tick 안에서 state를 먼저 저장하는 형태로 대체해 on-disk 경쟁 구도를 재현했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -`로 ad-hoc 검증 스크립트를 실행해 최종 `state.json`에 `commands.kheatmap.daily_posts_by_guild`, `commands.kheatmap.last_images`, `guilds.1.last_auto_runs.kheatmap`가 함께 남는 것을 확인했다.
+- Next:
+1. live 운영 검증이 필요하면 봇 재기동 후 실제 auto tick에서 `data/state/state.json`과 운영 로그를 같이 확인한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 project custom agent 기본 사용 패턴을 앞으로 재사용 가능한 운영 규칙으로 문서화해 달라고 요청했다.
+- Change:
+1. [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)에 `Codex Subagent 운영 규칙` 섹션을 추가했다.
+2. 기본 3-agent 패턴을 `repo_explorer + reviewer + docs_researcher`로 명시했고, 새 스레드 1회 명시 후 같은 스레드에서는 축약 표현으로 재사용 가능한 약속을 적었다.
+3. [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md)와 [docs/context/session-handoff.md](C:/Users/kin50/Documents/test/docs/context/session-handoff.md)에 같은 규칙의 이유와 현재 상태를 반영했다.
+- Verification:
+1. app UI 기준 `repo_explorer`, `reviewer`, `docs_researcher` custom agent가 모두 생성되는 것을 확인했다.
+2. 문서 간 규칙이 모순되지 않도록 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md), [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md), [docs/context/session-handoff.md](C:/Users/kin50/Documents/test/docs/context/session-handoff.md)를 교차 확인했다.
+- Next:
+1. 다음 새 스레드에서는 subagent 사용 의사를 한 번만 밝히면, 같은 스레드 안에서는 `기본 3-agent 패턴` 같은 축약 표현으로 재사용한다.
+- Status: done
+
+## 2026-03-22
+- Context: app UI smoke test에서 `repo_explorer`와 `reviewer`는 생성됐지만 `docs_researcher`만 `unknown agent_type`로 거절됐다.
+- Change:
+1. [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에서 `web_search = "live"`를 제거했다.
+- Why:
+1. 현재 custom agent 3개 중 `docs_researcher`만 이 키를 추가로 사용했고, 나머지 두 agent는 정상 생성됐다.
+2. 공식 subagent 문서의 custom agent 예시는 `model`, `model_reasoning_effort`, `sandbox_mode`, `mcp_servers`, `skills.config` 중심이며, 이번 수정은 unsupported/partially-supported key 가능성을 제거하는 호환성 우선 조치다.
+- Verification:
+1. `tomllib` 기준 [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml) 파싱은 계속 성공한다.
+2. 이후 app UI에서 `docs_researcher`도 정상 생성되는 것을 확인했다.
+- Next:
+1. 비슷한 custom agent 등록 문제가 다시 나오면 unsupported key 여부를 먼저 점검한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 Codex app 재시작과 새 desktop thread 생성 후 project custom agent smoke test를 다시 실행해 달라고 요청했다.
+- Change:
+1. 코드나 설정 파일은 수정하지 않고, 기존 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml) 및 [`.codex/agents/repo-explorer.toml`](C:/Users/kin50/Documents/test/.codex/agents/repo-explorer.toml), [`.codex/agents/reviewer.toml`](C:/Users/kin50/Documents/test/.codex/agents/reviewer.toml), [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml) 기준으로 runtime smoke test만 재실행했다.
+- Verification:
+1. `Get-Command codex`와 `where.exe codex`로 Codex desktop 번들 실행 파일 경로가 `C:\Program Files\WindowsApps\OpenAI.Codex_26.313.5234.0_x64__2p2nqsd0c76g0\app\resources\codex.exe`로 해석되는 것을 다시 확인했다.
+2. `codex --version`, `codex --help`는 둘 다 `Access is denied`로 실패해 shell 기반 smoke test는 여전히 불가능했다.
+3. developer `spawn_agent`에 `repo_explorer`, `reviewer`, `docs_researcher`를 각각 넣어 다시 호출했지만 모두 `unknown agent_type`로 실패했다.
+4. control로 built-in `explorer` subagent를 띄웠을 때는 [`bot/main.py`](C:/Users/kin50/Documents/test/bot/main.py)를 엔트리포인트로 응답해, desktop thread의 일반 subagent 경로 자체는 계속 정상임을 확인했다.
+5. Codex app 로컬 로그 [`codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log`](C:/Users/kin50/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs/2026/03/22/codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log)에는 `[StdioConnection] stdio_transport_spawned`와 `[AppServerConnection] Codex CLI initialized`가 남아 있어, Electron app 자체는 bundled `codex.exe`를 stdio로 띄우는 데 성공함을 확인했다.
+- Next:
+1. custom agent는 현재 이 대화/tool runtime에서 노출되지 않으므로, 실제 검증은 Codex app UI의 custom agent 선택 경로에서 직접 실행해 봐야 한다.
+2. 필요하면 project custom agents가 desktop UI에 로드되는지와 developer `spawn_agent` 노출 범위가 다른지 분리해서 추가 조사한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 project-scoped Codex 설정을 현재 저장소 작업 방식에 맞게 전체적으로 정리해 달라고 요청했다.
+- Change:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)에 기본 모델(`gpt-5.3-codex`), 기본 reasoning/verbosity, `personality = "pragmatic"`, `plan_mode_reasoning_effort = "high"`, `web_search = "cached"`, `project_doc_max_bytes = 16384`를 추가했다.
+2. 같은 파일의 `[agents]`는 `max_threads = 4`, `max_depth = 1`, `job_max_runtime_seconds = 1800`으로 조정해 현재 custom agent 3종을 병렬로 쓰되 과도한 fan-out은 막는 방향으로 맞췄다.
+3. [`.codex/agents/repo-explorer.toml`](C:/Users/kin50/Documents/test/.codex/agents/repo-explorer.toml), [`.codex/agents/reviewer.toml`](C:/Users/kin50/Documents/test/.codex/agents/reviewer.toml), [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에 각각 역할별 모델과 reasoning 강도를 명시했다.
+4. `docs_researcher`는 문서 검증 작업의 최신성 요구가 높아 `web_search = "live"`를 별도로 설정했다.
+- Verification:
+1. Python `tomllib`로 [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml` 전부 파싱 성공을 확인한다.
+2. 공식 OpenAI Codex 문서 기준 `model`, `model_reasoning_effort`, `model_verbosity`, `personality`, `plan_mode_reasoning_effort`, `web_search`, `project_doc_max_bytes`, `[agents].max_threads|max_depth|job_max_runtime_seconds`가 유효 키인지 대조했다.
+3. built-in `explorer` subagent 생성은 성공해 현재 thread의 multi-agent 경로 자체는 살아 있음을 확인했다.
+4. 반면 `spawn_agent`는 project custom agent 이름(`repo_explorer`, `reviewer`, `docs_researcher`)을 인식하지 않았고, PowerShell/`cmd`에서 `codex --help` 실행도 `Access is denied`로 막혀 실제 custom-agent runtime smoke test는 수행하지 못했다.
+- Next:
+1. Codex app을 재시작하거나 custom agents를 직접 선택할 수 있는 UI 경로에서 `repo_explorer`, `reviewer`, `docs_researcher`를 한 번씩 호출해 runtime smoke test를 다시 수행한다.
+2. 병렬 탐색이 잦아 대기열이 느껴지면 `max_threads`를 `5`나 `6`으로 올릴지 다시 판단한다.
+- Status: done
+
+## 2026-03-20
+- Context: `origin/develop`를 fast-forward 한 뒤, 운영 조사에서 드러난 auto screenshot state 유실 가능성을 로컬 `develop`에도 반영했다.
+- Change:
+1. 로컬 `develop`를 `git pull --ff-only origin develop`으로 `2a69fcd codex/watch registry hybrid news (#11)`까지 올렸다.
+2. `bot/features/auto_scheduler.py`는 auto screenshot 성공 후 scheduler metadata를 쓰기 전에 `load_state()`를 다시 호출해, runner가 같은 tick에서 저장한 daily post/cache state를 덮어쓰지 않도록 보완했다.
+3. `tests/integration/test_auto_scheduler_logic.py`에 runner가 먼저 오늘자 thread/message state를 저장한 뒤 scheduler가 `last_auto_runs`만 추가하는 회귀 테스트를 넣었다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py tests/integration/test_forum_upsert_flow.py -q` 기준 `13 passed`
+3. ad-hoc `scheduler -> manual` 재현 시나리오에서 `CREATE_CALLS=1`, `kheatmap 포스트 수정 완료`를 확인해 같은 날짜 thread가 새로 생성되지 않고 수정 경로를 타는 것을 확인했다.
+- Next:
+1. 필요하면 `origin/codex/fix-auto-screenshot-state`와 현재 로컬 적용분을 기준으로 PR/브랜치 정리를 이어간다.
+2. 실제 운영 재기동 후 오늘자 auto screenshot tick에서 `daily_posts_by_guild`와 `last_auto_runs`가 함께 남는지 한 번 더 확인한다.
+- Status: done
+
+## 2026-03-20
+- Context: 사용자가 KIS 단독 전략의 한계를 보완하되, 당장은 watch 종목명 추가를 우선하고 `eod_summary`는 pause 하길 원했다.
+- Change:
+1. `bot/intel/instrument_registry.py`, `scripts/build_instrument_registry.py`, `bot/intel/data/instrument_registry*.json`을 추가해 local instrument registry 계층과 generated artifact 흐름을 만들었다.
+2. 현재 generated registry는 국내 seed 20종목 + SEC 미국 상장사 7,518건을 합친 7,538건이며, watch 입력은 이를 기준으로 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 정규화된다.
+3. `bot/forum/repository.py`는 watchlist/baseline/cooldown의 legacy 값(`005930`, bare US ticker)을 읽을 때 canonical symbol로 자동 승격하고 상태 키도 함께 마이그레이션한다.
+4. `bot/features/watch/command.py`는 `/watch add`, `/watch remove`에 autocomplete와 ambiguity handling을 추가했고, `/watch list`와 watch alert는 이제 `이름 + canonical symbol` 형식으로 보여준다.
+5. `bot/intel/providers/news.py`에는 `MarketauxNewsProvider`와 `HybridNewsProvider`를 추가했고, `bot/features/intel_scheduler.py`는 `NEWS_PROVIDER_KIND=marketaux|hybrid`와 source별 provider status 기록을 지원한다.
+6. `bot/features/status/command.py`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해서 보여준다.
+7. `bot/app/settings.py`, `.env.example`, `README.md`, `docs/specs/external-intel-api-spec.md`, `AGENTS.md`를 새 provider key, registry 흐름, watch name search, `EOD_SUMMARY_ENABLED=false` 기본값에 맞춰 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe scripts/build_instrument_registry.py` 기준 generated registry artifact 생성 성공 (`records=7538`)
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_instrument_registry.py tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/unit/test_status_command.py tests/unit/test_news_provider.py tests/integration/test_intel_scheduler_logic.py -q` 기준 전체 통과
+3. `.\.venv\Scripts\python.exe -m pytest -q` 기준 전체 통과
+- Next:
+1. DART API key를 넣고 registry를 다시 생성하면 국내 종목명 커버리지를 full master로 넓힐 수 있다.
+2. 실제 운영 전 `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 넣고 global news fetch 품질을 1회 실반영 검증한다.
+3. `Polygon`/`Twelve Data`/`OpenFIGI`는 현재 source-status slot만 열려 있으므로, 다음 단계에서 US fallback quote와 reconciliation job으로 확장한다.
+- Status: done
+
+## 2026-03-20
+- Context: 사용자가 runtime state 파일은 heatmap 캐시와 분리하고, 외부 참고문서는 한 디렉터리에 모이길 원했다.
+- Change:
+1. state 기본 경로를 `data/heatmaps/state.json`에서 `data/state/state.json`으로 옮겼다.
+2. `bot/forum/repository.py`는 새 경로를 기본으로 쓰되, 기존 `data/heatmaps/state.json`이 남아 있으면 자동으로 새 위치로 옮기도록 레거시 마이그레이션을 추가했다.
+3. `docs/references/external/README.md`를 추가해 외부 벤더 문서/스프레드시트/PDF의 단일 보관 위치를 만들었다.
+4. `.gitignore`, `AGENTS.md`, `README.md`, `docs/context/goals.md`를 새 state 경로와 외부 참고문서 위치 기준으로 갱신했다.
+5. 워크스페이스에 남아 있던 `data/heatmaps/state.json`과 외부 참고 xlsx도 각각 `data/state/state.json`, `docs/references/external/` 기준으로 정리했다.
+- Verification:
+1. `tests/unit/test_state_atomic.py`에 legacy state 파일이 새 경로로 마이그레이션되는 회귀 테스트를 추가했다.
+2. `.\.venv\Scripts\python.exe -m pytest` 기준 `89 passed, 2 deselected`
+- Status: done
+
+## 2026-03-20
+- Context: 사용자가 앞으로의 약속은 모두 문서화하고, 특히 `develop -> master` 릴리스는 release branch 없이 direct PR로 고정하길 원했다.
+- Change:
+1. `AGENTS.md`에 새 운영 약속은 공통 규칙과 컨텍스트 문서에 함께 남긴다는 문서화 규칙을 추가했다.
+2. 같은 문서에 `develop -> master` 릴리스는 앞으로 `develop`에서 바로 `master`로 PR을 연다는 브랜치 운영 약속을 추가했다.
+3. `docs/context/design-decisions.md`에 이번 release branch 역동기화 경험을 근거로 direct PR 정책을 설계 결정으로 남겼다.
+4. `docs/context/session-handoff.md`에 `PR #10` merge 완료와 현재 direct PR 약속을 최신 상태로 반영했다.
+- Verification:
+1. 문서 간 기준이 서로 모순되지 않도록 `AGENTS.md`, `docs/context/design-decisions.md`, `docs/context/session-handoff.md`를 교차 확인했다.
+- Next:
+1. 다음 `develop -> master` 릴리스부터는 별도 release branch를 만들지 않고 direct PR 흐름으로 진행한다.
+- Status: done
+
+## 2026-03-20
+- Context: `master -> develop` sync PR `#10` review에서 forum channel resolution API 오류를 `missing_forum`으로 숨기지 말아야 한다는 P1 finding이 나왔다.
+- Change:
+1. `bot/features/intel_scheduler.py`의 `_resolve_guild_forum_channel_id()`는 이제 `discord.NotFound`만 진짜 missing channel로 취급하고, 다른 `fetch_channel()` 오류는 그대로 상위로 올린다.
+2. 뉴스/EOD scheduler는 거래일 skip 판정을 forum resolution보다 먼저 수행해, 휴장일에는 Discord forum lookup 장애가 있어도 `holiday`/`calendar-failed` 의미가 유지된다.
+3. forum resolution 중 API 오류가 난 guild는 failure로 집계하되, 다른 guild는 계속 처리한다.
+4. 같은 오류는 더 이상 `missing_forum`/`skipped`로 눙치지 않고 job detail에 `forum_resolution_failures`를 남기며, run status는 `failed`로 기록한다.
+5. `tests/integration/test_intel_scheduler_logic.py`에 뉴스/EOD 각각의 forum resolution API failure, mixed guild continuation, holiday-precedence 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_intel_scheduler_logic.py -k "forum_resolution or fallback_forum or news_job or eod_job"` 기준 `24 passed, 4 deselected`
+- Next:
+1. 수정 커밋을 PR `#10`에 푸시하고 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `develop`에 merge해 `master` 릴리스 수정과 `develop` 기준선을 다시 일치시킨다.
+- Status: done
+
 ## 2026-03-19
 - Context: release PR `#9`의 추가 review 2건에 맞춰 뉴스/트렌드 partial-delivery status false positive를 닫았다.
 - Change:
