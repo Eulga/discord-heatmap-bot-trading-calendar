@@ -1,6 +1,32 @@
 # Session Handoff
 
 ## 2026-03-22
+- Context: 사용자가 env의 채널/포럼 ID를 갱신한 뒤 실제 Discord 검증을 다시 요청했다.
+- Current state:
+1. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`는 현재 모두 같은 forum 채널(`1471842980787917005`)을 가리키며, 이 forum에서 create/update smoke thread가 다시 성공했다.
+2. smoke thread는 [default/news/eod forum smoke](https://discord.com/channels/332110589969039360/1485250008847614035)다.
+3. `WATCH_ALERT_CHANNEL_ID`도 같은 forum 채널이라 현재 코드의 watch poll fallback 용도에는 맞지 않는다. `discord.ForumChannel`은 이 경로에서 기대하는 messageable text 채널이 아니다.
+4. `ADMIN_STATUS_CHANNEL_ID=1483007026023108739`는 `fetch_channel()` 시 `403 Missing Access`로 실패한다.
+5. 봇 login/Gateway/slash command 11개 sync 자체는 여전히 정상이다.
+- Next:
+1. watch alert fallback을 실제로 쓰려면 `WATCH_ALERT_CHANNEL_ID`를 text channel 계열로 바꾼 뒤 다시 send smoke를 한다.
+2. admin status 채널을 쓸 계획이면 해당 채널 권한을 먼저 열고 다시 fetch/send smoke를 한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 실제 Discord 네트워크까지 포함한 live 실행 검증을 요청했다.
+- Current state:
+1. `.env`의 실제 bot token과 `DEFAULT_FORUM_CHANNEL_ID`로 봇 로그인, Gateway 연결, 글로벌 slash command 11개 sync까지 성공했다.
+2. 기본 포럼 채널 fetch와 posting 권한 확인 후, `discord_live_smoke` key로 실제 forum thread를 생성하고 같은 thread를 다시 update해 Discord write path를 실서버에서 검증했다.
+3. smoke posting에는 실제 `kospi` live capture PNG(`207749` bytes)를 첨부해 Discord attachment 경로도 함께 확인했다.
+4. 추가로 `.\.venv\Scripts\python.exe -m pytest -m live -q` 결과는 `2 passed`였다.
+5. 현재 `data/state/state.json`에는 `system.job_last_runs.command-sync=ok`와 `commands.discord_live_smoke.daily_posts_by_guild` 오늘자 record가 남아 있다.
+- Next:
+1. slash interaction 자체(`/kheatmap`, `/health`)를 사용자 클라이언트에서 직접 누르는 운영 smoke가 필요하면 Discord 앱에서 한 번 더 실행해 interaction ingress까지 닫는다.
+2. `discord_live_smoke` thread/state를 유지할지 정리할지 결정한다.
+- Status: done
+
+## 2026-03-22
 - Context: 통합 테스트 케이스를 실행/리뷰/운영 해석용 문서로 분리 정리했다.
 - Current state:
 1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)에 현재 non-live 통합 테스트 43건이 기능 계약 단위로 정리돼 있다.

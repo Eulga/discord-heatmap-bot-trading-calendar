@@ -1,6 +1,41 @@
 # Development Log
 
 ## 2026-03-22
+- Context: 사용자가 env의 채널/포럼 ID를 새로 바꾼 뒤 실제 Discord 검증을 다시 요청했다.
+- Change:
+1. 업데이트된 env 기준으로 `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`, `ADMIN_STATUS_CHANNEL_ID`를 다시 읽고 실제 Discord에서 fetch 검증을 수행했다.
+2. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`는 모두 같은 forum 채널(`1471842980787917005`)을 가리키는 것을 확인했고, 해당 forum에 `discord-env-smoke-default_forum-news_forum-eod_forum` key로 thread 생성 1회와 update 1회를 다시 수행했다.
+3. `WATCH_ALERT_CHANNEL_ID`도 같은 forum 채널을 가리키고 있어, watch poll 코드가 기대하는 `discord.abc.Messageable` 텍스트 채널 fallback으로는 사용할 수 없다는 점을 실제 채널 타입 확인으로 검증했다.
+4. `ADMIN_STATUS_CHANNEL_ID`는 fetch 시 `403 Missing Access`가 발생해 현재 봇이 그 채널을 읽을 권한조차 갖고 있지 않음을 확인했다.
+- Verification:
+1. Discord login, Gateway 연결, 글로벌 slash command 11개 sync 재확인.
+2. forum env smoke 결과: [default/news/eod forum smoke thread](https://discord.com/channels/332110589969039360/1485250008847614035) 생성 후 즉시 update 성공.
+3. watch alert env 결과: forum 채널이라 send smoke를 의도적으로 건너뛰었고, 현재 코드 기준 `watch_alert` fallback으로는 부적합하다는 점을 확인.
+4. admin status env 결과: `fetch_channel(1483007026023108739)`가 `403 Forbidden (50001 Missing Access)`로 실패.
+- Next:
+1. `WATCH_ALERT_CHANNEL_ID`는 forum이 아니라 같은 guild의 일반 text channel 또는 thread/messageable channel로 바꿔야 실제 watch alert fallback이 동작한다.
+2. `ADMIN_STATUS_CHANNEL_ID`를 계속 쓸 계획이면 해당 채널에 봇 접근 권한을 먼저 열어야 한다.
+- Status: done
+
+## 2026-03-22
+- Context: 사용자가 "실제 디스코드까지 실행"하는 live 검증을 요청했다.
+- Change:
+1. 실제 `.env`의 `DISCORD_BOT_TOKEN`과 `DEFAULT_FORUM_CHANNEL_ID`를 사용해 봇을 Discord Gateway에 로그인시키고, `tree.sync()`가 11개 글로벌 커맨드를 정상 동기화하는지 확인했다.
+2. 검증 중 scheduler 부작용을 막기 위해 ad-hoc 부트 스크립트에서는 `auto_screenshot_scheduler`, `intel_scheduler`를 no-op으로 바꿔 짧게 부트했다.
+3. 실제 기본 포럼 채널 fallback 경로를 사용해 `discord_live_smoke` key로 forum thread를 1회 생성하고, 같은 thread를 즉시 1회 업데이트해 Discord forum upsert의 create/update 경로를 모두 확인했다.
+4. 실제 캡처 이미지 첨부까지 포함해 end-to-end로 확인하기 위해 `kospi` live capture를 수행했고, 생성된 PNG 파일 크기는 `207749` bytes였다.
+5. 추가 검증으로 `.\.venv\Scripts\python.exe -m pytest -m live -q`를 실행해 live capture suite 2건도 모두 통과했다.
+- Verification:
+1. ad-hoc Discord 부트 결과: login 성공, guild 2개 인식, 기본 포럼 채널 fetch 성공, forum posting 관련 권한(`view_channel`, `send_messages`, `send_messages_in_threads`, `create_public_threads`, `manage_threads`, `attach_files`) 확인.
+2. command sync 결과: `setforumchannel`, `setnewsforum`, `seteodforum`, `setwatchchannel`, `autoscreenshot`, `health`, `last-run`, `source-status`, `watch`, `kheatmap`, `usheatmap` 총 11개 글로벌 커맨드 sync 성공.
+3. 실제 forum upsert 결과: `discord_live_smoke` thread 생성 1회, 같은 thread update 1회 성공.
+4. `.\.venv\Scripts\python.exe -m pytest -m live -q` 결과: `2 passed`.
+- Next:
+1. 이번 검증은 실제 bot login/sync/forum posting까지는 포함했지만, slash interaction 자체를 Discord 사용자 클라이언트에서 눌러 실행한 것은 아니므로 필요하면 운영 서버에서 `/kheatmap` 또는 `/health`를 직접 한 번 더 눌러 interaction 경로를 마저 확인한다.
+2. `data/state/state.json`에는 `discord_live_smoke` 오늘자 thread record가 남아 있으니, 같은 key를 다시 쓸지 정리할지 다음 운영 판단에서 결정한다.
+- Status: done
+
+## 2026-03-22
 - Context: 사용자가 통합 테스트를 실행하거나 검토할 때 바로 참조할 수 있는 상세 케이스 문서를 요청했다.
 - Change:
 1. [docs/specs/integration-test-cases.md](C:/Users/kin50/Documents/test/docs/specs/integration-test-cases.md)를 추가해 현재 non-live 통합 테스트 43건을 기능 계약 단위로 문서화했다.
