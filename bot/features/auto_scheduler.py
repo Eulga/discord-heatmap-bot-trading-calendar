@@ -119,6 +119,9 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
             )
 
             if ok:
+                # The runner persists daily post/cache state through its own load/save cycle,
+                # so refresh before writing scheduler metadata to avoid clobbering it.
+                state = load_state()
                 set_guild_last_auto_run_date(state, guild_id, command_key, current_date)
                 save_state(state)
                 logger.info(

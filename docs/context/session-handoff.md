@@ -40,6 +40,18 @@
 - Status: done
 
 ## 2026-03-20
+- Context: 원격 최신 상태를 fetch한 뒤 로컬 `develop`를 fast-forward 하고, auto screenshot state 유실 fix 필요 여부를 바로 점검했다.
+- Current state:
+1. 로컬 `develop`는 이제 `origin/develop` 최신 `2a69fcd codex/watch registry hybrid news (#11)`까지 반영된 상태다.
+2. `origin/codex/fix-auto-screenshot-state`의 핵심 수정은 최신 `develop`에도 여전히 유효했고, 로컬 `develop`에 같은 보완을 적용했다.
+3. `bot/features/auto_scheduler.py`는 성공 후 `load_state()`를 다시 읽고 `last_auto_runs`만 기록해, runner가 저장한 오늘자 `daily_posts_by_guild`/cache state를 덮어쓰지 않는다.
+4. `tests/integration/test_auto_scheduler_logic.py`에는 runner 저장 state 보존 회귀 테스트가 추가됐다.
+- Next:
+1. 필요하면 이 fix를 기준으로 별도 브랜치/PR 정리를 진행한다.
+2. 운영 봇 재기동 후 auto screenshot 실행에서 오늘자 state entry와 `last_auto_runs`가 함께 남는지 확인한다.
+- Status: open
+
+## 2026-03-20
 - Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
 - Current state:
 1. 코드 계약상 이 현상은 `오늘자 kheatmap state record 부재` 또는 `기존 thread/message fetch 실패`일 때만 생긴다.

@@ -60,6 +60,19 @@
 - Status: done
 
 ## 2026-03-20
+- Context: `origin/develop`를 fast-forward 한 뒤, 운영 조사에서 드러난 auto screenshot state 유실 가능성을 로컬 `develop`에도 반영했다.
+- Change:
+1. 로컬 `develop`를 `git pull --ff-only origin develop`으로 `2a69fcd codex/watch registry hybrid news (#11)`까지 올렸다.
+2. `bot/features/auto_scheduler.py`는 auto screenshot 성공 후 scheduler metadata를 쓰기 전에 `load_state()`를 다시 호출해, runner가 같은 tick에서 저장한 daily post/cache state를 덮어쓰지 않도록 보완했다.
+3. `tests/integration/test_auto_scheduler_logic.py`에 runner가 먼저 오늘자 thread/message state를 저장한 뒤 scheduler가 `last_auto_runs`만 추가하는 회귀 테스트를 넣었다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_auto_scheduler_logic.py -q`
+- Next:
+1. 필요하면 `origin/codex/fix-auto-screenshot-state`와 현재 로컬 적용분을 기준으로 PR/브랜치 정리를 이어간다.
+2. 실제 운영 재기동 후 오늘자 auto screenshot tick에서 `daily_posts_by_guild`와 `last_auto_runs`가 함께 남는지 한 번 더 확인한다.
+- Status: done
+
+## 2026-03-20
 - Context: 사용자가 KIS 단독 전략의 한계를 보완하되, 당장은 watch 종목명 추가를 우선하고 `eod_summary`는 pause 하길 원했다.
 - Change:
 1. `bot/intel/instrument_registry.py`, `scripts/build_instrument_registry.py`, `bot/intel/data/instrument_registry*.json`을 추가해 local instrument registry 계층과 generated artifact 흐름을 만들었다.
