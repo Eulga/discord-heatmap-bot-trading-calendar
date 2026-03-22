@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-03-22
+- Context: Codex app에서 project custom agent 3종이 모두 동작하는 것을 확인한 뒤, 사용자는 앞으로 같은 subagent 패턴을 매번 긴 문장으로 다시 지시하지 않길 원했다.
+- Decision: 이 저장소의 Codex 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`로 두고, 새 스레드에서 한 번 명시된 뒤에는 같은 스레드 안에서 축약 표현으로 재사용한다.
+- Why:
+1. Codex는 subagent를 명시 요청 시에만 spawn하는 쪽이 기본이므로, 완전 자동보다 "새 스레드 1회 명시 후 같은 스레드 재사용" 규칙이 더 예측 가능하다.
+2. 이 저장소 작업은 코드 경로 탐색, 리스크 리뷰, 공식 문서 확인이 자주 함께 필요해 3-agent 조합의 재사용성이 높다.
+3. 모든 작업에서 문서 조사까지 항상 붙이면 비용과 대기 시간이 늘어나므로, `docs_researcher`는 필요 없는 로컬 코드 작업에서는 생략 가능해야 한다.
+- Impact:
+1. 새 스레드에서는 subagent 사용 의사를 한 번은 받아야 한다.
+2. 같은 스레드에서는 `기본 3-agent 패턴`, `같은 subagent 패턴` 같은 축약 표현만으로도 같은 조합을 재사용할 수 있다.
+3. `AGENTS.md`와 `session-handoff.md`에 같은 규칙을 남겨 다음 세션에서도 해석이 흔들리지 않게 한다.
+- Status: accepted
+
 ## 2026-03-20
 - Context: KIS 단독으로는 watch 종목명 검색, 뉴스 링크 품질, 보조 reference 확장성이 부족했고, 사용자는 `watch`를 우선 살리되 `eod_summary`는 잠정 중단하길 원했다.
 - Decision: 외부 인텔 스택은 역할 분리형으로 간다. `watch 이름 검색`은 live vendor search 대신 local instrument registry를 쓰고, 시세는 `KIS primary`, 뉴스는 `Naver domestic + Marketaux global`, 보조 정규화는 `Polygon/Twelve Data/OpenFIGI` 슬롯으로 분리한다.

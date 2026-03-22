@@ -1,5 +1,77 @@
 # Session Handoff
 
+## 2026-03-22
+- Context: PR `#12` review finding으로 auto screenshot state 보존 fix를 한 번 더 보강했다.
+- Current state:
+1. `bot/features/auto_scheduler.py`는 이제 success 후 refresh read가 empty state로 돌아오면 `last_auto_runs`를 다시 저장하지 않고 warning만 남긴다.
+2. 즉 `load_state()`가 transient read/parse failure로 empty state를 돌려줘도, runner가 이미 저장한 `daily_posts_by_guild`/`last_images`를 near-empty save로 덮어쓰지 않는다.
+3. `tests/integration/test_auto_scheduler_logic.py`에는 refresh read empty-state guard 회귀 테스트가 추가됐다.
+- Next:
+1. PR `#12`에 이 수정 커밋을 올리고 `@codex review`를 다시 요청한다.
+- Status: done
+
+## 2026-03-22
+- Context: auto screenshot state 유실 fix가 테스트뿐 아니라 실제 파일 저장 흐름에서도 유지되는지 로컬에서 다시 검증했다.
+- Current state:
+1. 임시 `state.json` 기준 `process_auto_screenshot_tick()` 실행 후 `daily_posts_by_guild`, `last_images`, `last_auto_runs`가 함께 남는 것을 확인했다.
+2. 즉 현재 수정은 "runner가 먼저 저장한 오늘자 post/cache state를 scheduler가 마지막 save에서 덮어쓰는 문제"를 on-disk 재현에서도 막는다.
+3. 이번 검증은 isolated local state 파일과 fake runner로 수행했고, 실 Discord API 호출이나 운영 포럼 posting은 하지 않았다.
+- Next:
+1. live 확인이 필요하면 운영 봇 재기동 후 실제 auto run 직후 `data/state/state.json`과 auto-screenshot 로그를 함께 본다.
+- Status: done
+
+## 2026-03-22
+- Context: project custom agent 3종이 app UI에서 모두 정상 생성되는 기준선이 확보됐고, subagent 호출 약속도 문서화했다.
+- Current state:
+1. `repo_explorer`, `reviewer`, `docs_researcher`는 현재 app UI에서 모두 생성 가능하다.
+2. `docs_researcher`는 [`.codex/agents/docs-researcher.toml`](C:/Users/kin50/Documents/test/.codex/agents/docs-researcher.toml)에서 `web_search = "live"`를 제거한 뒤 정상 등록됐다.
+3. 이 저장소의 기본 subagent 패턴은 `repo_explorer + reviewer + docs_researcher`이며, 새 스레드에서 한 번 명시한 뒤에는 같은 스레드 안에서 `기본 3-agent 패턴` 같은 축약 표현으로 재사용한다.
+4. 위 약속은 [AGENTS.md](C:/Users/kin50/Documents/test/AGENTS.md)와 [docs/context/design-decisions.md](C:/Users/kin50/Documents/test/docs/context/design-decisions.md)에 반영돼 있다.
+- Next:
+1. 다음 subagent 작업에서는 문서 확인이 필요 없는 순수 로컬 코드 작업인지 먼저 보고 `docs_researcher` 생략 여부를 판단한다.
+- Status: done
+
+## 2026-03-22
+- Context: Codex app 재시작 및 새 desktop thread 이후 project custom agent smoke test를 다시 시도했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)과 `.codex/agents/*.toml`은 그대로 유지했고, 이번 세션에서는 검증만 다시 수행했다.
+2. `Get-Command codex`/`where.exe codex` 기준 desktop 번들 실행 파일 경로 해석은 정상이다.
+3. 하지만 `codex --version`, `codex --help`는 여전히 `Access is denied`로 실패해 shell에서 custom agent runtime을 직접 올릴 수 없었다.
+4. developer `spawn_agent`는 `repo_explorer`, `reviewer`, `docs_researcher`를 여전히 `unknown agent_type`로 반환했다.
+5. control로 built-in `explorer` subagent는 정상 응답했으므로, 현재 문제 범위는 "subagent 전체 장애"가 아니라 "project custom agent가 이 runtime/tool surface에 노출되지 않음" 쪽으로 더 좁혀졌다.
+6. Codex app 로컬 로그 [`codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log`](C:/Users/kin50/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs/2026/03/22/codex-desktop-1c769110-b0a4-4a47-8779-b5a6f2f5ca94-12756-t0-i1-034007-0.log)에는 bundled `codex.exe` stdio spawn과 `Codex CLI initialized`가 남아 있어, app 내부 app-server 초기화 자체는 성공한 상태다.
+- Next:
+1. 실제 custom agent smoke test는 Codex app UI에서 custom agent 선택 후 각각 한 번씩 실행해 결과를 확인한다.
+2. 필요하면 desktop app UI 노출과 developer `spawn_agent` 노출 범위 차이를 별도로 조사한다.
+- Status: done
+
+## 2026-03-22
+- Context: project-scoped Codex 설정을 현재 저장소 작업 패턴에 맞게 보수적으로 정리했다.
+- Current state:
+1. [`.codex/config.toml`](C:/Users/kin50/Documents/test/.codex/config.toml)은 이제 `gpt-5.3-codex` 기본 모델, `model_reasoning_effort=medium`, `model_verbosity=low`, `personality=pragmatic`, `plan_mode_reasoning_effort=high`, `web_search=cached`, `project_doc_max_bytes=16384`를 명시한다.
+2. subagent 전역 설정은 `max_threads=4`, `max_depth=1`, `job_max_runtime_seconds=1800`으로 맞춰져 있다.
+3. `repo_explorer`, `reviewer`, `docs_researcher` custom agent는 각각 역할별 모델과 reasoning 강도가 명시돼 있고, 이후 호환성 보정으로 `docs_researcher`의 `web_search=live` override는 제거됐다.
+4. `review_model` 같은 별도 리뷰 전용 top-level 키는 공식 `config-reference`에서 확인되지 않아 넣지 않았다.
+5. 현재 desktop thread에서 built-in `explorer` subagent 생성은 성공해 multi-agent 경로 자체는 정상이다.
+6. 반면 developer `spawn_agent`는 project custom agent 이름을 인식하지 않았고, shell에서 `codex` 실행도 `Access is denied`라 실제 custom-agent runtime smoke test는 완료하지 못했다.
+- Next:
+1. Codex app 재시작 후 custom agent 선택 경로에서 `repo_explorer`, `reviewer`, `docs_researcher`를 한 번씩 실행해 runtime smoke test를 다시 확인한다.
+2. 병렬성이 부족하면 `max_threads` 상향 여부를 다시 검토한다.
+- Status: done
+
+## 2026-03-20
+- Context: 원격 최신 상태를 fetch한 뒤 로컬 `develop`를 fast-forward 하고, auto screenshot state 유실 fix 필요 여부를 바로 점검했다.
+- Current state:
+1. 로컬 `develop`는 이제 `origin/develop` 최신 `2a69fcd codex/watch registry hybrid news (#11)`까지 반영된 상태다.
+2. `origin/codex/fix-auto-screenshot-state`의 핵심 수정은 최신 `develop`에도 여전히 유효했고, 로컬 `develop`에 같은 보완을 적용했다.
+3. `bot/features/auto_scheduler.py`는 성공 후 `load_state()`를 다시 읽고 `last_auto_runs`만 기록해, runner가 저장한 오늘자 `daily_posts_by_guild`/cache state를 덮어쓰지 않는다.
+4. `tests/integration/test_auto_scheduler_logic.py`에는 runner 저장 state 보존 회귀 테스트가 추가됐다.
+5. 로컬 `scheduler -> manual` 재현에서도 `CREATE_CALLS=1`, `kheatmap 포스트 수정 완료`로 확인돼 같은 날 수동 `/kheatmap`은 기존 thread 수정 경로를 사용한다.
+- Next:
+1. 필요하면 이 fix를 기준으로 별도 브랜치/PR 정리를 진행한다.
+2. 운영 봇 재기동 후 auto screenshot 실행에서 오늘자 state entry와 `last_auto_runs`가 함께 남는지 확인한다.
+- Status: open
+
 ## 2026-03-20
 - Context: 운영 Discord 서버에서 15:35 자동 `kheatmap` thread가 코스닥 timeout으로 코스피만 올린 뒤, 같은 날 수동 `/kheatmap`이 기존 글 수정이 아니라 새 글을 만든 이유를 조사했다.
 - Current state:
