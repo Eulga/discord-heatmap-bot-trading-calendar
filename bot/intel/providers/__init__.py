@@ -3,9 +3,12 @@ from bot.intel.providers.market import (
     EodSummaryProvider,
     ErrorMarketDataProvider,
     KisMarketDataProvider,
+    MarketDataProviderError,
+    MassiveSnapshotMarketDataProvider,
     MockEodSummaryProvider,
     MockMarketDataProvider,
     Quote,
+    RoutedMarketDataProvider,
 )
 from bot.intel.providers.news import (
     ErrorNewsProvider,
@@ -38,8 +41,11 @@ __all__ = [
     "Quote",
     "EodSummary",
     "EodSummaryProvider",
+    "MarketDataProviderError",
     "ErrorMarketDataProvider",
     "KisMarketDataProvider",
+    "MassiveSnapshotMarketDataProvider",
+    "RoutedMarketDataProvider",
     "MockMarketDataProvider",
     "MockEodSummaryProvider",
 ]

@@ -379,3 +379,68 @@ def test_kis_request_json_maps_network_failure(monkeypatch):
         )
 
     assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_massive_provider_uses_live_trade_price_for_us_symbol(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=timezone.utc)
+    provider = market_provider.MassiveSnapshotMarketDataProvider(api_key="key")
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NAS:AAPL", market_code="NAS", ticker_or_code="AAPL", kis_exchange_code="NAS")),
+    )
+
+    def fake_request_json(ticker: str, *, fallback_symbol: str):
+        return {
+            "status": "OK",
+            "ticker": {
+                "lastTrade": {
+                    "p": "214.37",
+                    "t": str(int(now.timestamp() * 1_000_000_000)),
+                }
+            },
+        }
+
+    monkeypatch.setattr(provider, "_request_json", fake_request_json)
+
+    quote = await provider.get_quote("NAS:AAPL", now)
+
+    assert quote.symbol == "NAS:AAPL"
+    assert quote.price == 214.37
+    assert quote.provider == "massive_reference"
+
+
+@pytest.mark.asyncio
+async def test_routed_provider_falls_back_to_massive_for_us_symbols(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+
+    class FailingPrimary:
+        async def get_quote(self, symbol: str, now: datetime):
+            raise market_provider.MarketDataProviderError("kis-unreachable", provider_key="kis_quote")
+
+    class MassiveFallback:
+        async def get_quote(self, symbol: str, now: datetime):
+            return market_provider.Quote(
+                symbol=symbol,
+                price=215.0,
+                asof=now,
+                provider="massive_reference",
+            )
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NAS:AAPL", market_code="NAS", ticker_or_code="AAPL", kis_exchange_code="NAS")),
+    )
+
+    provider = market_provider.RoutedMarketDataProvider(
+        primary_provider=FailingPrimary(),
+        us_fallback_provider=MassiveFallback(),
+    )
+
+    quote = await provider.get_quote("NAS:AAPL", now)
+
+    assert quote.provider == "massive_reference"
+    assert quote.price == 215.0

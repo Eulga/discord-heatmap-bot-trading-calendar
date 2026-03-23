@@ -1,6 +1,20 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 현재 변경분을 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치의 유효한 내용을 확인해서 현재 `develop`에 합쳐 달라고 요청했다.
+- Current state:
+1. 현재 rollout 기준선은 `eaeaa7d Roll out live watch quotes and provider docs`로 먼저 커밋해 고정했다.
+2. `origin/codex/watch-poll-live-quotes`는 단일 커밋 `153e491 feat: use live quotes for watch poll`만 있었고, 전체 merge 대신 `US fallback routing`만 selective integration 했다.
+3. 현재 `quote_provider`는 `RoutedMarketDataProvider`고, `MARKET_DATA_PROVIDER_KIND=kis`일 때 KIS를 primary로 유지하면서 미국 종목은 `MASSIVE_API_KEY`가 있으면 Massive snapshot fallback을 시도한다.
+4. Massive fallback은 `lastTrade` 기반 live price + freshness가 있을 때만 허용하고, 원격 브랜치의 `day/prevDay` 가격 fallback은 alert 정확도 문제로 가져오지 않았다.
+5. 현재 env key로 Massive snapshot direct call을 해 보면 `massive-entitlement-required`가 돌아온다. 즉 코드 경로는 열렸지만 현 plan entitlement로는 US fallback live 사용은 아직 불가다.
+6. KIS primary + Discord `watch_poll` controlled smoke는 현재 통합본에서도 다시 성공했다 (`watch_poll=ok`, alert send 1건 후 delete 1건).
+- Next:
+1. Massive entitlement가 준비되면 `NAS/NYS/AMS` 종목으로 fallback live smoke를 별도로 한 번 더 수행한다.
+2. 그 전까지 운영상 watch live path는 KIS primary 기준으로 본다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 `.env` 값을 실제로 채운 뒤 `openfigi`를 제외한 나머지 API와 `watch_poll` live smoke를 실행해 달라고 요청했다.
 - Current state:
 1. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀는 다시 통과했다.

@@ -1165,6 +1165,18 @@ def test_build_market_data_provider_returns_error_provider_when_kis_credentials_
     assert provider.__class__.__name__ == "ErrorMarketDataProvider"
 
 
+def test_build_market_data_provider_wraps_kis_with_massive_fallback(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "MARKET_DATA_PROVIDER_KIND", "kis")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_KEY", "key")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_SECRET", "secret")
+    monkeypatch.setattr(intel_scheduler, "MASSIVE_API_KEY", "massive-key")
+
+    provider = intel_scheduler._build_market_data_provider()
+
+    assert provider.__class__.__name__ == "RoutedMarketDataProvider"
+    assert provider.us_fallback_provider is not None
+
+
 @pytest.mark.asyncio
 async def test_watch_poll_calls_warm_quotes_once_for_unique_symbols(monkeypatch):
     state = {
@@ -1202,4 +1214,27 @@ async def test_watch_poll_calls_warm_quotes_once_for_unique_symbols(monkeypatch)
 
     assert warmed == [("KRX:005930",)]
     assert quote_calls == ["KRX:005930", "KRX:005930"]
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_records_massive_provider_status_when_fallback_quote_is_used(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["NAS:AAPL"], "watch_alert_channel_id": 123}}}
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            return SimpleNamespace(price=214.37, provider="massive_reference")
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
+
+    provider = state["system"]["provider_status"]["massive_reference"]
+    assert provider["ok"] is True
+    assert provider["message"] == "quote:NAS:AAPL"
     assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"

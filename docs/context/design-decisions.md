@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-03-23
+- Context: 사용자가 현재 변경분을 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치에서 가져올 만한 내용을 확인하고 합쳐 달라고 요청했다.
+- Decision: 원격 브랜치는 전체 merge하지 않고, `미국 종목 quote fallback routing`만 현재 KIS rollout 구조에 맞게 selective integration 한다.
+- Why:
+1. 원격 브랜치의 실질적인 신규 가치는 `KIS primary + US fallback provider` 아이디어였다.
+2. 반면 그 브랜치의 `day.c`/`prevDay.c`를 현재가 대체값으로 쓰는 방식은 `watch_poll`의 실시간 변동률 알림에 잘못된 alert를 만들 수 있다.
+3. 현재 `develop`은 이미 `kis_quote`, `massive_reference`, warm-up, Massive rename, canonical provider status 정리를 끝낸 상태라 전체 merge보다 selective integration이 충돌과 회귀를 줄인다.
+- Impact:
+1. `MARKET_DATA_PROVIDER_KIND=kis`는 계속 KIS를 primary로 유지한다.
+2. 미국 종목(`NAS/NYS/AMS`)은 `MASSIVE_API_KEY`가 있으면 Massive snapshot fallback을 시도한다.
+3. Massive fallback은 `lastTrade` 기반 live price + freshness가 확인되는 경우만 허용하고, entitlement 부족은 `massive-entitlement-required`로 명시한다.
+- Status: accepted
+
+## 2026-03-23
 - Context: 외부 US reference slot 문서와 env 이름이 여전히 `Polygon` 기준으로 남아 있었지만, 공식 브랜드와 최신 예시는 `Massive`를 사용한다.
 - Decision: 사용자 노출 문서와 status/env 기본 이름은 `Massive` 기준으로 맞추고, 코드에서는 `POLYGON_API_KEY`와 `polygon_reference`를 legacy alias로만 허용한다.
 - Why:

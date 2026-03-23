@@ -1,6 +1,29 @@
 # Development Log
 
 ## 2026-03-23
+- Context: 사용자가 현재 변경분을 모두 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치에서 가져올 만한 내용을 확인하고 합쳐 달라고 요청했다.
+- Change:
+1. 현재 워크트리를 `Roll out live watch quotes and provider docs` 커밋으로 먼저 고정했다.
+2. `origin/codex/watch-poll-live-quotes`는 단일 커밋 `153e491 feat: use live quotes for watch poll`만 갖고 있었고, diff 검토 결과 실질적인 신규 가치는 `미국 종목 quote fallback routing`이었다.
+3. 현재 구조에 맞게 `bot/intel/providers/market.py`에 `MarketDataProviderError`, `MassiveSnapshotMarketDataProvider`, `RoutedMarketDataProvider`를 추가했다.
+4. `MARKET_DATA_PROVIDER_KIND=kis`일 때는 KIS를 primary로 유지하고, `MASSIVE_API_KEY`가 있으면 미국 종목에서만 Massive snapshot fallback을 시도하도록 `bot/features/intel_scheduler.py`를 보강했다.
+5. 원격 브랜치의 `day.c`/`prevDay.c` 가격 fallback은 `watch_poll` 오탐 위험 때문에 가져오지 않고, `lastTrade` 기반 live price + freshness가 있는 경우만 Massive fallback을 허용했다.
+6. `massive-entitlement-required` 오류를 명시적으로 드러내도록 Massive provider 오류 매핑을 넣었고, `.env.example`/`README.md`에도 entitlement 메모를 추가했다.
+7. `tests/unit/test_market_provider.py`에는 Massive snapshot normalization과 routed fallback 회귀를, `tests/integration/test_intel_scheduler_logic.py`에는 builder/fallback provider status 회귀를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py tests\unit\test_status_command.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 통과
+3. live smoke:
+   - `quote_provider`는 현재 `RoutedMarketDataProvider`
+   - KIS domestic quote(`KRX:005930`) 성공
+   - Massive fallback direct call은 현재 env key 기준 `massive-entitlement-required`
+   - controlled Discord `watch_poll` smoke는 다시 성공 (`watch_poll=ok`, alert send 1건 후 delete 1건)
+- Next:
+1. Massive plan entitlement가 준비되면 미국 종목 실제 fallback quote live smoke를 한 번 더 수행한다.
+2. 현재는 KIS primary 경로가 정상이고, Massive는 optional fallback slot로만 열린 상태다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 `.env` 값을 채운 뒤 `openfigi`를 제외한 나머지 API와 live watch 경로를 실제로 테스트해 달라고 요청했다.
 - Change:
 1. `.env` 기준 전체 회귀를 다시 실행했고 `.\.venv\Scripts\python.exe -m pytest -q`가 전부 통과하는지 확인했다.

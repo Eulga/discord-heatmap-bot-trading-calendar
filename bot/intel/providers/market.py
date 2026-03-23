@@ -40,6 +40,7 @@ class Quote:
     symbol: str
     price: float
     asof: datetime
+    provider: str = ""
 
 
 @dataclass
@@ -76,21 +77,28 @@ class EodSummaryProvider(Protocol):
     async def get_summary(self, now: datetime) -> EodSummary: ...
 
 
+class MarketDataProviderError(RuntimeError):
+    def __init__(self, message: str, *, provider_key: str = "market_data_provider") -> None:
+        super().__init__(message)
+        self.provider_key = provider_key
+
+
 class MockMarketDataProvider:
     async def get_quote(self, symbol: str, now: datetime) -> Quote:
         token = sha1(f"{symbol}|{now.strftime('%Y%m%d%H%M')}".encode("utf-8")).hexdigest()
         seed = int(token[:8], 16)
         base = 10000 + (seed % 90000)
         noise = ((seed >> 8) % 500) / 100
-        return Quote(symbol=symbol.upper(), price=base + noise, asof=now)
+        return Quote(symbol=symbol.upper(), price=base + noise, asof=now, provider="mock")
 
 
 class ErrorMarketDataProvider:
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, provider_key: str = "market_data_provider") -> None:
         self._message = message
+        self.provider_key = provider_key
 
     async def get_quote(self, symbol: str, now: datetime) -> Quote:
-        raise RuntimeError(self._message)
+        raise MarketDataProviderError(self._message, provider_key=self.provider_key)
 
 
 class KisMarketDataProvider:
@@ -108,6 +116,7 @@ class KisMarketDataProvider:
         self.timeout_seconds = max(1, min(timeout_seconds, 10))
         self.retry_count = max(0, min(retry_count, 1))
         self.base_url = base_url.rstrip("/")
+        self.provider_key = "kis_quote"
         self._token_header = ""
         self._token_expires_at: datetime | None = None
         self._token_lock = asyncio.Lock()
@@ -153,7 +162,7 @@ class KisMarketDataProvider:
             return cached
         cached_error = self._quote_errors.get(resolved.canonical_symbol)
         if cached_error:
-            raise RuntimeError(cached_error)
+            raise MarketDataProviderError(cached_error, provider_key=self.provider_key)
         return await self._fetch_and_store(resolved, now)
 
     async def _fetch_and_store(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
@@ -161,7 +170,7 @@ class KisMarketDataProvider:
             quote = await self._fetch_quote(resolved, now)
         except RuntimeError as exc:
             self._quote_errors[resolved.canonical_symbol] = str(exc)
-            raise
+            raise MarketDataProviderError(str(exc), provider_key=self.provider_key) from exc
         self._quote_cache[resolved.canonical_symbol] = quote
         self._quote_errors.pop(resolved.canonical_symbol, None)
         return quote
@@ -193,7 +202,7 @@ class KisMarketDataProvider:
         price = _parse_positive_float(output.get("stck_prpr"))
         if price is None:
             raise RuntimeError(f"not-found:{resolved.canonical_symbol}")
-        return Quote(symbol=resolved.canonical_symbol, price=price, asof=now)
+        return Quote(symbol=resolved.canonical_symbol, price=price, asof=now, provider=self.provider_key)
 
     async def _fetch_overseas_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
         payload = await self._request_kis_json(
@@ -401,7 +410,7 @@ class KisMarketDataProvider:
         if price is None:
             raise RuntimeError(f"not-found:{resolved.canonical_symbol}")
         asof = _parse_intraday_time(now, output.get("khms"))
-        return Quote(symbol=resolved.canonical_symbol, price=price, asof=asof)
+        return Quote(symbol=resolved.canonical_symbol, price=price, asof=asof, provider=self.provider_key)
 
     def _raise_for_payload_error(self, payload: dict[str, Any], *, fallback_symbol: str | None = None) -> None:
         rt_cd = str(payload.get("rt_cd") or "").strip()
@@ -432,6 +441,139 @@ class KisMarketDataProvider:
         self._poll_cache_key = poll_key
         self._quote_cache = {}
         self._quote_errors = {}
+
+
+class MassiveSnapshotMarketDataProvider:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        timeout_seconds: int = 5,
+        retry_count: int = 1,
+        base_url: str = "https://api.massive.com",
+    ) -> None:
+        self.api_key = api_key.strip()
+        self.timeout_seconds = max(1, min(timeout_seconds, 10))
+        self.retry_count = max(0, min(retry_count, 1))
+        self.base_url = base_url.rstrip("/")
+        self.provider_key = "massive_reference"
+
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        return await asyncio.to_thread(self._get_quote_sync, symbol, now)
+
+    def _get_quote_sync(self, symbol: str, now: datetime) -> Quote:
+        registry = load_registry()
+        normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
+        canonical_symbol = normalized or symbol.strip().upper()
+        record = registry.get(canonical_symbol)
+        if record is None:
+            raise MarketDataProviderError(f"not-found:{canonical_symbol}", provider_key=self.provider_key)
+        if record.market_code not in {"NAS", "NYS", "AMS"}:
+            raise MarketDataProviderError(f"unsupported-market:{canonical_symbol}", provider_key=self.provider_key)
+
+        payload = self._request_json(record.ticker_or_code, fallback_symbol=canonical_symbol)
+        snapshot = payload.get("ticker")
+        if not isinstance(snapshot, dict):
+            raise MarketDataProviderError(f"not-found:{canonical_symbol}", provider_key=self.provider_key)
+
+        price = _parse_positive_float(_nested_get(snapshot, "lastTrade", "p"))
+        if price is None:
+            raise MarketDataProviderError(f"not-found:{canonical_symbol}", provider_key=self.provider_key)
+
+        asof = _parse_epoch_datetime(_nested_get(snapshot, "lastTrade", "t")) or now
+        quote = Quote(symbol=canonical_symbol, price=price, asof=asof, provider=self.provider_key)
+        _ensure_quote_fresh(quote, now)
+        return quote
+
+    def _request_json(self, ticker: str, *, fallback_symbol: str) -> dict[str, Any]:
+        request = Request(
+            f"{self.base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?{urlencode({'apiKey': self.api_key})}",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "discord-heatmap-bot/1.0",
+            },
+        )
+        for attempt in range(self.retry_count + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise MarketDataProviderError("massive-invalid-response", provider_key=self.provider_key)
+                status = str(payload.get("status") or "").strip().upper()
+                if status and status not in {"OK", "SUCCESS"}:
+                    message = _error_payload_message(payload)
+                    if _looks_like_entitlement_error(message):
+                        raise MarketDataProviderError("massive-entitlement-required", provider_key=self.provider_key)
+                    raise MarketDataProviderError(
+                        f"not-found:{fallback_symbol}" if "not found" in message else "massive-invalid-response",
+                        provider_key=self.provider_key,
+                    )
+                return payload
+            except HTTPError as exc:
+                error_payload = _read_http_error_payload(exc)
+                error_message = _error_payload_message(error_payload)
+                if exc.code == 429 or _looks_like_rate_limit_error(error_message):
+                    raise MarketDataProviderError("massive-rate-limited", provider_key=self.provider_key) from exc
+                if exc.code in {401, 403}:
+                    if _looks_like_entitlement_error(error_message):
+                        raise MarketDataProviderError("massive-entitlement-required", provider_key=self.provider_key) from exc
+                    raise MarketDataProviderError("massive-auth-failed", provider_key=self.provider_key) from exc
+                if exc.code == 404:
+                    raise MarketDataProviderError(f"not-found:{fallback_symbol}", provider_key=self.provider_key) from exc
+                if attempt >= self.retry_count:
+                    raise MarketDataProviderError("massive-unreachable", provider_key=self.provider_key) from exc
+            except json.JSONDecodeError as exc:
+                raise MarketDataProviderError("massive-invalid-response", provider_key=self.provider_key) from exc
+            except URLError as exc:
+                if attempt >= self.retry_count:
+                    raise MarketDataProviderError("massive-unreachable", provider_key=self.provider_key) from exc
+        raise MarketDataProviderError("massive-unreachable", provider_key=self.provider_key)
+
+
+class RoutedMarketDataProvider:
+    def __init__(
+        self,
+        *,
+        primary_provider: MarketDataProvider,
+        us_fallback_provider: MarketDataProvider | None = None,
+    ) -> None:
+        self.primary_provider = primary_provider
+        self.us_fallback_provider = us_fallback_provider
+
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        warm_quotes = getattr(self.primary_provider, "warm_quotes", None)
+        if callable(warm_quotes):
+            await warm_quotes(symbols, now)
+
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        registry = load_registry()
+        normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
+        canonical_symbol = normalized or symbol.strip().upper()
+        record = registry.get(canonical_symbol)
+        if record is None:
+            raise MarketDataProviderError(f"not-found:{canonical_symbol}")
+
+        if record.market_code not in {"NAS", "NYS", "AMS"} or self.us_fallback_provider is None:
+            return await self.primary_provider.get_quote(canonical_symbol, now)
+
+        try:
+            return await self.primary_provider.get_quote(canonical_symbol, now)
+        except MarketDataProviderError as primary_exc:
+            try:
+                return await self.us_fallback_provider.get_quote(canonical_symbol, now)
+            except MarketDataProviderError as fallback_exc:
+                raise MarketDataProviderError(
+                    f"{primary_exc.provider_key}:{primary_exc} | {fallback_exc.provider_key}:{fallback_exc}",
+                    provider_key=fallback_exc.provider_key,
+                ) from fallback_exc
+        except RuntimeError as primary_exc:
+            try:
+                return await self.us_fallback_provider.get_quote(canonical_symbol, now)
+            except MarketDataProviderError as fallback_exc:
+                raise MarketDataProviderError(
+                    f"kis_quote:{primary_exc} | {fallback_exc.provider_key}:{fallback_exc}",
+                    provider_key=fallback_exc.provider_key,
+                ) from fallback_exc
 
 
 class MockEodSummaryProvider:
@@ -499,6 +641,15 @@ def _parse_positive_float(value: Any) -> float | None:
     return parsed if parsed > 0 else None
 
 
+def _nested_get(payload: dict[str, Any], *keys: str) -> Any:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
 def _read_http_error_payload(exc: HTTPError) -> dict[str, Any] | None:
     try:
         raw = exc.read().decode("utf-8", errors="replace")
@@ -518,12 +669,24 @@ def _error_payload_message(payload: dict[str, Any] | None) -> str:
         return ""
     return " ".join(
         str(payload.get(key) or "").strip().lower()
-        for key in ("error_code", "error_description", "msg_cd", "msg1", "raw")
+        for key in ("status", "message", "error", "error_code", "error_description", "msg_cd", "msg1", "raw")
     ).strip()
 
 
 def _looks_like_rate_limit_error(message: str) -> bool:
     return any(keyword in message for keyword in ("rate", "limit", "유량", "too many", "1분당 1회"))
+
+
+def _looks_like_entitlement_error(message: str) -> bool:
+    return any(keyword in message for keyword in ("not entitled", "not_authorized", "not authorized", "upgrade your plan"))
+
+
+def _ensure_quote_fresh(quote: Quote, now: datetime) -> None:
+    asof = quote.asof
+    if asof.tzinfo is None:
+        asof = asof.replace(tzinfo=now.tzinfo)
+    if now - asof > _QUOTE_STALE_AFTER:
+        raise MarketDataProviderError(f"stale-quote:{quote.symbol}", provider_key=quote.provider or "market_data_provider")
 
 
 def _parse_intraday_time(now: datetime, value: Any) -> datetime:
@@ -541,6 +704,24 @@ def _parse_intraday_time(now: datetime, value: Any) -> datetime:
     if now - candidate > timedelta(hours=12):
         candidate += timedelta(days=1)
     return candidate
+
+
+def _parse_epoch_datetime(value: Any) -> datetime | None:
+    try:
+        raw = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return None
+    if raw <= 0:
+        return None
+    if raw >= 10**18:
+        timestamp = raw / 1_000_000_000
+    elif raw >= 10**15:
+        timestamp = raw / 1_000_000
+    elif raw >= 10**12:
+        timestamp = raw / 1_000
+    else:
+        timestamp = raw
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
 def _chunk(items: list[_ResolvedSymbol], size: int) -> list[list[_ResolvedSymbol]]:

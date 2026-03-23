@@ -12,6 +12,7 @@ from bot.app.settings import (
     INTEL_API_TIMEOUT_SECONDS,
     KIS_APP_KEY,
     KIS_APP_SECRET,
+    MASSIVE_API_KEY,
     MARKETAUX_API_TOKEN,
     MARKETAUX_NEWS_COUNTRIES,
     MARKETAUX_NEWS_GLOBAL_QUERIES,
@@ -69,8 +70,10 @@ from bot.intel.instrument_registry import format_watch_symbol
 from bot.intel.providers.market import (
     ErrorMarketDataProvider,
     KisMarketDataProvider,
+    MassiveSnapshotMarketDataProvider,
     MockEodSummaryProvider,
     MockMarketDataProvider,
+    RoutedMarketDataProvider,
 )
 from bot.intel.providers.news import (
     ErrorNewsProvider,
@@ -159,14 +162,28 @@ def _build_market_data_provider():
         return MockMarketDataProvider()
     if MARKET_DATA_PROVIDER_KIND == "kis":
         if not KIS_APP_KEY or not KIS_APP_SECRET:
-            return ErrorMarketDataProvider("kis-credentials-missing")
-        return KisMarketDataProvider(
+            return ErrorMarketDataProvider("kis-credentials-missing", provider_key="kis_quote")
+        primary_provider = KisMarketDataProvider(
             app_key=KIS_APP_KEY,
             app_secret=KIS_APP_SECRET,
             timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
             retry_count=INTEL_API_RETRY_COUNT,
         )
-    return ErrorMarketDataProvider(f"unsupported-market-data-provider:{MARKET_DATA_PROVIDER_KIND}")
+        us_fallback_provider = None
+        if MASSIVE_API_KEY:
+            us_fallback_provider = MassiveSnapshotMarketDataProvider(
+                api_key=MASSIVE_API_KEY,
+                timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+                retry_count=INTEL_API_RETRY_COUNT,
+            )
+        return RoutedMarketDataProvider(
+            primary_provider=primary_provider,
+            us_fallback_provider=us_fallback_provider,
+        )
+    return ErrorMarketDataProvider(
+        f"unsupported-market-data-provider:{MARKET_DATA_PROVIDER_KIND}",
+        provider_key="kis_quote",
+    )
 
 
 news_provider = _build_news_provider()
@@ -613,9 +630,11 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         for symbol in symbols:
             try:
                 quote = await quote_provider.get_quote(symbol, now)
-                set_provider_status(state, "kis_quote", True, f"quote:{symbol}")
+                provider_key = getattr(quote, "provider", "") or "kis_quote"
+                set_provider_status(state, provider_key, True, f"quote:{symbol}")
             except Exception as exc:
-                set_provider_status(state, "kis_quote", False, str(exc))
+                provider_key = getattr(exc, "provider_key", "kis_quote")
+                set_provider_status(state, provider_key, False, str(exc))
                 quote_failures += 1
                 continue
 
