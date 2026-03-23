@@ -13,7 +13,7 @@
 1. `.\.venv\Scripts\python.exe -m pytest -q` 통과
 2. `gh pr view 15` 기준 `state=MERGED`, `mergeCommit=426a7f6`
 3. `git show v1.0.2` 기준 tag target=`426a7f6`
-4. `git diff --stat origin/master..origin/develop` 결과 없음
+4. release 직후에는 `origin/master`와 `origin/develop`의 code/runtime tree diff가 없었고, 현재 남은 차이는 release 기록용 `docs/context/development-log.md`, `docs/context/session-handoff.md` 두 파일뿐이다.
 - Next:
 1. 다음 `develop -> master` 릴리스도 저장소 규칙상 merge commit이 아니라 squash 또는 허용된 선형 방식으로 처리한다.
 2. history는 달라도 현재 `master`와 `develop` tree는 같으므로, 후속 작업은 `develop`에서 계속 진행하면 된다.
