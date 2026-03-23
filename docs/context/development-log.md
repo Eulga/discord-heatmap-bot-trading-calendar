@@ -1,6 +1,25 @@
 # Development Log
 
 ## 2026-03-23
+- Context: 사용자가 `develop`를 `master`에 반영하고 버전 태그를 달라고 요청했다.
+- Change:
+1. 로컬 `develop` 기준으로 `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀를 다시 실행했다.
+2. `docs/context/session-handoff.md`에 Docker Compose 재기동 결과를 기록한 뒤 `develop`에 커밋하고 `origin/develop`로 push했다.
+3. `develop -> master` release PR [#15](https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/15)를 생성했다.
+4. GitHub repository rule상 `master`는 merge commit을 허용하지 않아 release PR은 `squash merge`로 마무리했다.
+5. release 결과 커밋 `426a7f6 release: merge develop into master (2026-03-23) (#15)`에 git tag `v1.0.2`를 달아 push했다.
+6. 이후 로컬 branch ref도 정리해 `master`는 `origin/master`, `develop`는 `origin/develop`를 각각 가리키도록 맞췄다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest -q` 통과
+2. `gh pr view 15` 기준 `state=MERGED`, `mergeCommit=426a7f6`
+3. `git show v1.0.2` 기준 tag target=`426a7f6`
+4. `git diff --stat origin/master..origin/develop` 결과 없음
+- Next:
+1. 다음 `develop -> master` 릴리스도 저장소 규칙상 merge commit이 아니라 squash 또는 허용된 선형 방식으로 처리한다.
+2. history는 달라도 현재 `master`와 `develop` tree는 같으므로, 후속 작업은 `develop`에서 계속 진행하면 된다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 서브에이전트 리뷰를 통과할 때까지 반복하고, clean이면 integration subagent까지 돌린 뒤 커밋/푸시하라고 요청했다.
 - Change:
 1. reviewer finding 기준으로 `bot/features/intel_scheduler.py`의 instrument registry refresh를 한 번 더 보강했다.

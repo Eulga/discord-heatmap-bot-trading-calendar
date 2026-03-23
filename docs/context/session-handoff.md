@@ -1,6 +1,18 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 `develop`를 `master`에 반영하고 버전 태그까지 달라고 요청했다.
+- Current state:
+1. release PR [#15](https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/15)는 `squash merge`로 닫혔고, `origin/master` 최신 릴리스 커밋은 `426a7f6 release: merge develop into master (2026-03-23) (#15)`다.
+2. git 태그 `v1.0.2`는 `426a7f6`에 push됐다.
+3. release 직전 로컬 검증으로 `.\.venv\Scripts\python.exe -m pytest -q` 전체가 통과했다.
+4. 현재 `origin/master`와 `origin/develop`의 tree diff는 비어 있다. 다만 이번 릴리스는 squash merge라 branch history는 다르고, `origin/develop` head는 `6866a02 merge: sync origin/master into develop for release`다.
+- Next:
+1. 다음 릴리스 준비 전에는 commit history보다 tree diff 기준으로 `develop -> master` 차이를 먼저 확인한다.
+2. 필요하면 Discord 운영 smoke를 `v1.0.2` 기준으로 한 번 더 수행한다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 `develop` 최신 상태를 반영한 뒤 Docker Compose 서비스를 새로 올려 달라고 요청했다.
 - Current state:
 1. 워크스페이스는 `develop@66d9b6c`까지 fast-forward 동기화된 상태에서 `docker compose up -d --build`를 실행했다.
