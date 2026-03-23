@@ -1,5 +1,18 @@
 # Session Handoff
 
+## 2026-03-23
+- Context: 로컬 `develop`을 최신 원격과 다시 맞춘 뒤, 지금 기준의 다음 작업 우선순위를 재정리했다.
+- Current state:
+1. 로컬 `develop`은 `origin/develop`의 최신 11커밋을 반영한 상태로 정리됐고, sync 직후 기본 회귀는 `107 passed, 2 deselected`였다.
+2. 뉴스 경로는 [bot/features/intel_scheduler.py](C:/Users/kin50/Documents/New%20project/discord-heatmap-bot-trading-calendar/bot/features/intel_scheduler.py)에서 `NEWS_PROVIDER_KIND=mock|naver|marketaux|hybrid`를 지원한다.
+3. 반면 같은 파일의 `eod_provider`, `quote_provider`는 아직 `MockEodSummaryProvider()`, `MockMarketDataProvider()`로 직접 고정돼 있어, 실사용 전환이 덜 끝난 쪽은 현재 `watch_poll`과 `eod_summary`다.
+4. 설계 기준으로는 `watch`가 우선이고 `eod_summary`는 pause 상태다. 최신 Discord smoke 기준 `WATCH_ALERT_CHANNEL_ID`는 forum 채널을 가리키고, `ADMIN_STATUS_CHANNEL_ID`는 `403 Missing Access`라 운영 env 보정도 남아 있다.
+- Next:
+1. 먼저 운영 env를 바로잡는다: `WATCH_ALERT_CHANNEL_ID`를 일반 text channel로 바꾸고, `ADMIN_STATUS_CHANNEL_ID` 접근 권한을 복구한다.
+2. 그다음 구현/검증 우선순위는 live `MarketDataProvider`를 붙여 `watch add -> poll -> alert send` 전체 경로를 실사용 데이터로 검증하는 것이다.
+3. `eod_summary`는 다시 우선순위가 올라오기 전까지 pause 유지가 맞고, 재개할 때 별도 live provider 작업으로 분리한다.
+- Status: open
+
 ## 2026-03-22
 - Context: 사용자가 `master` 반영 후 Docker 배포까지 요청했다.
 - Current state:

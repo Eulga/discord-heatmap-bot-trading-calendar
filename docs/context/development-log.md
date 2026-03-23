@@ -1,5 +1,19 @@
 # Development Log
 
+## 2026-03-23
+- Context: 사용자가 현재 로컬 `develop`을 원격 저장소와 다시 맞추고, 최신 기준의 다음 작업 우선순위를 파악해 달라고 요청했다.
+- Change:
+1. `git fetch --prune origin` 후 로컬 `develop`의 미푸시 커밋 1개를 최신 `origin/develop` 위로 rebase해 원격 11커밋을 반영했다.
+2. rebase 중 충돌 난 [AGENTS.md](C:/Users/kin50/Documents/New%20project/discord-heatmap-bot-trading-calendar/AGENTS.md)와 [docs/context/design-decisions.md](C:/Users/kin50/Documents/New%20project/discord-heatmap-bot-trading-calendar/docs/context/design-decisions.md)는 최신 원격 문맥을 유지하면서 로컬의 상태 경로 정리 기록만 보존하도록 정리했다.
+3. 최신 코드 기준 다음 구현 우선순위를 다시 점검한 결과, [bot/features/intel_scheduler.py](C:/Users/kin50/Documents/New%20project/discord-heatmap-bot-trading-calendar/bot/features/intel_scheduler.py)는 뉴스 provider만 `mock|naver|marketaux|hybrid` 전환을 지원하고, `eod_provider`와 `quote_provider`는 여전히 `MockEodSummaryProvider()`, `MockMarketDataProvider()`로 고정돼 있음을 확인했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest`
+2. 결과는 `107 passed, 2 deselected`였다.
+- Next:
+1. 원격 운영 검증 관점의 최우선 다음 작업은 `WATCH_ALERT_CHANNEL_ID`를 실제 text channel로 바로잡고, live `MarketDataProvider`를 붙여 `watch add -> poll -> alert send` 경로를 실사용 기준으로 닫는 것이다.
+2. `eod_summary`는 현재 spec/설계 문서 기준으로 pause 상태이므로, 우선순위를 다시 올리기 전까지는 watch/news 쪽 검증과 운영 안정화가 먼저다.
+- Status: done
+
 ## 2026-03-22
 - Context: 사용자가 `master` 반영 직후 Docker 배포와 compose 점검을 요청했다.
 - Change:
