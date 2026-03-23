@@ -7,7 +7,8 @@
 
 ## 현재 운영 메모 (2026-03-20)
 - `eod_summary`는 현재 잠정 중단 상태다. 이 문서의 EOD 섹션은 future reactivation용 참고 계약으로 유지한다.
-- watch 종목 검색은 live vendor search API를 직접 치지 않고, `OpenDART + SEC` 기반 local instrument registry로 해석한 뒤 canonical symbol로 저장한다.
+- watch 종목 검색은 live vendor search API를 직접 치지 않고, `OpenDART + SEC + KRX structured finder(ETF/ETN/ELW/PF)` 기반 local instrument registry로 해석한 뒤 canonical symbol로 저장한다.
+- runtime은 bundled snapshot `bot/intel/data/instrument_registry.json`을 기본으로 읽고, optional daily refresh가 성공하면 `data/state/instrument_registry.json` runtime override를 우선 사용한다.
 - 현재 canonical symbol 형식은 `KRX:005930`, `NAS:AAPL`, `NYS:KO`, `AMS:SPY`다.
 
 ## 적용 대상
@@ -201,6 +202,8 @@
 - 현재 구현은 종목별 단건 호출 구조지만, 실사용에서는 batch 조회 adapter를 우선 권장한다
 - command 레이어는 live vendor search를 호출하지 않고 local registry 검색 + autocomplete로 후보를 좁힌다
 - 미국 상장사 master의 authoritative base는 `SEC company_tickers_exchange.json`, 국내 상장사 master는 `OpenDART corpCode.xml`을 우선한다
+- 국내 structured product master는 KRX finder(`ETF`, `ETN`, `ELW`, `PF`)를 함께 사용한다
+- daily refresh는 live source를 직접 다시 fetch한 full rebuild가 성공했을 때만 runtime override artifact를 교체한다
 - 응답에 없는 종목은 adapter에서 `not-found:<symbol>` 형태 예외로 변환한다
 - quote 지연이 길면 잘못된 알림이 나갈 수 있으므로 허용 지연은 2분 이내를 권장한다
 

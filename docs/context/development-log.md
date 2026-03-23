@@ -1,6 +1,74 @@
 # Development Log
 
 ## 2026-03-23
+- Context: 사용자가 서브에이전트 리뷰를 통과할 때까지 반복하고, clean이면 integration subagent까지 돌린 뒤 커밋/푸시하라고 요청했다.
+- Change:
+1. reviewer finding 기준으로 `bot/features/intel_scheduler.py`의 instrument registry refresh를 한 번 더 보강했다.
+2. refresh 실작업은 background task가 `data/state/instrument_registry.json`만 갱신하도록 두고, `job_last_runs`와 `provider_status` 저장은 다시 메인 scheduler loop가 task 완료 시점에만 반영하게 바꿨다. 이로써 detached refresh가 다른 scheduler job의 state save를 stale snapshot으로 덮어쓰는 race를 제거했다.
+3. `_should_start_instrument_registry_refresh()`는 이제 configured minute를 놓친 late start에도 같은 날 최초 refresh를 catch-up 실행하고, failed run 뒤에는 same-day retry가 가능하도록 보강했다. 단 `dart-api-key-missing` 같은 static config failure는 분 단위 재시도를 막는다.
+4. `tests/integration/test_intel_scheduler_logic.py`에는 `late-start catch-up`, `same-day retry`, `in-flight refresh 중 watch_poll 진행` 회귀를 추가했다.
+- Verification:
+1. reviewer subagent 재검토 결과 `No actionable issues found.`
+2. `.\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py -q` 통과
+3. integration subagent 실행 결과 `.\.venv\Scripts\python.exe -m pytest tests/integration` 기준 `55 passed, 2 deselected`
+- Next:
+1. 현재 변경분을 커밋하고 원격 브랜치에 push한다.
+2. 이후 scheduler 관련 추가 변경은 detached background work가 main state save와 충돌하지 않는지부터 다시 본다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 env와 state의 역할을 프로젝트 최우선 운영 규칙으로 고정하고, 이후 코드리뷰도 이 문서 기준으로 거절할 건 거절하자고 요청했다.
+- Change:
+1. `AGENTS.md`에 새 최우선 규칙을 추가해 `.env`는 민감정보와 bootstrap/default 값, `data/state/state.json`은 mutable Discord routing 값의 source of truth라고 명시했다.
+2. `docs/context/review-rules.md`에는 새 Rule 2를 추가해 `민감정보는 env, mutable routing은 state`를 코드리뷰 acceptance gate로 고정했다.
+3. `docs/context/design-decisions.md`, `docs/context/session-handoff.md`, `README.md`, `.env.example`도 같은 문구로 맞춰 문서 간 해석이 갈리지 않게 정리했다.
+- Verification:
+1. `AGENTS.md`, `review-rules.md`, `README.md`, `.env.example`, `design-decisions.md`, `session-handoff.md`를 대조해 env/state 역할 표현이 같은지 확인했다.
+2. 이번 변경은 문서화 작업이라 테스트는 추가 실행하지 않았다.
+- Next:
+1. 다음 코드리뷰부터 env에 mutable routing을 source of truth로 두는 변경은 원칙 위반으로 바로 reject 기준에 올린다.
+2. 새 기능이 채널/포럼 ID를 다룰 때는 먼저 state schema 확장으로 풀고, env는 bootstrap-only인지부터 확인한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 env channel IDs가 실운영에서 foreign fallback처럼 읽혀 다른 길드 heatmap이 깨진다고 보고했고, 어떤 라우팅 데이터가 state로 가야 하는지 전체 검토를 요청했다.
+- Change:
+1. `bot/features/runner.py`는 더 이상 `DEFAULT_FORUM_CHANNEL_ID`를 runtime fallback으로 읽지 않는다. heatmap 실행은 guild state의 `forum_channel_id`만 사용하고, 실제 channel이 같은 guild의 `ForumChannel`인지 검증한다.
+2. `bot/features/intel_scheduler.py`도 `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`를 runtime fallback으로 쓰지 않게 바꿨다. 뉴스/EOD는 `news_forum_channel_id/eod_forum_channel_id -> forum_channel_id`, watch는 `watch_alert_channel_id`를 state에서만 읽는다.
+3. `bot/app/bot_client.py`에는 startup bootstrap을 추가했다. legacy env channel IDs가 접근 가능하면 matching guild의 `data/state/state.json`에 한 번만 복사하고, 이미 state가 있으면 덮어쓰지 않는다.
+4. `.env.example`, `README.md`, `docs/context/design-decisions.md`, `docs/context/session-handoff.md`도 `env bootstrap -> state authoritative` 의미로 갱신했다.
+5. 회귀 테스트는 `tests/unit/test_bot_client.py`를 새로 추가해 bootstrap 동작을 고정했고, `tests/integration/test_forum_upsert_flow.py`, `tests/integration/test_intel_scheduler_logic.py`는 state-authoritative routing 기준으로 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_bot_client.py tests\integration\test_forum_upsert_flow.py tests\integration\test_intel_scheduler_logic.py tests\integration\test_auto_scheduler_logic.py -q` 통과
+2. invalid-forum regression: state에 foreign/deleted forum channel이 남아 있으면 heatmap command는 `/setforumchannel` 재설정을 요구하는 메시지를 반환한다.
+- Next:
+1. 봇 재시작 후 startup bootstrap이 현재 `.env`의 channel IDs를 state에 옮기는지 확인한다.
+2. 필요하면 다음 단계로 env channel IDs를 완전히 제거할지, 아니면 bootstrap-only legacy로 유지할지 운영 결정을 내린다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 instrument registry 누락 종목군을 더 보강하고, bot 내부에서 매일 한 번 refresh할 수 있게 적용해 달라고 요청했다.
+- Change:
+1. `bot/intel/instrument_registry.py`는 이제 KRX structured finder의 `ELW`, `PF` rows도 빌드에 포함한다. 결과적으로 bundled registry counts는 `KRX=8131`, `NAS=4248`, `NYS=3270`, `AMS=0`, 총 `15649`건으로 늘었다.
+2. registry load 순서는 `data/state/instrument_registry.json -> bot/intel/data/instrument_registry.json -> seed`로 바뀌었고, `save_registry()`는 `atomic_write_json` 기반 atomic replace를 사용한다.
+3. `registry_status()`는 active source(`runtime|bundled`)와 loaded counts를 함께 노출한다.
+4. `bot/features/intel_scheduler.py`에는 `INSTRUMENT_REGISTRY_REFRESH_ENABLED`, `INSTRUMENT_REGISTRY_REFRESH_TIME` 기반 daily refresh job을 추가했다. refresh는 `asyncio.to_thread(...)`로 실행되고, live OpenDART/SEC/KRX fetch가 모두 성공했을 때만 runtime artifact를 교체한다.
+5. refresh 결과는 `job_last_runs.instrument_registry_refresh`와 `provider_status.instrument_registry`에 `source=runtime loaded=... added=... removed=...` 형태로 남기고, 실패 시 기존 active registry는 유지한다.
+6. `scripts/build_instrument_registry.py`, `.env.example`, `README.md`, `docs/specs/external-intel-api-spec.md`, `docs/context/design-decisions.md`, `docs/context/session-handoff.md`도 새 runtime override 구조와 refresh env를 기준으로 갱신했다.
+7. 회귀 테스트는 ELW/PF builder/search, runtime override load, atomic save, status default row, scheduler refresh success/failure/timing까지 추가했다.
+- Verification:
+1. `$env:PYTHONPATH='.'; .\.venv\Scripts\python.exe scripts\build_instrument_registry.py` 성공 (`records=15649`)
+2. registry spot-check:
+   - `삼성전자 -> KRX:005930`
+   - `KBL002삼성전자콜 -> KRX:58L002`
+   - `대신 KOSPI200인덱스 X클래스 -> KRX:0106J0`
+3. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_instrument_registry.py tests\unit\test_watch_command.py tests\unit\test_status_command.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+- Next:
+1. runtime refresh는 기본값이 disabled이므로, 운영 env에서 켤 때 `DART_API_KEY`와 실행 시각을 함께 점검한다.
+2. inactive/delisted marker와 watchlist reconciliation report는 다음 단계로 남는다.
+- Status: done
+
+## 2026-03-23
 - Context: `develop` merge 직전 GitHub Codex review가 `bot/intel/providers/market.py` warm-up 경로에서 same-poll fallback을 막는 P2 3건을 보고했다.
 - Change:
 1. `KisMarketDataProvider.warm_quotes()`의 국내 종목 prefetch는 `_fetch_and_store()` 대신 best-effort `_warm_fetch_and_store()`를 사용하도록 바꿨다.

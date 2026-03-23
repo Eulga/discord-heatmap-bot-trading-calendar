@@ -363,11 +363,15 @@ async def test_runner_includes_partial_failure_in_body(monkeypatch):
             jump_url = "https://discord.com/channels/thread/1"
         return Thread(), "updated"
 
+    async def fake_resolve(*_args, **_kwargs):
+        return object()
+
     monkeypatch.setattr(runner, "load_state", lambda: state)
     monkeypatch.setattr(runner, "save_state", lambda _: None)
     monkeypatch.setattr(runner, "get_or_capture_images", fake_get_or_capture_images)
     monkeypatch.setattr(runner, "upsert_daily_post", fake_upsert_daily_post)
     monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+    monkeypatch.setattr(runner, "_resolve_guild_forum_channel", fake_resolve)
 
     def body_builder(ts, src_lines, failed):
         return "\n".join([ts, "Failed:", *[f"- {x}" for x in failed]])
@@ -405,11 +409,15 @@ async def test_runner_upserts_with_partial_failure(monkeypatch, tmp_path):
             jump_url = "https://discord.com/channels/thread/2"
         return Thread(), "updated"
 
+    async def fake_resolve(*_args, **_kwargs):
+        return type("Forum", (), {"id": 123})()
+
     monkeypatch.setattr(runner, "load_state", lambda: state)
     monkeypatch.setattr(runner, "save_state", lambda _: None)
     monkeypatch.setattr(runner, "get_or_capture_images", fake_get_or_capture_images)
     monkeypatch.setattr(runner, "upsert_daily_post", fake_upsert_daily_post)
     monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+    monkeypatch.setattr(runner, "_resolve_guild_forum_channel", fake_resolve)
 
     def body_builder(ts, src_lines, failed):
         return "\n".join([ts, *src_lines, "Failed:", *[f"- {x}" for x in failed]])
@@ -427,3 +435,30 @@ async def test_runner_upserts_with_partial_failure(monkeypatch, tmp_path):
     assert "Failed:" in captured_body["value"]
     assert "kosdaq: timed out while rendering" in captured_body["value"]
     assert any("포스트 수정 완료" in msg for msg in interaction.followup.messages)
+
+
+@pytest.mark.asyncio
+async def test_runner_rejects_invalid_state_forum_channel(monkeypatch):
+    interaction = FakeInteraction()
+    state = {"commands": {"kheatmap": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
+
+    monkeypatch.setattr(runner, "load_state", lambda: state)
+    monkeypatch.setattr(runner, "save_state", lambda _: None)
+    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+
+    async def fake_resolve(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_resolve_guild_forum_channel", fake_resolve)
+
+    await runner.run_heatmap_command(
+        interaction=interaction,
+        client=object(),  # type: ignore[arg-type]
+        command_key="kheatmap",
+        targets={"kospi": "x"},
+        capture_func=lambda *_: None,  # type: ignore[arg-type]
+        title_builder=lambda: "[2026-02-13 한국장 히트맵]",
+        body_builder=lambda ts, src, failed: ts,
+    )
+
+    assert any("포럼 채널 설정이 유효하지 않습니다" in msg for msg in interaction.followup.messages)

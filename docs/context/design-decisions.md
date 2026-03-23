@@ -1,6 +1,49 @@
 # Design Decisions
 
 ## 2026-03-23
+- Context: 사용자가 앞으로의 최우선 운영 규칙으로 env와 state의 역할을 더 명확히 나누고, 이후 코드리뷰도 이 기준으로 거절할 것은 거절하자고 요청했다.
+- Decision: 이 저장소의 설정 원칙은 `민감정보는 env`, `mutable 운영 라우팅은 state`로 고정한다. channel/forum/watch routing 값은 state를 source of truth로 두고, env의 channel/forum IDs는 bootstrap, 개발 초기값, 테스트 기본값으로만 허용한다.
+- Why:
+1. API 토큰, 시크릿, 자격증명은 배포 환경별 주입과 비노출 관리가 중요하므로 env 계층에 두는 편이 맞다.
+2. 반대로 channel/forum ID 같은 Discord 라우팅 값은 시크릿이 아니고 길드별로 바뀌는 운영 상태값이라 state에서 관리해야 멀티 길드 정합성이 맞다.
+3. 이 원칙이 약하면 env fallback이 다시 runtime source of truth로 스며들고, 반대로 시크릿이 state/docs로 흘러 들어갈 수 있다.
+4. 리뷰 기준을 문서로 고정해 두면 이후 refactor나 신규 기능 구현에서도 같은 종류의 잘못된 저장 위치 선택을 더 빨리 차단할 수 있다.
+- Impact:
+1. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`는 bootstrap-only legacy/default 값으로만 취급한다.
+2. 새 기능이 길드별 채널/포럼/라우팅 값을 다룰 때는 먼저 state schema를 검토하고, env 우선 설계를 기본안으로 삼지 않는다.
+3. 코드리뷰는 이제 `민감정보는 env, mutable routing은 state`를 explicit acceptance gate로 사용한다.
+4. 예외적으로 env authoritative가 필요한 경우는 사전 문서화 없이는 허용하지 않는다.
+- Status: accepted
+
+## 2026-03-23
+- Context: 실운영에서 env에 남아 있던 forum/text channel IDs가 다른 길드에서도 runtime fallback처럼 읽혀, 멀티 길드 heatmap/news/eod/watch 라우팅을 흔들고 있었다.
+- Decision: Discord channel routing의 source of truth는 `data/state/state.json`으로 통일한다. env channel IDs는 runtime fallback이 아니라 startup bootstrap 용도로만 유지하고, 실제 실행 경로는 per-guild state만 읽는다.
+- Why:
+1. channel ID는 시크릿이 아니라 운영 라우팅 데이터라서, 멀티 길드 봇에서는 env보다 state가 더 자연스럽고 변경 이력도 명확하다.
+2. 단일 env channel ID는 특정 한 길드의 채널일 가능성이 높은데, 이를 cross-guild fallback으로 쓰면 다른 길드에서 foreign channel로 잘못 라우팅되거나 기능이 실패한다.
+3. `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchchannel`이 이미 state를 쓰고 있으므로 runtime도 같은 source를 보는 편이 일관된다.
+- Impact:
+1. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`는 startup에서 matching guild state가 비어 있을 때만 bootstrap한다.
+2. heatmap runner와 intel scheduler는 runtime에 env channel IDs를 직접 fallback으로 읽지 않는다.
+3. heatmap 실행은 state에 저장된 forum channel이 삭제됐거나 다른 guild channel이면 명시적으로 재설정을 요구한다.
+- Status: accepted
+
+## 2026-03-23
+- Context: watch autocomplete coverage를 ELW/PF까지 넓히고, 신규 상장/상장폐지를 더 빨리 반영할 수 있게 bot 내부 daily refresh를 붙이기로 했다.
+- Decision: instrument registry는 `bundled snapshot + optional runtime refresh override` 구조로 운영한다. repo에 체크인된 기본 artifact는 유지하고, bot scheduler가 성공적으로 full rebuild 했을 때만 `data/state/instrument_registry.json` runtime override를 교체한다.
+- Why:
+1. slash command autocomplete hot path는 여전히 local registry snapshot이 가장 안정적이고, 매 입력마다 live search API를 호출하는 구조는 rate limit과 응답 지연 리스크가 크다.
+2. Docker 운영에서 `data/state`는 이미 mount돼 있으므로 runtime refresh artifact를 여기에 두면 container recreate 뒤에도 refresh 결과를 보존할 수 있다.
+3. refresh가 일부 source 실패 상태에서 partial artifact를 남기면 autocomplete 기준선이 흔들리므로, full rebuild 성공 시에만 atomic replace 하는 fail-closed가 안전하다.
+4. KRX coverage는 상장사(OpenDART)만으로 충분하지 않고, 실제 누락분은 ETF/ETN에 더해 ELW/PF 같은 structured product군이어서 KRX finder family를 함께 묶는 편이 맞다.
+- Impact:
+1. runtime load 순서는 `data/state/instrument_registry.json -> bot/intel/data/instrument_registry.json -> seed`다.
+2. 새 env는 `INSTRUMENT_REGISTRY_REFRESH_ENABLED`, `INSTRUMENT_REGISTRY_REFRESH_TIME`이고, 기본값은 disabled다.
+3. `/source-status`의 `instrument_registry` row는 현재 active source(`runtime|bundled`)와 loaded counts를 보여주고, `/last-run`은 `instrument_registry_refresh` job row를 노출한다.
+4. 이번 단계는 `added/removed` summary까지만 남기며, inactive/delisted marker와 watchlist reconciliation report는 후속 작업으로 남긴다.
+- Status: accepted
+
+## 2026-03-23
 - Context: watch autocomplete coverage를 KRX ETF/ETN까지 넓힌 뒤, 사용자가 신규 상장 상품과 상장폐지 상품을 앞으로 어떤 방식으로 추적할지 물었다.
 - Decision: instrument registry는 당분간 generated snapshot artifact를 source of truth로 유지한다. 신규 상장/상장폐지 자동 추적이 필요해지면 다음 단계로 `정기 rebuild + 이전 artifact와 diff + inactive/delisted 상태 관리`를 추가한다.
 - Why:

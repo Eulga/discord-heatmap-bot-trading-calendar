@@ -14,12 +14,23 @@ def test_default_job_rows_marks_eod_paused_by_default(monkeypatch):
     assert rows["eod_summary"]["status"] == "paused"
 
 
+def test_default_job_rows_marks_registry_refresh_scheduled_when_enabled(monkeypatch):
+    monkeypatch.setattr(status_command, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", True)
+    monkeypatch.setattr(status_command, "INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20")
+
+    rows = status_command._default_job_rows()
+
+    assert rows["instrument_registry_refresh"]["status"] == "scheduled"
+    assert "06:20" in rows["instrument_registry_refresh"]["detail"]
+
+
 def test_default_provider_rows_include_registry_and_optional_sources():
     rows = status_command._default_provider_rows()
 
     assert "instrument_registry" in rows
     assert "kis_quote" in rows
     assert "massive_reference" in rows
+    assert "source=" in rows["instrument_registry"]["message"]
 
 
 def test_merge_defaults_normalizes_legacy_polygon_reference_key():

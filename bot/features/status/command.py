@@ -3,6 +3,8 @@ from discord import app_commands
 
 from bot.app.settings import (
     EOD_SUMMARY_ENABLED,
+    INSTRUMENT_REGISTRY_REFRESH_ENABLED,
+    INSTRUMENT_REGISTRY_REFRESH_TIME,
     KIS_APP_KEY,
     KIS_APP_SECRET,
     MASSIVE_API_KEY,
@@ -46,9 +48,19 @@ def _fmt_dict_rows(value: dict[str, dict]) -> str:
 
 
 def _default_job_rows() -> dict[str, dict[str, str]]:
-    if EOD_SUMMARY_ENABLED:
-        return {}
-    return {"eod_summary": {"status": "paused", "detail": "eod-summary-paused", "run_at": ""}}
+    rows: dict[str, dict[str, str]] = {}
+    if not EOD_SUMMARY_ENABLED:
+        rows["eod_summary"] = {"status": "paused", "detail": "eod-summary-paused", "run_at": ""}
+    rows["instrument_registry_refresh"] = {
+        "status": "scheduled" if INSTRUMENT_REGISTRY_REFRESH_ENABLED else "paused",
+        "detail": (
+            f"daily-refresh {INSTRUMENT_REGISTRY_REFRESH_TIME} KST"
+            if INSTRUMENT_REGISTRY_REFRESH_ENABLED
+            else "instrument-registry-refresh-disabled"
+        ),
+        "run_at": "",
+    }
+    return rows
 
 
 def _default_provider_rows() -> dict[str, dict[str, str]]:

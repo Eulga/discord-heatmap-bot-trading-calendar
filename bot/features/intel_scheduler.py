@@ -5,9 +5,11 @@ from datetime import datetime
 import discord
 
 from bot.app.settings import (
+    DART_API_KEY,
     EOD_SUMMARY_ENABLED,
     EOD_SUMMARY_TIME,
-    EOD_TARGET_FORUM_ID,
+    INSTRUMENT_REGISTRY_REFRESH_ENABLED,
+    INSTRUMENT_REGISTRY_REFRESH_TIME,
     INTEL_API_RETRY_COUNT,
     INTEL_API_TIMEOUT_SECONDS,
     KIS_APP_KEY,
@@ -31,8 +33,6 @@ from bot.app.settings import (
     NEWS_BRIEFING_TIME,
     NEWS_BRIEFING_TRADING_DAYS_ONLY,
     NEWS_PROVIDER_KIND,
-    NEWS_TARGET_FORUM_ID,
-    WATCH_ALERT_CHANNEL_ID,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
 )
@@ -54,6 +54,7 @@ from bot.forum.repository import (
     get_guild_last_auto_skip_date,
     get_guild_news_forum_channel_id,
     get_guild_watch_alert_channel_id,
+    get_job_last_runs,
     get_watch_baseline,
     list_guild_ids,
     list_watch_symbols,
@@ -66,7 +67,14 @@ from bot.forum.repository import (
     set_watch_baseline,
 )
 from bot.forum.service import upsert_daily_post
-from bot.intel.instrument_registry import format_watch_symbol
+from bot.intel.instrument_registry import (
+    RUNTIME_REGISTRY_FILE,
+    build_live_registry,
+    format_watch_symbol,
+    load_registry,
+    registry_status,
+    save_registry,
+)
 from bot.intel.providers.market import (
     ErrorMarketDataProvider,
     KisMarketDataProvider,
@@ -199,6 +207,100 @@ def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
         return default_h, default_m
 
 
+def _job_status_on_date(state: dict, job_key: str, run_date: str) -> str | None:
+    run = get_job_last_runs(state).get(job_key, {})
+    if not str(run.get("run_at") or "").startswith(run_date):
+        return None
+    status = run.get("status")
+    return str(status) if isinstance(status, str) else None
+
+
+def _job_attempted_in_minute(state: dict, job_key: str, now: datetime) -> bool:
+    run = get_job_last_runs(state).get(job_key, {})
+    run_at = str(run.get("run_at") or "")
+    return run_at.startswith(now.strftime("%Y-%m-%dT%H:%M"))
+
+
+def _job_detail_on_date(state: dict, job_key: str, run_date: str) -> str:
+    run = get_job_last_runs(state).get(job_key, {})
+    if not str(run.get("run_at") or "").startswith(run_date):
+        return ""
+    detail = run.get("detail")
+    return str(detail) if isinstance(detail, str) else ""
+
+
+def _should_start_instrument_registry_refresh(
+    state: dict,
+    now: datetime,
+    *,
+    refresh_hour: int,
+    refresh_minute: int,
+) -> bool:
+    run_date = date_key(now)
+    if now.hour < refresh_hour or (now.hour == refresh_hour and now.minute < refresh_minute):
+        return False
+
+    status = _job_status_on_date(state, "instrument_registry_refresh", run_date)
+    if status == "ok":
+        return False
+    if status is None:
+        return True
+    if _job_attempted_in_minute(state, "instrument_registry_refresh", now):
+        return False
+    detail = _job_detail_on_date(state, "instrument_registry_refresh", run_date)
+    if "dart-api-key-missing" in detail:
+        return False
+    return True
+
+
+def _refresh_instrument_registry_sync() -> dict[str, int | str]:
+    previous_registry = load_registry()
+    previous_symbols = {record.canonical_symbol for record in previous_registry.records}
+    refreshed_registry = build_live_registry(dart_api_key=DART_API_KEY)
+    refreshed_symbols = {record.canonical_symbol for record in refreshed_registry.records}
+    save_registry(refreshed_registry, path=RUNTIME_REGISTRY_FILE)
+    return {
+        "source": "runtime",
+        "loaded": len(refreshed_registry.records),
+        "added": len(refreshed_symbols - previous_symbols),
+        "removed": len(previous_symbols - refreshed_symbols),
+    }
+
+
+def _format_instrument_registry_refresh_detail(summary: dict[str, int | str]) -> str:
+    return (
+        f"source={summary['source']} loaded={summary['loaded']} "
+        f"added={summary['added']} removed={summary['removed']}"
+    )
+
+
+def _record_instrument_registry_refresh_result(*, ok: bool, detail: str) -> None:
+    state = load_state()
+    set_job_last_run(state, "instrument_registry_refresh", "ok" if ok else "failed", detail)
+    set_provider_status(state, "instrument_registry", ok, detail)
+    save_state(state)
+
+
+async def _refresh_instrument_registry() -> dict[str, int | str]:
+    return await asyncio.to_thread(_refresh_instrument_registry_sync)
+
+
+async def _run_instrument_registry_refresh(now: datetime) -> None:
+    try:
+        summary = await _refresh_instrument_registry()
+    except Exception as exc:
+        active = registry_status()
+        detail = f"{exc} active={active['message']}"
+        _record_instrument_registry_refresh_result(ok=False, detail=detail)
+        logger.exception("[intel] instrument registry refresh failed: %s", exc)
+        return
+
+    _record_instrument_registry_refresh_result(
+        ok=True,
+        detail=_format_instrument_registry_refresh_detail(summary),
+    )
+
+
 def _has_news_post_for_date(state: dict, command_key: str, guild_id: int, run_date: str) -> bool:
     return run_date in get_daily_posts_for_guild(state, command_key, guild_id)
 
@@ -260,7 +362,6 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             continue
         forum_channel_id = (
             get_guild_news_forum_channel_id(state, guild_id)
-            or NEWS_TARGET_FORUM_ID
             or get_guild_forum_channel_id(state, guild_id)
         )
         if forum_channel_id is None:
@@ -480,7 +581,6 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
             continue
         forum_channel_id = (
             get_guild_eod_forum_channel_id(state, guild_id)
-            or EOD_TARGET_FORUM_ID
             or get_guild_forum_channel_id(state, guild_id)
         )
         if forum_channel_id is None:
@@ -601,7 +701,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         if not symbols:
             continue
         watched_symbols += len(symbols)
-        alert_channel_id = get_guild_watch_alert_channel_id(state, guild_id) or WATCH_ALERT_CHANNEL_ID
+        alert_channel_id = get_guild_watch_alert_channel_id(state, guild_id)
         if alert_channel_id is None:
             missing_channel_guilds += 1
             continue
@@ -682,11 +782,36 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
 async def intel_scheduler(client: discord.Client) -> None:
     news_h, news_m = _parse_time(NEWS_BRIEFING_TIME, 7, 30)
     eod_h, eod_m = _parse_time(EOD_SUMMARY_TIME, 16, 20)
+    registry_h, registry_m = _parse_time(INSTRUMENT_REGISTRY_REFRESH_TIME, 6, 20)
     last_watch_run: datetime | None = None
+    registry_refresh_task: asyncio.Task[dict[str, int | str]] | None = None
 
     while True:
         now = now_kst()
         try:
+            if registry_refresh_task is not None and registry_refresh_task.done():
+                try:
+                    summary = registry_refresh_task.result()
+                except Exception as exc:
+                    active = registry_status()
+                    detail = f"{exc} active={active['message']}"
+                    _record_instrument_registry_refresh_result(ok=False, detail=detail)
+                    logger.exception("[intel] instrument registry refresh failed: %s", exc)
+                else:
+                    _record_instrument_registry_refresh_result(
+                        ok=True,
+                        detail=_format_instrument_registry_refresh_detail(summary),
+                    )
+                registry_refresh_task = None
+            if INSTRUMENT_REGISTRY_REFRESH_ENABLED:
+                state = load_state()
+                if registry_refresh_task is None and _should_start_instrument_registry_refresh(
+                    state,
+                    now,
+                    refresh_hour=registry_h,
+                    refresh_minute=registry_m,
+                ):
+                    registry_refresh_task = asyncio.create_task(_refresh_instrument_registry())
             if NEWS_BRIEFING_ENABLED and now.hour == news_h and now.minute == news_m:
                 await _run_news_job(client, now)
             if EOD_SUMMARY_ENABLED and now.hour == eod_h and now.minute == eod_m:

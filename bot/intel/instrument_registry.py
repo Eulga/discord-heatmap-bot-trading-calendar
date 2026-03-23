@@ -13,10 +13,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable
 
+from bot.common.fs import atomic_write_json
+
 
 MODULE_ROOT = Path(__file__).resolve().parent
 DATA_DIR = MODULE_ROOT / "data"
 REGISTRY_FILE = DATA_DIR / "instrument_registry.json"
+RUNTIME_REGISTRY_FILE = Path("data/state/instrument_registry.json")
 SEED_FILE = DATA_DIR / "instrument_registry_seed.json"
 SUPPORTED_MARKETS = ("KRX", "NAS", "NYS", "AMS")
 _CANONICAL_RE = re.compile(r"^(?P<market>[A-Z]{3}):(?P<symbol>[A-Z0-9.\-]{1,32})$")
@@ -213,13 +216,28 @@ def load_registry_payload(path: Path = REGISTRY_FILE) -> dict[str, Any]:
     return payload
 
 
+def _registry_from_payload(payload: dict[str, Any], *, source: str, path: Path) -> InstrumentRegistry:
+    metadata = dict(payload.get("metadata") or {})
+    metadata.setdefault("active_source", source)
+    metadata.setdefault("active_path", str(path))
+    normalized_payload = dict(payload)
+    normalized_payload["metadata"] = metadata
+    return InstrumentRegistry.from_payload(normalized_payload)
+
+
 @lru_cache(maxsize=1)
 def load_registry() -> InstrumentRegistry:
+    if RUNTIME_REGISTRY_FILE.exists():
+        return _registry_from_payload(load_registry_payload(RUNTIME_REGISTRY_FILE), source="runtime", path=RUNTIME_REGISTRY_FILE)
     if REGISTRY_FILE.exists():
-        return InstrumentRegistry.from_payload(load_registry_payload(REGISTRY_FILE))
+        return _registry_from_payload(load_registry_payload(REGISTRY_FILE), source="bundled", path=REGISTRY_FILE)
     if SEED_FILE.exists():
         generated_at = datetime.now(timezone.utc).isoformat()
-        return InstrumentRegistry.from_payload({"generated_at": generated_at, "records": _load_seed_payload()})
+        return _registry_from_payload(
+            {"generated_at": generated_at, "records": _load_seed_payload()},
+            source="seed",
+            path=SEED_FILE,
+        )
     return InstrumentRegistry(generated_at="", records=(), metadata={"status": "missing"})
 
 
@@ -243,8 +261,9 @@ def registry_status() -> dict[str, str]:
     counts = registry.counts_by_market()
     total = len(registry.records)
     status = "ok" if total > 0 else "disabled"
+    active_source = str(registry.metadata.get("active_source") or "unknown")
     message = (
-        f"loaded={total} "
+        f"source={active_source} loaded={total} "
         f"krx={counts.get('KRX', 0)} nas={counts.get('NAS', 0)} "
         f"nys={counts.get('NYS', 0)} ams={counts.get('AMS', 0)}"
     )
@@ -258,6 +277,8 @@ def build_registry(
     sec_payload: Iterable[dict[str, Any]] | None = None,
     krx_etf_rows: Iterable[dict[str, Any]] | None = None,
     krx_etn_rows: Iterable[dict[str, Any]] | None = None,
+    krx_elw_rows: Iterable[dict[str, Any]] | None = None,
+    krx_pf_rows: Iterable[dict[str, Any]] | None = None,
     generated_at: str | None = None,
 ) -> InstrumentRegistry:
     merged: dict[str, dict[str, Any]] = {}
@@ -277,6 +298,12 @@ def build_registry(
 
     for payload in build_krx_etn_records(krx_etn_rows or ()):
         _merge_payload(merged, payload, preferred_source="krx-etn")
+
+    for payload in build_krx_elw_records(krx_elw_rows or ()):
+        _merge_payload(merged, payload, preferred_source="krx-elw")
+
+    for payload in build_krx_pf_records(krx_pf_rows or ()):
+        _merge_payload(merged, payload, preferred_source="krx-pf")
 
     records = [
         InstrumentRecord.from_dict(payload)
@@ -302,9 +329,29 @@ def build_registry(
 
 
 def save_registry(registry: InstrumentRegistry, path: Path = REGISTRY_FILE) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(registry.to_payload(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(path, registry.to_payload())
     clear_registry_cache()
+
+
+def build_live_registry(
+    *,
+    dart_api_key: str,
+    seed_records: Iterable[dict[str, Any]] | None = None,
+    generated_at: str | None = None,
+) -> InstrumentRegistry:
+    api_key = dart_api_key.strip()
+    if not api_key:
+        raise RuntimeError("dart-api-key-missing")
+    return build_registry(
+        seed_records=seed_records or _load_seed_payload(),
+        dart_xml_bytes=fetch_dart_corpcode_bytes(api_key),
+        sec_payload=fetch_sec_company_tickers(),
+        krx_etf_rows=fetch_krx_etf_rows(),
+        krx_etn_rows=fetch_krx_etn_rows(),
+        krx_elw_rows=fetch_krx_elw_rows(),
+        krx_pf_rows=fetch_krx_pf_rows(),
+        generated_at=generated_at,
+    )
 
 
 def read_dart_corpcode_bytes(path: Path) -> bytes:
@@ -345,6 +392,14 @@ def fetch_krx_etf_rows() -> list[dict[str, Any]]:
 
 def fetch_krx_etn_rows() -> list[dict[str, Any]]:
     return fetch_krx_structured_rows("ETN")
+
+
+def fetch_krx_elw_rows() -> list[dict[str, Any]]:
+    return fetch_krx_structured_rows("ELW")
+
+
+def fetch_krx_pf_rows() -> list[dict[str, Any]]:
+    return fetch_krx_structured_rows("PF")
 
 
 def fetch_krx_structured_rows(kind: str) -> list[dict[str, Any]]:
@@ -459,6 +514,14 @@ def build_krx_etf_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]
 
 def build_krx_etn_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return build_krx_structured_records(rows, source="krx-etn")
+
+
+def build_krx_elw_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_krx_structured_records(rows, source="krx-elw")
+
+
+def build_krx_pf_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_krx_structured_records(rows, source="krx-pf")
 
 
 def build_krx_structured_records(rows: Iterable[dict[str, Any]], *, source: str) -> list[dict[str, Any]]:

@@ -13,8 +13,10 @@ from bot.intel.instrument_registry import (
     SEED_FILE,
     build_registry,
     fetch_dart_corpcode_bytes,
+    fetch_krx_elw_rows,
     fetch_krx_etf_rows,
     fetch_krx_etn_rows,
+    fetch_krx_pf_rows,
     fetch_sec_company_tickers,
     read_dart_corpcode_bytes,
     save_registry,
@@ -61,6 +63,8 @@ def main() -> int:
         sec_payload=_load_sec_rows(),
         krx_etf_rows=fetch_krx_etf_rows(),
         krx_etn_rows=fetch_krx_etn_rows(),
+        krx_elw_rows=fetch_krx_elw_rows(),
+        krx_pf_rows=fetch_krx_pf_rows(),
     )
     save_registry(registry, path=args.output)
     print(

@@ -1,6 +1,58 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 reviewer subagent clean + integration subagent pass를 확인한 뒤 현재 변경분을 커밋/푸시하라고 요청했다.
+- Current state:
+1. instrument registry refresh scheduler는 review 후속 수정까지 반영됐다. refresh task는 background에서 live rebuild만 수행하고, `job_last_runs`/`provider_status` 반영은 메인 scheduler loop가 task 완료 후 기록한다.
+2. 이 구조로 detached refresh의 stale state overwrite race를 막았고, configured minute를 놓친 late start도 같은 날 catch-up refresh를 시작한다.
+3. same-day retry는 허용하되, `dart-api-key-missing` 같은 static config failure는 분 단위 재시도를 막는다.
+4. reviewer subagent 최신 결과는 `No actionable issues found.`였고, integration subagent는 `.\.venv\Scripts\python.exe -m pytest tests/integration` 기준 `55 passed, 2 deselected`를 보고했다.
+- Next:
+1. 현재 작업 트리를 커밋하고 원격에 push한다.
+2. 다음 scheduler 변경에서도 background task가 state 파일을 직접 저장하는지부터 먼저 점검한다.
+- Status: open
+
+## 2026-03-23
+- Context: 사용자가 env와 state의 역할을 프로젝트 최우선 운영 규칙으로 고정하고, 이후 코드리뷰도 이 기준으로 판단하자고 요청했다.
+- Current state:
+1. 이제 이 저장소의 기본 원칙은 `민감정보는 env`, `mutable 운영 라우팅은 state`다.
+2. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`는 bootstrap/default/dev-test 용도로만 해석한다.
+3. 길드별 channel/forum/watch routing 값은 `data/state/state.json`이 source of truth고, 새 기능도 이 전제를 깨지 않는 방향으로 설계해야 한다.
+4. `docs/context/review-rules.md` Rule 2가 이 원칙을 리뷰 acceptance gate로 고정했다. env를 runtime authoritative source로 다시 끌어오는 변경은 문서화된 예외가 없으면 reject 대상이다.
+- Next:
+1. 다음 리뷰 세션부터 관련 변경은 먼저 Rule 2 기준으로 점검한다.
+2. 새 설정 키를 추가할 때는 이 값이 시크릿인지, bootstrap default인지, mutable state인지 먼저 분류한다.
+- Status: open
+
+## 2026-03-23
+- Context: 사용자가 env channel IDs가 runtime fallback처럼 읽혀 다른 길드 heatmap이 깨진다고 보고했고, channel routing 기준을 state 중심으로 정리해 달라고 요청했다.
+- Current state:
+1. Discord channel routing의 source of truth는 이제 `data/state/state.json`이다. heatmap은 `forum_channel_id`, 뉴스는 `news_forum_channel_id -> forum_channel_id`, EOD는 `eod_forum_channel_id -> forum_channel_id`, watch는 `watch_alert_channel_id`를 guild state에서 읽는다.
+2. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`는 runtime cross-guild fallback이 아니라 startup bootstrap 용도다. bot 시작 시 channel 접근이 가능하면 matching guild state가 비어 있을 때만 1회 복사한다.
+3. heatmap runner는 state에 저장된 forum channel이 다른 guild channel이거나 삭제된 경우 명시적으로 `/setforumchannel` 재설정을 요구한다.
+4. 관련 회귀는 `tests/unit/test_bot_client.py`, `tests/integration/test_forum_upsert_flow.py`, `tests/integration/test_intel_scheduler_logic.py`에 반영됐고 targeted suite는 통과했다.
+- Next:
+1. 봇을 재시작해 startup bootstrap이 현재 `.env`의 forum/watch channel IDs를 state에 옮기는지 실제 state 파일로 확인한다.
+2. 그 뒤 `/kheatmap`, `/usheatmap`, `/source-status`를 길드별로 직접 눌러 env가 아니라 state 기반으로 라우팅되는지 검증한다.
+3. 운영에서 문제 없으면 channel ID env는 장기적으로 bootstrap-only legacy로 남길지, 완전히 제거할지 결정한다.
+- Status: open
+
+## 2026-03-23
+- Context: 사용자가 instrument registry coverage를 ELW/PF까지 넓히고, bot scheduler로 daily refresh를 붙여 달라고 요청했다.
+- Current state:
+1. bundled registry는 이제 OpenDART 상장사 + SEC 미국 상장사 + KRX ETF/ETN/ELW/PF finder rows를 포함한다. 최신 build 기준 counts는 `KRX=8131`, `NAS=4248`, `NYS=3270`, `AMS=0`, 총 `15649`건이다.
+2. `bot/intel/instrument_registry.py`의 load 순서는 `data/state/instrument_registry.json -> bot/intel/data/instrument_registry.json -> seed`다. runtime refresh가 성공하면 같은 프로세스부터 runtime artifact가 우선 사용된다.
+3. 새 env는 `INSTRUMENT_REGISTRY_REFRESH_ENABLED=false|true`, `INSTRUMENT_REGISTRY_REFRESH_TIME=06:20`이다. refresh는 live OpenDART/SEC/KRX source를 직접 다시 fetch한 full rebuild가 성공했을 때만 runtime artifact를 atomic replace 한다.
+4. `/source-status`의 `instrument_registry` row는 active source(`runtime|bundled`)와 loaded counts를 보여주고, `/last-run`은 `instrument_registry_refresh` row를 기본으로 노출한다.
+5. 검색 회귀 기준은 현재 `삼성전자 -> KRX:005930`, `KBL002삼성전자콜 -> KRX:58L002`, `대신 KOSPI200인덱스 X클래스 -> KRX:0106J0`까지 확인됐다.
+6. 관련 테스트는 `tests/unit/test_instrument_registry.py`, `tests/unit/test_watch_command.py`, `tests/unit/test_status_command.py`, `tests/integration/test_intel_scheduler_logic.py`에 추가됐고 targeted suite는 통과했다.
+- Next:
+1. 운영에서 daily refresh를 켜려면 `.env`에 `INSTRUMENT_REGISTRY_REFRESH_ENABLED=true`와 원하는 `INSTRUMENT_REGISTRY_REFRESH_TIME`을 넣고, `DART_API_KEY`가 비어 있지 않은지 확인한다.
+2. 다음 단계는 inactive/delisted marker와 watchlist reconciliation report다. 현재 refresh는 `added/removed` summary만 남긴다.
+3. 마지막 검증으로 `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀를 다시 한 번 돌리고, 필요하면 봇 재시작 후 `/source-status`, `/last-run` 표시를 직접 확인한다.
+- Status: open
+
+## 2026-03-23
 - Context: `codex/live-watch-rollout-20260323 -> develop` shipping 중 GitHub Codex review가 watch quote warm-up 경로에 P2 3건을 남겼다.
 - Current state:
 1. `bot/intel/providers/market.py`의 warm-up은 이제 best-effort다.
