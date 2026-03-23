@@ -1,6 +1,71 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 두 스레드에서 섞인 수정분이 문제없는지 전체 코드리뷰와 clean 확인을 요청했다.
+- Current state:
+1. modified 파일 전체를 검토한 결과, 명백한 merge conflict 잔재나 같은 목적의 중복 구현은 보이지 않았다.
+2. 유일한 actionable issue는 `watch_alert_latches` 도입 이후 `remove_watch_symbol()`이 runtime watch 메타상태를 남겨 두는 점이었다.
+3. 현재는 종목 제거 시 `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`를 함께 지워 재등록이 fresh state로 시작된다.
+4. 회귀는 `tests/unit/test_watch_cooldown.py`, `tests/unit/test_watchlist_repository.py`에 추가됐고 `.\.venv\Scripts\python.exe -m pytest -q` 전체가 다시 통과했다.
+- Next:
+1. 운영 반영이 필요하면 봇 프로세스 또는 Docker Compose 서비스를 재기동한다.
+2. 실제 Discord에서 `/watch remove` 후 `/watch add` 재등록 시 첫 same-direction alert가 정상 동작하는지 한 번 확인한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 `watch_poll`의 같은 방향 중복 알림을 막아 달라고 요청했다.
+- Current state:
+1. `bot/features/watch/service.py`는 이제 같은 심볼이 같은 방향 threshold 밖에 계속 있을 때 cooldown이 끝나도 재알림하지 않는다.
+2. 재알림은 baseline 대비 threshold 안으로 한 번 복귀해 `watch_alert_latches`가 해제된 뒤 같은 방향으로 다시 이탈할 때만 허용된다.
+3. `watch_alert_cooldowns`는 그대로 남아 threshold 근처 출렁임 억제용으로 유지되고, 반대 방향 전환은 계속 별도 알림 가능하다.
+4. 회귀는 `tests/unit/test_watch_cooldown.py`, `tests/unit/test_watchlist_repository.py`, `tests/integration/test_intel_scheduler_logic.py`에 추가됐고 targeted pytest는 통과했다.
+- Next:
+1. 실제 운영 반영이 필요하면 봇 프로세스 또는 Docker Compose 서비스를 재기동한다.
+2. 배포 직후 실제 Discord에서 같은 심볼 연속 하락 구간이 재알림 없이 유지되는지 한 번 더 확인한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 기능별 로그 누락을 고쳐 달라고 요청했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `watch_poll`, `news_briefing`, `trend_briefing`, `eod_summary`, `instrument_registry_refresh`의 최종 `status/detail`을 파일 로그로도 남긴다.
+2. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`, `bot/features/status/command.py`에 command audit log가 들어갔다.
+3. `bot/app/command_sync.py`의 state 저장 실패 경로는 `print(...)` 대신 logger를 사용한다.
+4. logging 보강 직후 전체 `pytest`에서 `interaction.user`가 없는 테스트 더블 회귀가 드러나, command logger는 모두 fail-safe helper 경로로 보강했다.
+5. reviewer follow-up으로 `bot/intel/providers/market.py`의 `NYS -> AMS` exchange alias retry가 request-stage `not-found`에서도 이어지도록 추가 수정했다.
+6. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀는 다시 통과했다.
+7. `docker compose up -d --build` 후 `data/logs/bot.log`와 `docker compose logs` 양쪽에서 `bot.features.intel_scheduler [intel] watch_poll status=ok ...` 라인이 실제로 찍히는 것을 확인했다.
+- Next:
+1. 필요하면 다음 단계로 `news/eod` 로그 detail에 guild/forum 대상 수를 더 풍부하게 남긴다.
+2. command audit log가 길어지면 detail truncation이나 log level 재조정을 검토한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 기능별 로그가 제대로 안 찍히는지 확인해 달라고 요청했다.
+- Current state:
+1. `bot/common/logging.py`의 파일/콘솔 핸들러 설정은 정상이고 `data/logs/bot.log`에도 startup 로그는 기록된다.
+2. 문제는 기능별 로그 호출 범위다. `bot/features/intel_scheduler.py`는 실패 시 `logger.exception(...)`만 남기고, 성공/skip 결과는 `job_last_runs` state에만 저장한다.
+3. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`는 slash command 호출과 결과를 logger로 남기지 않아 수동 기능 실행 흔적이 로그 파일에 거의 없다.
+4. `bot/app/command_sync.py`는 state 저장 실패를 `print(...)`로만 남겨 logger/file handler 경로를 우회한다.
+- Next:
+1. 필요하면 다음 작업으로 `intel_scheduler` success/skip log, slash command audit log, `command_sync` print -> logger 치환을 묶어 관측성 보강 패치를 진행한다.
+2. 로그 정책을 정할 때는 guild_id, command_key, result, provider/message 정도만 남기고 시크릿이나 민감한 payload는 제외한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 `/watch add UCO` 뒤 `massive_reference ok=false`가 되는 버그를 수정하라고 요청했다.
+- Current state:
+1. 원인은 registry가 `UCO`를 `NYS:UCO`로 저장한 상태에서 KIS `EXCD=NYS` 조회가 빈 quote를 돌리고, 그 뒤 Massive fallback이 entitlement 부족으로 실패하던 흐름이었다.
+2. `bot/intel/providers/market.py`는 이제 해외 단건 조회에서 `NYS` 빈 quote를 받으면 `AMS`를 한 번 더 재시도하고, 반대 방향(`AMS -> NYS`)도 같은 규칙으로 처리한다.
+3. 회귀 테스트 `tests/unit/test_market_provider.py`가 추가됐고, `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py -q`는 통과했다.
+4. live spot check에서도 `KisMarketDataProvider.get_quote("NYS:UCO", now_kst())`가 `kis_quote` 가격을 반환했다.
+5. `docker compose up -d --build` 후 실제 다음 `watch_poll` tick은 `status=ok`, `processed=2`, `quote_failures=0`으로 회복됐다.
+6. 다만 `provider_status.massive_reference=false`는 이전 fallback 실패(`massive-entitlement-required`)가 state에 남은 것이다. 이번 UCO bug fix와는 별개로, Massive entitlement나 status reset UX를 손보지 않으면 `/source-status`에는 계속 historical failure로 보일 수 있다.
+- Next:
+1. 별도 후속 과제로 SEC exchange -> KIS exchange 매핑을 registry build 단계에서 더 정확히 보강할지 검토한다.
+2. 필요하면 `/source-status`의 historical provider failure 표시 정책을 조정할지 검토한다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 `develop`를 `master`에 반영하고 버전 태그까지 달라고 요청했다.
 - Current state:
 1. release PR [#15](https://github.com/Eulga/discord-heatmap-bot-trading-calendar/pull/15)는 `squash merge`로 닫혔고, `origin/master` 최신 릴리스 커밋은 `426a7f6 release: merge develop into master (2026-03-23) (#15)`다.

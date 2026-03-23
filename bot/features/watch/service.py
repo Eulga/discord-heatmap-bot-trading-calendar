@@ -4,7 +4,13 @@ from datetime import timedelta
 
 from bot.app.settings import WATCH_ALERT_COOLDOWN_MINUTES, WATCH_ALERT_THRESHOLD_PCT
 from bot.common.clock import now_kst
-from bot.forum.repository import get_watch_cooldown_hit, set_watch_cooldown_hit
+from bot.forum.repository import (
+    clear_watch_alert_latch,
+    get_watch_alert_latch,
+    get_watch_cooldown_hit,
+    set_watch_alert_latch,
+    set_watch_cooldown_hit,
+)
 
 
 def _signal_direction(change_pct: float) -> str | None:
@@ -25,7 +31,12 @@ def evaluate_watch_signal(
     change_pct = ((current_price - base_price) / base_price) * 100 if base_price > 0 else 0.0
     direction = _signal_direction(change_pct)
     if direction is None:
+        clear_watch_alert_latch(state, guild_id, symbol)
         return False, "", change_pct
+
+    latched_direction = get_watch_alert_latch(state, guild_id, symbol)
+    if latched_direction == direction:
+        return False, direction, change_pct
 
     cooldown_key = f"{symbol.upper()}:{direction}"
     hit_at = get_watch_cooldown_hit(state, guild_id, cooldown_key)
@@ -43,4 +54,5 @@ def evaluate_watch_signal(
             pass
 
     set_watch_cooldown_hit(state, guild_id, cooldown_key, now.isoformat())
+    set_watch_alert_latch(state, guild_id, symbol, direction)
     return True, direction, change_pct

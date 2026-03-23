@@ -54,7 +54,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
 
-# Optional fallback forum channel if a guild-specific mapping is not configured.
+# Optional bootstrap forum channel copied into matching guild state at startup.
 _default_forum_channel_id = os.getenv("DEFAULT_FORUM_CHANNEL_ID", "").strip()
 DEFAULT_FORUM_CHANNEL_ID = int(_default_forum_channel_id) if _default_forum_channel_id.isdigit() else None
 CACHE_TTL_SECONDS = 3600

@@ -33,6 +33,10 @@ _OVERSEAS_EXCHANGE_CODES = {
     "BAY": "BAY",
     "BAA": "BAA",
 }
+_OVERSEAS_EXCHANGE_ALIASES = {
+    "NYS": ("AMS",),
+    "AMS": ("NYS",),
+}
 
 
 @dataclass
@@ -215,22 +219,40 @@ class KisMarketDataProvider:
         return Quote(symbol=resolved.canonical_symbol, price=price, asof=now, provider=self.provider_key)
 
     async def _fetch_overseas_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
-        payload = await self._request_kis_json(
-            path="/uapi/overseas-price/v1/quotations/price",
-            tr_id="HHDFS00000300",
-            params={
-                "AUTH": "",
-                "EXCD": resolved.kis_exchange_code,
-                "SYMB": resolved.ticker_or_code,
-            },
-            fallback_symbol=resolved.canonical_symbol,
-        )
-        output = payload.get("output")
-        if not isinstance(output, dict):
-            raise RuntimeError(f"not-found:{resolved.canonical_symbol}")
-        quote = self._normalize_overseas_quote(output, resolved, now)
-        self._ensure_fresh_quote(quote, now)
-        return quote
+        exchange_codes = (resolved.kis_exchange_code, *_OVERSEAS_EXCHANGE_ALIASES.get(resolved.kis_exchange_code, ()))
+        last_error: RuntimeError | None = None
+
+        for exchange_code in exchange_codes:
+            try:
+                payload = await self._request_kis_json(
+                    path="/uapi/overseas-price/v1/quotations/price",
+                    tr_id="HHDFS00000300",
+                    params={
+                        "AUTH": "",
+                        "EXCD": exchange_code,
+                        "SYMB": resolved.ticker_or_code,
+                    },
+                    fallback_symbol=resolved.canonical_symbol,
+                )
+            except RuntimeError as exc:
+                last_error = exc
+                if str(exc).startswith(f"not-found:{resolved.canonical_symbol}"):
+                    continue
+                raise
+            output = payload.get("output")
+            if not isinstance(output, dict):
+                last_error = RuntimeError(f"not-found:{resolved.canonical_symbol}")
+                continue
+            try:
+                quote = self._normalize_overseas_quote(output, resolved, now)
+                self._ensure_fresh_quote(quote, now)
+                return quote
+            except RuntimeError as exc:
+                last_error = exc
+                if not str(exc).startswith(f"not-found:{resolved.canonical_symbol}"):
+                    raise
+
+        raise last_error or RuntimeError(f"not-found:{resolved.canonical_symbol}")
 
     async def _warm_overseas_chunk(self, chunk: list[_ResolvedSymbol], now: datetime) -> None:
         params: dict[str, str] = {

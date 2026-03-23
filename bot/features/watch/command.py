@@ -1,3 +1,5 @@
+import logging
+
 import discord
 from discord import app_commands
 
@@ -12,6 +14,12 @@ from bot.intel.instrument_registry import (
     normalize_search_text,
     normalize_stored_watch_symbol,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _interaction_user_id(interaction: discord.Interaction) -> int | None:
+    return getattr(getattr(interaction, "user", None), "id", None)
 
 
 def _dedupe_results(results: list[RegistrySearchResult]) -> list[RegistrySearchResult]:
@@ -154,10 +162,18 @@ def register(tree: app_commands.CommandTree, client) -> None:
     @app_commands.describe(symbol="종목명, 종목 코드, 또는 티커")
     async def watch_add(interaction: discord.Interaction, symbol: str) -> None:
         if interaction.guild_id is None:
+            logger.warning("[command] watch.add rejected reason=no-guild user=%s", _interaction_user_id(interaction))
             await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         resolved_symbol, error = resolve_watch_add_symbol(symbol)
         if resolved_symbol is None:
+            logger.warning(
+                "[command] watch.add result=failed guild=%s user=%s symbol=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                error,
+            )
             await interaction.response.send_message(error or "관심종목을 해석하지 못했습니다.", ephemeral=True)
             return
 
@@ -165,11 +181,25 @@ def register(tree: app_commands.CommandTree, client) -> None:
         added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
         save_state(state)
         if added:
+            logger.info(
+                "[command] watch.add result=ok guild=%s user=%s symbol=%s resolved=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
             await interaction.response.send_message(
                 f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 추가했습니다.",
                 ephemeral=True,
             )
         else:
+            logger.warning(
+                "[command] watch.add result=ignored guild=%s user=%s symbol=%s resolved=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
             await interaction.response.send_message("이미 등록되었거나 잘못된 종목 코드입니다.", ephemeral=True)
 
     watch_add.autocomplete("symbol")(autocomplete_watch_add_symbol)
@@ -178,23 +208,45 @@ def register(tree: app_commands.CommandTree, client) -> None:
     @app_commands.describe(symbol="종목명, 종목 코드, 또는 티커")
     async def watch_remove(interaction: discord.Interaction, symbol: str) -> None:
         if interaction.guild_id is None:
+            logger.warning("[command] watch.remove rejected reason=no-guild user=%s", _interaction_user_id(interaction))
             await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         state = load_state()
         guild_symbols = list_watch_symbols(state, interaction.guild_id)
         resolved_symbol, error = resolve_watch_remove_symbol(symbol, guild_symbols=guild_symbols)
         if resolved_symbol is None:
+            logger.warning(
+                "[command] watch.remove result=failed guild=%s user=%s symbol=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                error,
+            )
             await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
             return
 
         removed = remove_watch_symbol(state, interaction.guild_id, resolved_symbol)
         save_state(state)
         if removed:
+            logger.info(
+                "[command] watch.remove result=ok guild=%s user=%s symbol=%s resolved=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
             await interaction.response.send_message(
                 f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 제거했습니다.",
                 ephemeral=True,
             )
         else:
+            logger.warning(
+                "[command] watch.remove result=ignored guild=%s user=%s symbol=%s resolved=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
             await interaction.response.send_message("등록되지 않은 종목입니다.", ephemeral=True)
 
     watch_remove.autocomplete("symbol")(autocomplete_watch_remove_symbol)
@@ -202,14 +254,26 @@ def register(tree: app_commands.CommandTree, client) -> None:
     @watch.command(name="list", description="관심 종목 목록 조회")
     async def watch_list(interaction: discord.Interaction) -> None:
         if interaction.guild_id is None:
+            logger.warning("[command] watch.list rejected reason=no-guild user=%s", _interaction_user_id(interaction))
             await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         state = load_state()
         symbols = list_watch_symbols(state, interaction.guild_id)
         if not symbols:
+            logger.info(
+                "[command] watch.list result=empty guild=%s user=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+            )
             await interaction.response.send_message("등록된 관심종목이 없습니다.", ephemeral=True)
             return
         lines = [f"- {format_watch_symbol(symbol)}" for symbol in symbols]
+        logger.info(
+            "[command] watch.list result=ok guild=%s user=%s count=%s",
+            interaction.guild_id,
+            _interaction_user_id(interaction),
+            len(symbols),
+        )
         await interaction.response.send_message("등록 목록:\n" + "\n".join(lines), ephemeral=True)
 
     tree.add_command(watch)

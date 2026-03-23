@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+import logging
 from pathlib import Path
 
 import discord
@@ -12,6 +13,12 @@ from bot.markets.capture_service import get_or_capture_images
 CaptureFunc = Callable[[str, str], Awaitable[Path]]
 BodyBuilder = Callable[[str, list[str], list[str]], str]
 TitleBuilder = Callable[[], str]
+
+logger = logging.getLogger(__name__)
+
+
+def _interaction_user_id(interaction: discord.Interaction) -> int | None:
+    return getattr(getattr(interaction, "user", None), "id", None)
 
 
 async def _resolve_guild_forum_channel(
@@ -118,8 +125,11 @@ async def run_heatmap_command(
     await interaction.response.defer(thinking=True)
     guild_id = interaction.guild_id
     if guild_id is None:
+        logger.warning("[command] %s rejected reason=no-guild user=%s", command_key, _interaction_user_id(interaction))
         await interaction.followup.send("이 명령어는 서버 채널에서만 사용할 수 있습니다.")
         return
+
+    logger.info("[command] %s requested guild=%s user=%s", command_key, guild_id, _interaction_user_id(interaction))
 
     ok, message = await execute_heatmap_for_guild(
         client=client,
@@ -130,4 +140,8 @@ async def run_heatmap_command(
         title_builder=title_builder,
         body_builder=body_builder,
     )
+    if ok:
+        logger.info("[command] %s result=ok guild=%s detail=%s", command_key, guild_id, message)
+    else:
+        logger.warning("[command] %s result=failed guild=%s detail=%s", command_key, guild_id, message)
     await interaction.followup.send(message)

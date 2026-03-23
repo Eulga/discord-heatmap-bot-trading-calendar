@@ -207,6 +207,13 @@ def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
         return default_h, default_m
 
 
+def _log_job_result(job_key: str, status: str, detail: str) -> None:
+    if status == "failed":
+        logger.warning("[intel] %s status=%s detail=%s", job_key, status, detail)
+        return
+    logger.info("[intel] %s status=%s detail=%s", job_key, status, detail)
+
+
 def _job_status_on_date(state: dict, job_key: str, run_date: str) -> str | None:
     run = get_job_last_runs(state).get(job_key, {})
     if not str(run.get("run_at") or "").startswith(run_date):
@@ -276,9 +283,11 @@ def _format_instrument_registry_refresh_detail(summary: dict[str, int | str]) ->
 
 def _record_instrument_registry_refresh_result(*, ok: bool, detail: str) -> None:
     state = load_state()
-    set_job_last_run(state, "instrument_registry_refresh", "ok" if ok else "failed", detail)
+    status = "ok" if ok else "failed"
+    set_job_last_run(state, "instrument_registry_refresh", status, detail)
     set_provider_status(state, "instrument_registry", ok, detail)
     save_state(state)
+    _log_job_result("instrument_registry_refresh", status, detail)
 
 
 async def _refresh_instrument_registry() -> dict[str, int | str]:
@@ -375,11 +384,16 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "failed", detail)
             set_job_last_run(state, "trend_briefing", "failed", detail)
             save_state(state)
+            _log_job_result("news_briefing", "failed", detail)
+            _log_job_result("trend_briefing", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
-            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "skipped", detail)
+            set_job_last_run(state, "trend_briefing", "skipped", detail)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", detail)
+            _log_job_result("trend_briefing", "skipped", detail)
         return
 
     if NEWS_BRIEFING_TRADING_DAYS_ONLY:
@@ -389,6 +403,8 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "skipped", reason)
             set_job_last_run(state, "trend_briefing", "skipped", reason)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", reason)
+            _log_job_result("trend_briefing", "skipped", reason)
             return
 
     for guild_id, forum_channel_id in unresolved_pending_guilds:
@@ -409,11 +425,16 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "failed", detail)
             set_job_last_run(state, "trend_briefing", "failed", detail)
             save_state(state)
+            _log_job_result("news_briefing", "failed", detail)
+            _log_job_result("trend_briefing", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
-            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "skipped", detail)
+            set_job_last_run(state, "trend_briefing", "skipped", detail)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", detail)
+            _log_job_result("trend_briefing", "skipped", detail)
         return
 
     try:
@@ -433,6 +454,8 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         set_job_last_run(state, "news_briefing", "failed", str(exc))
         set_job_last_run(state, "trend_briefing", "failed", str(exc))
         save_state(state)
+        _log_job_result("news_briefing", "failed", str(exc))
+        _log_job_result("trend_briefing", "failed", str(exc))
         logger.exception("[intel] news fetch failed: %s", exc)
         return
 
@@ -525,31 +548,38 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
 
     total_failures = failed + resolution_failures
     news_status = "ok" if posted > 0 and total_failures == 0 else "failed"
+    news_detail = (
+        f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+        f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
+    )
     set_job_last_run(
         state,
         "news_briefing",
         news_status,
-        (
-            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
-            f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
-        ),
+        news_detail,
     )
     if trend_can_post:
         trend_total_failures = trend_failed + resolution_failures
         trend_status = "ok" if trend_posted > 0 and trend_total_failures == 0 else "failed"
+        trend_detail = (
+            f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
+            f"forum_resolution_failures={resolution_failures} "
+            f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
+        )
         set_job_last_run(
             state,
             "trend_briefing",
             trend_status,
-            (
-                f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
-                f"forum_resolution_failures={resolution_failures} "
-                f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
-            ),
+            trend_detail,
         )
     else:
         set_job_last_run(state, "trend_briefing", "skipped", trend_skip_reason)
     save_state(state)
+    _log_job_result("news_briefing", news_status, news_detail)
+    if trend_can_post:
+        _log_job_result("trend_briefing", trend_status, trend_detail)
+    else:
+        _log_job_result("trend_briefing", "skipped", trend_skip_reason)
 
 
 async def _analyze_news_provider(provider: NewsProvider, now: datetime) -> NewsAnalysis:
@@ -590,17 +620,16 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     if not unresolved_pending_guilds:
         if resolution_failures > 0:
-            set_job_last_run(
-                state,
-                "eod_summary",
-                "failed",
-                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
-            )
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "failed", detail)
             save_state(state)
+            _log_job_result("eod_summary", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "skipped", detail)
             save_state(state)
+            _log_job_result("eod_summary", "skipped", detail)
         return
 
     is_trading_day, err = safe_check_krx_trading_day(now)
@@ -608,6 +637,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
         set_job_last_run(state, "eod_summary", "skipped", reason)
         save_state(state)
+        _log_job_result("eod_summary", "skipped", reason)
         return
 
     for guild_id, forum_channel_id in unresolved_pending_guilds:
@@ -624,17 +654,16 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     if not pending_guilds:
         if resolution_failures > 0:
-            set_job_last_run(
-                state,
-                "eod_summary",
-                "failed",
-                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
-            )
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "failed", detail)
             save_state(state)
+            _log_job_result("eod_summary", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "skipped", detail)
             save_state(state)
+            _log_job_result("eod_summary", "skipped", detail)
         return
 
     try:
@@ -644,6 +673,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         set_provider_status(state, "eod_provider", False, str(exc))
         set_job_last_run(state, "eod_summary", "failed", str(exc))
         save_state(state)
+        _log_job_result("eod_summary", "failed", str(exc))
         logger.exception("[intel] eod summary failed: %s", exc)
         return
 
@@ -671,16 +701,18 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     total_failures = failed + resolution_failures
     status = "ok" if posted > 0 and total_failures == 0 else "failed"
+    detail = (
+        f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+        f"forum_resolution_failures={resolution_failures} date={summary.date_text}"
+    )
     set_job_last_run(
         state,
         "eod_summary",
         status,
-        (
-            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
-            f"forum_resolution_failures={resolution_failures} date={summary.date_text}"
-        ),
+        detail,
     )
     save_state(state)
+    _log_job_result("eod_summary", status, detail)
 
 
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
@@ -769,14 +801,18 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         f"missing_channel_guilds={missing_channel_guilds} send_failures={send_failures}"
     )
     if watched_symbols == 0:
-        set_job_last_run(state, "watch_poll", "skipped", "no-watch-symbols")
+        status = "skipped"
+        detail = "no-watch-symbols"
     elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
-        set_job_last_run(state, "watch_poll", "failed", detail)
+        status = "failed"
     elif processed > 0:
-        set_job_last_run(state, "watch_poll", "ok", detail)
+        status = "ok"
     else:
-        set_job_last_run(state, "watch_poll", "skipped", f"no-target-channels {detail}")
+        status = "skipped"
+        detail = f"no-target-channels {detail}"
+    set_job_last_run(state, "watch_poll", status, detail)
     save_state(state)
+    _log_job_result("watch_poll", status, detail)
 
 
 async def intel_scheduler(client: discord.Client) -> None:
@@ -811,6 +847,7 @@ async def intel_scheduler(client: discord.Client) -> None:
                     refresh_hour=registry_h,
                     refresh_minute=registry_m,
                 ):
+                    logger.info("[intel] instrument_registry_refresh status=started scheduled_for=%02d:%02d", registry_h, registry_m)
                     registry_refresh_task = asyncio.create_task(_refresh_instrument_registry())
             if NEWS_BRIEFING_ENABLED and now.hour == news_h and now.minute == news_m:
                 await _run_news_job(client, now)

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.features import intel_scheduler
+from bot.features.watch import service as watch_service
 from bot.intel.instrument_registry import InstrumentRecord, InstrumentRegistry, ProviderIds
 from bot.intel.providers.market import EodRow, EodSummary
 from bot.intel.providers.news import NewsAnalysis, NewsItem, ThemeBrief, TrendThemeReport
@@ -1141,6 +1142,47 @@ async def test_watch_poll_uses_friendly_symbol_display(monkeypatch):
 
     assert channel.messages
     assert "삼성전자 (KRX:005930)" in channel.messages[0]
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_does_not_repeat_same_direction_until_rearmed(monkeypatch):
+    first_now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    second_now = datetime(2026, 2, 13, 10, 11, tzinfo=KST)
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watchlist": ["005930"], "watch_alert_channel_id": 123}},
+        "system": {
+            "watch_baselines": {
+                "1": {
+                    "005930": {
+                        "price": 100.0,
+                        "checked_at": first_now.isoformat(),
+                    }
+                }
+            }
+        },
+    }
+    prices = iter([96.0, 96.5])
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            return SimpleNamespace(price=next(prices))
+
+    channel = FakeWatchChannel(guild_id=1)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(watch_service, "now_kst", lambda: first_now)
+
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(channel), now=first_now)
+
+    monkeypatch.setattr(watch_service, "now_kst", lambda: second_now)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(channel), now=second_now)
+
+    assert len(channel.messages) == 1
+    assert "(-4.00%)" in channel.messages[0]
 
 
 def test_build_market_data_provider_returns_error_provider_when_kis_credentials_missing(monkeypatch):

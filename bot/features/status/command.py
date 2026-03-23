@@ -1,3 +1,5 @@
+import logging
+
 import discord
 from discord import app_commands
 
@@ -23,6 +25,12 @@ _LEGACY_PROVIDER_KEYS = {
     "market_data_provider": "kis_quote",
     "polygon_reference": "massive_reference",
 }
+
+logger = logging.getLogger(__name__)
+
+
+def _interaction_user_id(interaction: discord.Interaction) -> int | None:
+    return getattr(getattr(interaction, "user", None), "id", None)
 
 
 def _provider_row(status: str, message: str, updated_at: str = "") -> dict[str, str]:
@@ -120,16 +128,19 @@ def register(tree: app_commands.CommandTree, client) -> None:
         runs = _merge_defaults(get_job_last_runs(state), _default_job_rows())
         providers = _merge_defaults(get_provider_statuses(state), _default_provider_rows())
         text = "\n".join(["[Jobs]", _fmt_dict_rows(runs), "", "[Providers]", _fmt_dict_rows(providers)])
+        logger.info("[command] health requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(text, ephemeral=True)
 
     @tree.command(name="last-run", description="작업별 마지막 실행 결과")
     async def last_run_command(interaction: discord.Interaction) -> None:
         state = load_state()
         runs = _merge_defaults(get_job_last_runs(state), _default_job_rows())
+        logger.info("[command] last-run requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(_fmt_dict_rows(runs), ephemeral=True)
 
     @tree.command(name="source-status", description="데이터 소스 상태 조회")
     async def source_status_command(interaction: discord.Interaction) -> None:
         state = load_state()
         providers = _merge_defaults(get_provider_statuses(state), _default_provider_rows())
+        logger.info("[command] source-status requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(_fmt_dict_rows(providers), ephemeral=True)

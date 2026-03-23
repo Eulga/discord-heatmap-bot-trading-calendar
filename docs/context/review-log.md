@@ -1,6 +1,45 @@
 # Review Log
 
 ## 2026-03-23
+- Context: 사용자가 두 스레드에서 진행한 수정이 겹쳤는지 불확실하다며 전체 modified 파일 리뷰와 clean 확인을 요청했다.
+- Finding:
+1. 명백한 merge conflict 잔재나 같은 목적의 이중 구현은 보이지 않았다. 변경 축은 `watch` 재알림 제어, command/status 로깅, KIS 해외 quote fallback으로 비교적 분리돼 있었다.
+2. 다만 `watch_alert_latches` 도입 뒤 `bot/forum/repository.py`의 `remove_watch_symbol()`이 runtime watch 메타상태를 지우지 않아, 종목을 제거 후 다시 등록해도 이전 `latch/cooldown/baseline`이 남아 첫 same-direction 알림이 막힐 수 있었다.
+- Resolution:
+1. 제거 시 해당 symbol의 `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`를 함께 정리하도록 보강했다.
+2. `tests/unit/test_watchlist_repository.py`, `tests/unit/test_watch_cooldown.py`에 remove/re-add reset 회귀를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_watch_cooldown.py tests\unit\test_watchlist_repository.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 기능별 로그 누락 검토 후 바로 보강 패치를 진행했다.
+- Finding: 기존 지적은 유효했고, `intel_scheduler` success/skip와 주요 slash command 실행 흔적이 파일 로그에 거의 남지 않아 `bot.log`만으로 운영 흐름을 추적하기 어려웠다.
+- Resolution:
+1. `bot/features/intel_scheduler.py`는 각 job의 최종 `status/detail`을 파일 로그에도 기록한다.
+2. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`, `bot/features/status/command.py`는 command audit log를 남긴다.
+3. `bot/app/command_sync.py`의 fail-open 경로는 `print(...)` 대신 logger를 사용한다.
+4. logging 보강 과정에서 `interaction.user`가 없는 테스트 더블 회귀가 드러나, 관련 command logger는 모두 fail-safe helper를 사용하도록 보강했다.
+5. reviewer follow-up으로 `bot/intel/providers/market.py`의 exchange alias retry가 request-stage `not-found`에서도 계속되도록 추가 수정했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_command_sync.py tests\unit\test_watch_command.py tests\unit\test_status_command.py tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+3. `docker compose up -d --build` 후 `data/logs/bot.log`에 `watch_poll status=ok` 라인이 실제로 추가되는 것을 확인했다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 "기능별 로그가 제대로 안 찍히는 것 같다"고 보고해 현재 로깅 경로를 점검했다.
+- Finding:
+1. 파일 로깅 자체는 동작하지만, `bot/features/intel_scheduler.py`는 `news_briefing`, `eod_summary`, `watch_poll`, `instrument_registry_refresh`의 성공/skip 결과를 state에만 기록하고 파일 로그에는 남기지 않는다. 실제로 `data/state/state.json`의 최신 `watch_poll=ok`가 갱신된 뒤에도 `data/logs/bot.log`에는 startup 로그만 있고 해당 tick 로그는 없다.
+2. 수동 기능도 feature-level 로그가 거의 없다. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`는 slash command 호출/성공/실패를 logger로 남기지 않아 `/watch add`, `/setwatchchannel`, 수동 `kheatmap/usheatmap` 실행 흐름을 파일 로그만으로 추적하기 어렵다.
+3. `bot/app/command_sync.py`의 state 저장 실패 경로는 logger가 아니라 `print(...)`를 사용해, 로그 형식/파일 핸들러를 우회한다.
+- Why:
+1. `bot/features/auto_scheduler.py`만 success/skip/failure를 구조적으로 로그로 남기고 있어 기능별 가시성 편차가 크다.
+2. 운영자가 `job_last_runs` state를 직접 열지 않는 한, 로그 파일만 보고는 어떤 기능이 성공했는지와 어느 guild/channel에서 돌았는지 판단하기 어렵다.
+- Status: done
+
+## 2026-03-23
 - Context: `bot/intel/providers/market.py`의 overseas warm-up batch failure가 same-poll single-symbol fallback까지 막는 reviewer P2 후속 수정
 - Finding: 기존 지적은 유효했고, `_warm_overseas_chunk()`가 batch failure를 chunk 전체 `_quote_errors`로 저장해 버려 `get_quote()`가 개별 `price` endpoint fallback을 시도하지 못하고 즉시 실패할 수 있었다.
 - Resolution:

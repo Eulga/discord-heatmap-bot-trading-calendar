@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-03-23
+- Context: 사용자가 `watch_poll`에서 같은 방향으로 이미 한 번 보낸 변동 알림이 10분 cooldown 뒤 다시 오는 것은 원치 않는다고 보고했다.
+- Decision: watch 알림은 `cooldown only`가 아니라 `same-direction latch + cooldown` 조합으로 운영한다. 즉 같은 심볼이 같은 방향 임계치 밖에 계속 머무르면 첫 알림만 보내고, 임계치 안으로 한 번 복귀해야 같은 방향 알림을 다시 허용한다.
+- Why:
+1. 기존 cooldown-only 구조는 연속 하락/상승 구간에서 사용자가 이미 알고 있는 상태를 주기적으로 다시 알려 불필요한 중복 알림을 만든다.
+2. 반면 latch만 두고 cooldown을 없애면 threshold 근처에서 안팎으로 출렁일 때 짧은 간격 재알림이 생길 수 있다.
+3. `same-direction latch + cooldown`이면 `연속 추세 중복`과 `threshold chatter`를 동시에 줄이면서, 반대 방향 전환은 그대로 포착할 수 있다.
+- Impact:
+1. guild state에 `watch_alert_latches`가 추가된다.
+2. 같은 방향 재알림은 price가 baseline 대비 threshold 안으로 되돌아와 latch가 해제될 때까지 억제된다.
+3. 반대 방향 신호는 기존처럼 별도 cooldown key를 사용하므로 계속 알림 가능하다.
+- Status: accepted
+
+## 2026-03-23
 - Context: 사용자가 앞으로의 최우선 운영 규칙으로 env와 state의 역할을 더 명확히 나누고, 이후 코드리뷰도 이 기준으로 거절할 것은 거절하자고 요청했다.
 - Decision: 이 저장소의 설정 원칙은 `민감정보는 env`, `mutable 운영 라우팅은 state`로 고정한다. channel/forum/watch routing 값은 state를 source of truth로 두고, env의 channel/forum IDs는 bootstrap, 개발 초기값, 테스트 기본값으로만 허용한다.
 - Why:

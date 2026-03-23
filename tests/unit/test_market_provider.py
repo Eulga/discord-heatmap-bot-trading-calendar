@@ -117,6 +117,81 @@ async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_kis_provider_retries_nys_symbol_on_ams_when_primary_exchange_returns_empty_quote(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[dict] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NYS:UCO", market_code="NYS", ticker_or_code="UCO", kis_exchange_code="NYS")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs)
+        if kwargs["params"]["EXCD"] == "NYS":
+            return {"rt_cd": "0", "output": {"last": ""}}
+        return {"rt_cd": "0", "output": {"last": "40.10"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    quote = await provider.get_quote("NYS:UCO", now)
+
+    assert quote.symbol == "NYS:UCO"
+    assert quote.price == 40.10
+    assert calls == [
+        {
+            "path": "/uapi/overseas-price/v1/quotations/price",
+            "tr_id": "HHDFS00000300",
+            "params": {
+                "AUTH": "",
+                "EXCD": "NYS",
+                "SYMB": "UCO",
+            },
+            "fallback_symbol": "NYS:UCO",
+        },
+        {
+            "path": "/uapi/overseas-price/v1/quotations/price",
+            "tr_id": "HHDFS00000300",
+            "params": {
+                "AUTH": "",
+                "EXCD": "AMS",
+                "SYMB": "UCO",
+            },
+            "fallback_symbol": "NYS:UCO",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_retries_nys_symbol_on_ams_when_primary_exchange_returns_not_found(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[dict] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NYS:UCO", market_code="NYS", ticker_or_code="UCO", kis_exchange_code="NYS")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs)
+        if kwargs["params"]["EXCD"] == "NYS":
+            raise RuntimeError("not-found:NYS:UCO")
+        return {"rt_cd": "0", "output": {"last": "40.10"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    quote = await provider.get_quote("NYS:UCO", now)
+
+    assert quote.symbol == "NYS:UCO"
+    assert quote.price == 40.10
+    assert [call["params"]["EXCD"] for call in calls] == ["NYS", "AMS"]
+
+
+@pytest.mark.asyncio
 async def test_kis_provider_reuses_token_until_refresh_window(monkeypatch):
     provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
     issued: list[str] = []

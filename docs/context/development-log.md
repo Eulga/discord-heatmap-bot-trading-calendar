@@ -1,6 +1,67 @@
 # Development Log
 
 ## 2026-03-23
+- Context: 전체 modified 파일 리뷰 중 `watch remove -> watch add` 후 첫 알림이 막히는 회귀를 발견했다.
+- Change:
+1. `bot/forum/repository.py`는 이제 `remove_watch_symbol()`에서 해당 symbol의 runtime watch 메타상태를 같이 지운다.
+2. 정리 대상은 guild-level `watch_alert_cooldowns`, `watch_alert_latches`와 system-level `watch_baselines`다.
+3. `tests/unit/test_watchlist_repository.py`에 remove 시 runtime state cleanup 회귀를, `tests/unit/test_watch_cooldown.py`에 remove/re-add 후 fresh alert 허용 회귀를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_watch_cooldown.py tests\unit\test_watchlist_repository.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+- Next:
+1. 실제 운영 반영이 필요하면 봇 프로세스 또는 Docker Compose 서비스를 재기동한다.
+2. 필요하면 follow-up으로 watch symbol 제거 시 관련 provider status/history도 같이 정리할지 검토한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 `watch_poll`에서 같은 방향의 비슷한 변동 알림이 10분 뒤 다시 오는 것은 원치 않는다고 보고했다.
+- Change:
+1. `bot/features/watch/service.py`는 이제 같은 심볼이 같은 방향(`up|down`) 임계치 밖에 계속 머무르는 동안에는 첫 알림만 보내고, 임계치 안으로 한 번 복귀해야 같은 방향 알림을 다시 허용한다.
+2. 이를 위해 guild state에 `watch_alert_latches`를 추가했고, canonical symbol migration 시 cooldown/baseline과 함께 latch key도 같이 정규화되게 했다.
+3. 기존 `watch_alert_cooldowns`는 유지해 threshold 근처 출렁임에서 짧은 간격 재알림을 계속 막고, 반대 방향 전환은 기존처럼 별도 알림이 가능하게 뒀다.
+4. `tests/unit/test_watch_cooldown.py`, `tests/unit/test_watchlist_repository.py`, `tests/integration/test_intel_scheduler_logic.py`에 same-direction suppress 및 rearm 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_watch_cooldown.py tests\unit\test_watchlist_repository.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+- Next:
+1. 실제 운영 반영을 하려면 실행 중인 봇 프로세스 또는 Docker 컨테이너를 재기동해야 한다.
+2. 필요하면 후속으로 `watch_alert_latches`를 `/source-status`나 admin 진단 경로에서 볼 수 있게 할지 검토한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 기능별 로그가 제대로 안 찍힌다고 보고해 운영 로그 가시성을 보강해 달라고 요청했다.
+- Change:
+1. `bot/features/intel_scheduler.py`는 이제 `watch_poll`, `news_briefing`, `trend_briefing`, `eod_summary`, `instrument_registry_refresh`의 `ok|skipped|failed` 결과를 state뿐 아니라 구조화된 파일 로그로도 남긴다.
+2. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`, `bot/features/status/command.py`에 slash command 요청/거절/성공 결과 로그를 추가했다.
+3. `bot/app/command_sync.py`의 fail-open 경로는 `print(...)` 대신 logger를 사용하도록 바꿔 파일 핸들러를 타게 했다.
+4. logging 보강 직후 전체 `pytest`에서 `FakeInteraction`에 `user`가 없는 테스트 더블 회귀가 드러나, command audit log는 모두 `interaction.user` 부재를 허용하는 helper 경로로 보강했다.
+5. reviewer follow-up으로 `bot/intel/providers/market.py`의 `NYS -> AMS` exchange alias retry가 request 단계 `not-found` 예외에서는 계속되지 않는 결함을 추가 수정했고, `tests/unit/test_market_provider.py`에 해당 회귀 테스트를 넣었다.
+6. `tests/unit/test_command_sync.py`는 새 logger 경로 기준으로 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_command_sync.py tests\unit\test_watch_command.py tests\unit\test_status_command.py tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+3. `docker compose up -d --build` 후 `data/logs/bot.log`와 `docker compose logs` 양쪽에서 `bot.features.intel_scheduler [intel] watch_poll status=ok ...` 라인이 실제로 기록되는 것을 확인했다.
+- Next:
+1. 필요하면 다음 단계로 `news/eod` 성공 로그 필드에 guild/forum counts를 조금 더 구체적으로 넣는다.
+2. command audit log가 과도하게 길어지면 guild_id/user_id/result 정도만 남기고 detail truncation을 검토한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 `/watch add UCO` 직후 `massive_reference ok=false`가 되는 이유를 버그로 판단했고, 수정까지 요청했다.
+- Change:
+1. `bot/intel/providers/market.py`의 KIS 해외 단건 조회는 이제 registry가 `NYS`로 저장한 미국 종목이 빈 quote를 돌리면 `AMS`를 한 번 더 재시도한다.
+2. 이 fallback은 `NYS <-> AMS` 범위로만 제한해, SEC exchange 표기가 KIS 거래소 코드와 어긋나는 ETF/ETN 계열 오분류를 runtime에서 흡수하도록 했다.
+3. `tests/unit/test_market_provider.py`에는 `NYS:UCO`가 1차 `NYS` 조회에서 빈 `last`를 받고도 2차 `AMS` 조회로 회복되는 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py -q` 통과
+2. live spot check: `KisMarketDataProvider.get_quote("NYS:UCO", now_kst())`가 `provider='kis_quote'`로 실제 가격을 반환하는 것을 확인했다.
+3. `docker compose up -d --build`로 컨테이너를 재기동한 뒤 다음 `watch_poll` tick이 `status=ok`, `processed=2`, `quote_failures=0`으로 회복된 것을 state로 확인했다.
+- Next:
+1. 장기적으로는 registry build 단계에서 `NYSE Arca` 계열 심볼을 더 정확히 구분할 보강 source가 필요한지 별도로 검토한다.
+2. 현재 `provider_status.massive_reference=false`는 과거 fallback 실패 흔적이 남은 상태라, 실제 Massive entitlement 문제와 runtime status UX는 별도 과제로 본다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 `develop`를 `master`에 반영하고 버전 태그를 달라고 요청했다.
 - Change:
 1. 로컬 `develop` 기준으로 `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀를 다시 실행했다.

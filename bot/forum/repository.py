@@ -235,6 +235,7 @@ def _normalize_watch_state(state: AppState, guild_id: int) -> list[str]:
     if migrated:
         _migrate_watch_baseline_keys(state, guild_id, migrated)
         _migrate_watch_cooldown_keys(state, guild_id, migrated)
+        _migrate_watch_latch_keys(state, guild_id, migrated)
     return cast(list[str], cfg["watchlist"])
 
 
@@ -271,6 +272,50 @@ def _migrate_watch_cooldown_keys(state: AppState, guild_id: int, migrated: dict[
     cooldowns.update(moved)
 
 
+def _migrate_watch_latch_keys(state: AppState, guild_id: int, migrated: dict[str, str]) -> None:
+    latches = _get_guild_config(state, guild_id).get("watch_alert_latches")
+    if not isinstance(latches, dict):
+        return
+    moved: dict[str, str] = {}
+    for key, direction in list(latches.items()):
+        if not isinstance(key, str) or not isinstance(direction, str):
+            continue
+        new_key = migrated.get(key.upper())
+        if not new_key:
+            continue
+        if new_key not in latches:
+            moved[new_key] = direction
+        latches.pop(key, None)
+    latches.update(moved)
+
+
+def _clear_watch_runtime_state(state: AppState, guild_id: int, symbol: str) -> None:
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    target = normalized or symbol.strip().upper()
+    guild_cfg = _get_guild_config(state, guild_id)
+
+    cooldowns = guild_cfg.get("watch_alert_cooldowns")
+    if isinstance(cooldowns, dict):
+        for key in list(cooldowns.keys()):
+            if not isinstance(key, str):
+                continue
+            key_symbol, _direction = key.rsplit(":", maxsplit=1) if ":" in key else (key, "")
+            if key_symbol == target:
+                cooldowns.pop(key, None)
+
+    latches = guild_cfg.get("watch_alert_latches")
+    if isinstance(latches, dict):
+        latches.pop(target, None)
+
+    watch_state = get_system_state(state).get("watch_baselines")
+    if not isinstance(watch_state, dict):
+        return
+    guild_map = watch_state.get(str(guild_id))
+    if not isinstance(guild_map, dict):
+        return
+    guild_map.pop(target, None)
+
+
 def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
     normalized, _warning = normalize_stored_watch_symbol(symbol)
     if not normalized:
@@ -290,7 +335,9 @@ def remove_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
     target = normalized or raw
     if target not in watchlist and raw not in watchlist:
         return False
-    watchlist.remove(target if target in watchlist else raw)
+    removed_symbol = target if target in watchlist else raw
+    watchlist.remove(removed_symbol)
+    _clear_watch_runtime_state(state, guild_id, removed_symbol)
     return True
 
 
@@ -378,6 +425,32 @@ def set_watch_cooldown_hit(state: AppState, guild_id: int, key: str, hit_at: str
     cooldowns = cfg.setdefault("watch_alert_cooldowns", {})
     if isinstance(cooldowns, dict):
         cooldowns[key] = hit_at
+
+
+def get_watch_alert_latch(state: AppState, guild_id: int, symbol: str) -> str | None:
+    latches = _get_guild_config(state, guild_id).get("watch_alert_latches")
+    if not isinstance(latches, dict):
+        return None
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    value = latches.get(normalized or symbol.strip().upper())
+    return value if isinstance(value, str) else None
+
+
+def set_watch_alert_latch(state: AppState, guild_id: int, symbol: str, direction: str) -> None:
+    cfg = _get_guild_config(state, guild_id)
+    latches = cfg.setdefault("watch_alert_latches", {})
+    if not isinstance(latches, dict):
+        return
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    latches[normalized or symbol.strip().upper()] = direction
+
+
+def clear_watch_alert_latch(state: AppState, guild_id: int, symbol: str) -> None:
+    latches = _get_guild_config(state, guild_id).get("watch_alert_latches")
+    if not isinstance(latches, dict):
+        return
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    latches.pop(normalized or symbol.strip().upper(), None)
 
 
 def get_watch_baseline(state: AppState, guild_id: int, symbol: str) -> float | None:

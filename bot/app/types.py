@@ -33,6 +33,7 @@ class GuildConfig(TypedDict):
     last_auto_skips: NotRequired[dict[str, dict[str, str]]]
     watchlist: NotRequired[list[str]]
     watch_alert_cooldowns: NotRequired[dict[str, str]]
+    watch_alert_latches: NotRequired[dict[str, str]]
 
 
 class AppState(TypedDict):

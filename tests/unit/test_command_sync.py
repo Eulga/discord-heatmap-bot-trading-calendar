@@ -37,7 +37,7 @@ def test_record_command_sync_persists_job_result(monkeypatch):
     assert "run_at" in job
 
 
-def test_record_command_sync_fails_open_when_state_write_breaks(monkeypatch, capsys):
+def test_record_command_sync_fails_open_when_state_write_breaks(monkeypatch, caplog):
     monkeypatch.setattr(command_sync, "load_state", lambda: {"commands": {}, "guilds": {}})
 
     def boom(_payload):
@@ -45,8 +45,8 @@ def test_record_command_sync_fails_open_when_state_write_breaks(monkeypatch, cap
 
     monkeypatch.setattr(command_sync, "save_state", boom)
 
-    command_sync.record_command_sync("failed", "sync failed")
+    with caplog.at_level("WARNING"):
+        command_sync.record_command_sync("failed", "sync failed")
 
-    out = capsys.readouterr().out
-    assert "상태 저장 실패" in out
-    assert "disk full" in out
+    assert "상태 저장 실패" in caplog.text
+    assert "disk full" in caplog.text
