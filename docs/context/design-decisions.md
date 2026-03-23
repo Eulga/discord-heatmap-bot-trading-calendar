@@ -1,5 +1,45 @@
 # Design Decisions
 
+## 2026-03-23
+- Context: watch autocomplete coverage를 KRX ETF/ETN까지 넓힌 뒤, 사용자가 신규 상장 상품과 상장폐지 상품을 앞으로 어떤 방식으로 추적할지 물었다.
+- Decision: instrument registry는 당분간 generated snapshot artifact를 source of truth로 유지한다. 신규 상장/상장폐지 자동 추적이 필요해지면 다음 단계로 `정기 rebuild + 이전 artifact와 diff + inactive/delisted 상태 관리`를 추가한다.
+- Why:
+1. 현재 autocomplete hot path는 slash command 응답속도와 안정성이 중요해서, 매 입력마다 live symbol search API를 호출하는 방식보다 local registry snapshot이 더 안전하다.
+2. KRX 상장/상폐, ETN 조기상환, ticker rename 같은 이벤트는 source 반영 시점 차이가 있어 `이번 build에서 안 보인다`는 이유만으로 기존 watch를 즉시 hard delete하면 운영상 더 위험하다.
+3. 이미 guild state에 저장된 canonical symbol은 quote failure와 운영 알림의 근거가 되므로, registry에서 사라졌다고 조용히 제거하지 말고 inactive/delisted로 승격해 사용자 또는 운영자가 정리할 수 있게 해야 한다.
+- Impact:
+1. 현재 코드 기준 신규 상장과 상장폐지는 registry rebuild 전까지 autocomplete에 반영되지 않는다.
+2. 아직 diff artifact, inactive/delisted marker, watchlist reconciliation report는 구현되지 않았다.
+3. 자동 추적이 필요해질 때의 우선순위는 live search 전환이 아니라 daily registry refresh job, old/new diff artifact, inactive/delisted marker, watchlist reconciliation report다.
+4. `/watch remove`는 registry에서 빠진 항목도 state 기준으로 계속 제거 가능해야 하며, quote path는 missing symbol을 명시적으로 드러내는 방향을 유지한다.
+- Status: accepted
+
+## 2026-03-23
+- Context: 사용자가 현재 변경분을 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치에서 가져올 만한 내용을 확인하고 합쳐 달라고 요청했다.
+- Decision: 원격 브랜치는 전체 merge하지 않고, `미국 종목 quote fallback routing`만 현재 KIS rollout 구조에 맞게 selective integration 한다.
+- Why:
+1. 원격 브랜치의 실질적인 신규 가치는 `KIS primary + US fallback provider` 아이디어였다.
+2. 반면 그 브랜치의 `day.c`/`prevDay.c`를 현재가 대체값으로 쓰는 방식은 `watch_poll`의 실시간 변동률 알림에 잘못된 alert를 만들 수 있다.
+3. 현재 `develop`은 이미 `kis_quote`, `massive_reference`, warm-up, Massive rename, canonical provider status 정리를 끝낸 상태라 전체 merge보다 selective integration이 충돌과 회귀를 줄인다.
+- Impact:
+1. `MARKET_DATA_PROVIDER_KIND=kis`는 계속 KIS를 primary로 유지한다.
+2. 미국 종목(`NAS/NYS/AMS`)은 `MASSIVE_API_KEY`가 있으면 Massive snapshot fallback을 시도한다.
+3. Massive fallback은 `lastTrade` 기반 live price + freshness가 확인되는 경우만 허용하고, entitlement 부족은 `massive-entitlement-required`로 명시한다.
+- Status: accepted
+
+## 2026-03-23
+- Context: 외부 US reference slot 문서와 env 이름이 여전히 `Polygon` 기준으로 남아 있었지만, 공식 브랜드와 최신 예시는 `Massive`를 사용한다.
+- Decision: 사용자 노출 문서와 status/env 기본 이름은 `Massive` 기준으로 맞추고, 코드에서는 `POLYGON_API_KEY`와 `polygon_reference`를 legacy alias로만 허용한다.
+- Why:
+1. 공식 브랜드와 예시가 `Massive`로 이동한 상태에서 새 운영 문서가 `Polygon`만 쓰면 future rollout 때 혼선이 커진다.
+2. 그렇다고 즉시 hard rename만 하면 기존 `.env`와 state에서 이미 남아 있을 수 있는 `POLYGON_API_KEY`, `polygon_reference`를 깨뜨릴 수 있다.
+3. 아직 Massive adapter가 hot path에 붙지 않은 지금이 user-facing naming만 바로잡고 backward compatibility를 남기기에 가장 저렴한 시점이다.
+- Impact:
+1. `.env.example`, `README.md`, `AGENTS.md`, context docs, report 문서는 `Massive` 또는 `Massive (formerly Polygon.io)` 표현을 우선 사용한다.
+2. settings는 `MASSIVE_API_KEY`를 우선 읽고, legacy `POLYGON_API_KEY`를 fallback으로 허용한다.
+3. `/source-status` 기본 row는 `massive_reference`를 사용하되, 과거 state의 `polygon_reference`는 표시 단계에서 canonical key로 승격한다.
+- Status: accepted
+
 ## 2026-03-22
 - Context: 사용자가 `tests/integration` 전체를 기능 계약 중심 테스트 케이스 문서로 풀어 쓰고, live 캡처 테스트는 별도 문서로 분리해 달라고 요청했다.
 - Decision: 통합 테스트 문서는 source of truth인 현재 `tests/integration/*.py`와 `pytest.ini`를 기준으로 유지하고, non-live 케이스는 `docs/specs/integration-test-cases.md`, live 케이스는 `docs/specs/integration-live-test-cases.md`로 분리한다.
@@ -41,18 +81,18 @@
 
 ## 2026-03-20
 - Context: KIS 단독으로는 watch 종목명 검색, 뉴스 링크 품질, 보조 reference 확장성이 부족했고, 사용자는 `watch`를 우선 살리되 `eod_summary`는 잠정 중단하길 원했다.
-- Decision: 외부 인텔 스택은 역할 분리형으로 간다. `watch 이름 검색`은 live vendor search 대신 local instrument registry를 쓰고, 시세는 `KIS primary`, 뉴스는 `Naver domestic + Marketaux global`, 보조 정규화는 `Polygon/Twelve Data/OpenFIGI` 슬롯으로 분리한다.
+- Decision: 외부 인텔 스택은 역할 분리형으로 간다. `watch 이름 검색`은 live vendor search 대신 local instrument registry를 쓰고, 시세는 `KIS primary`, 뉴스는 `Naver domestic + Marketaux global`, 보조 정규화는 `Massive`(구 `Polygon.io`)/`Twelve Data`/`OpenFIGI` 슬롯으로 분리한다.
 - Why:
 1. KIS는 quote에는 강하지만 자유검색형 symbol master와 기사 URL 기반 뉴스 계약이 약해, 모든 역할을 한 벤더에 몰면 command UX와 news 품질이 같이 흔들린다.
 2. `watch add`는 slash command에서 빠르고 안정적으로 후보를 보여주는 게 중요하므로, 외부 rate limit과 auth에 직접 걸리는 live search보다 generated registry + autocomplete가 더 운영 친화적이다.
 3. 국내 상장사와 미국 상장사의 authoritative source가 다르기 때문에, `OpenDART + SEC`를 symbol master base로 두고 vendor별 mapping은 별도 필드로 보관하는 편이 장기적으로 덜 묶인다.
-4. 사용자는 확장형 스택을 원했지만 hot path 복잡도는 낮추길 원했으므로, `Polygon`, `Twelve Data`, `OpenFIGI`는 즉시 core path에 넣지 않고 optional slot으로 여는 쪽이 균형이 좋다.
+4. 사용자는 확장형 스택을 원했지만 hot path 복잡도는 낮추길 원했으므로, `Massive`(구 `Polygon.io`), `Twelve Data`, `OpenFIGI`는 즉시 core path에 넣지 않고 optional slot으로 여는 쪽이 균형이 좋다.
 5. `eod_summary`는 현재 요구 우선순위에서 밀렸기 때문에, half-built 확장을 이어가기보다 명시적으로 pause 해 두는 편이 운영 판단 기준이 더 선명하다.
 - Impact:
 1. watch 저장값은 canonical symbol(`KRX:005930`, `NAS:AAPL`)로 통일되고, legacy raw symbol은 점진적으로 canonical로 승격된다.
 2. instrument registry는 repo에 체크인된 generated artifact를 runtime이 읽고, raw source는 `docs/references/external/`에만 둔다.
 3. global news 실제 운영 전환의 기본선은 `NEWS_PROVIDER_KIND=hybrid`이며, source-status는 configured/disabled/paused semantics를 합성해서 보여준다.
-4. `Polygon`, `Twelve Data`, `OpenFIGI`는 이번 단계에서 hot path fail-open 보조 슬롯으로만 열리고, 다음 단계에서 quote fallback/reconciliation job으로 확장한다.
+4. `Massive`(구 `Polygon.io`), `Twelve Data`, `OpenFIGI`는 이번 단계에서 hot path fail-open 보조 슬롯으로만 열리고, 다음 단계에서 quote fallback/reconciliation job으로 확장한다.
 5. `eod_summary`는 기본 설정상 비활성화되고, spec/상태 화면에도 pause 상태를 드러낸다.
 - Status: accepted
 
@@ -286,4 +326,17 @@
 - Impact:
 1. 다음 세션은 `session-handoff.md`로 즉시 현재 상태를 복구한다.
 2. 설계 변경은 `design-decisions.md`에 먼저 남기는 습관이 필요하다.
+- Status: accepted
+
+## 2026-03-23
+- Context: `watch_poll`을 mock 시세에서 live KIS 경로로 옮기면서, scheduler와 `/source-status`가 같은 운영 진실을 보도록 정리할 필요가 있었다.
+- Decision: watch quote provider는 `MARKET_DATA_PROVIDER_KIND=mock|kis`로 명시 선택하고, scheduler는 quote 성공/실패를 `market_data_provider`가 아니라 `kis_quote` 상태 키에 기록한다. live provider는 public `get_quote(symbol, now)` 계약을 유지한 채 optional `warm_quotes(symbols, now)`로 poll-cycle 예열만 추가한다.
+- Why:
+1. 기존 `watch_poll`은 `MockMarketDataProvider()`가 하드코딩돼 있어 운영 env를 넣어도 live 전환이 불가능했다.
+2. `/source-status` 기본 row는 이미 `kis_quote`를 보여주는데 runtime write key가 따로 있으면 설정 상태와 실행 상태가 분리돼 운영 해석이 흔들린다.
+3. scheduler 계약을 batch로 바꾸면 영향 범위가 커지므로, 단건 계약은 유지하고 provider 내부 warm/cache로 중복 호출만 줄이는 쪽이 더 안전하다.
+- Impact:
+1. `MARKET_DATA_PROVIDER_KIND=kis`인데 KIS credential이 비어 있으면 mock fallback 없이 `kis-credentials-missing`으로 실패가 드러난다.
+2. watch poll은 유효한 guild/channel만 먼저 추려 unique symbol을 모으고, live provider가 지원할 때만 `warm_quotes`를 한 번 호출한다.
+3. KIS adapter는 registry canonical symbol과 `provider_ids.kis_exchange_code`를 기준으로 국내/해외 경로를 나누고, 동일 poll cycle에서는 같은 symbol을 한 번만 외부 조회한다.
 - Status: accepted

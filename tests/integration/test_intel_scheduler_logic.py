@@ -989,6 +989,17 @@ class FakeWatchClient:
         return self._channel
 
 
+class MixedWatchClient:
+    def __init__(self, channels_by_id: dict[int, object]):
+        self._channels_by_id = channels_by_id
+
+    def get_channel(self, channel_id: int):
+        return self._channels_by_id.get(channel_id)
+
+    async def fetch_channel(self, channel_id: int):
+        return self._channels_by_id.get(channel_id)
+
+
 @pytest.mark.asyncio
 async def test_watch_poll_fails_when_fallback_channel_belongs_to_other_guild(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"watchlist": ["005930"]}}}
@@ -1034,7 +1045,7 @@ async def test_watch_poll_marks_failed_when_all_quotes_fail(monkeypatch):
     run = state["system"]["job_last_runs"]["watch_poll"]
     assert run["status"] == "failed"
     assert "quote_failures=1" in run["detail"]
-    provider = state["system"]["provider_status"]["market_data_provider"]
+    provider = state["system"]["provider_status"]["kis_quote"]
     assert provider["ok"] is False
     assert provider["message"] == "quote provider down"
 
@@ -1074,7 +1085,7 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     assert "alerts=0" in run["detail"]
     assert "alert_attempts=1" in run["detail"]
     assert "send_failures=1" in run["detail"]
-    provider = state["system"]["provider_status"]["market_data_provider"]
+    provider = state["system"]["provider_status"]["kis_quote"]
     assert provider["ok"] is True
     assert provider["message"] == "quote:KRX:005930"
 
@@ -1142,3 +1153,88 @@ async def test_watch_poll_uses_friendly_symbol_display(monkeypatch):
 
     assert channel.messages
     assert "삼성전자 (KRX:005930)" in channel.messages[0]
+
+
+def test_build_market_data_provider_returns_error_provider_when_kis_credentials_missing(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "MARKET_DATA_PROVIDER_KIND", "kis")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_KEY", "")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_SECRET", "")
+
+    provider = intel_scheduler._build_market_data_provider()
+
+    assert provider.__class__.__name__ == "ErrorMarketDataProvider"
+
+
+def test_build_market_data_provider_wraps_kis_with_massive_fallback(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "MARKET_DATA_PROVIDER_KIND", "kis")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_KEY", "key")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_SECRET", "secret")
+    monkeypatch.setattr(intel_scheduler, "MASSIVE_API_KEY", "massive-key")
+
+    provider = intel_scheduler._build_market_data_provider()
+
+    assert provider.__class__.__name__ == "RoutedMarketDataProvider"
+    assert provider.us_fallback_provider is not None
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_calls_warm_quotes_once_for_unique_symbols(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"watchlist": ["005930"], "watch_alert_channel_id": 123},
+            "2": {"watchlist": ["005930"], "watch_alert_channel_id": 456},
+        },
+    }
+    warmed: list[tuple[str, ...]] = []
+    quote_calls: list[str] = []
+
+    class Provider:
+        async def warm_quotes(self, symbols, now):
+            warmed.append(tuple(symbols))
+
+        async def get_quote(self, symbol, now):
+            quote_calls.append(symbol)
+            return SimpleNamespace(price=73100.0)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    client = MixedWatchClient(
+        {
+            123: FakeWatchChannel(guild_id=1),
+            456: FakeWatchChannel(guild_id=2),
+        }
+    )
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=client, now=now)
+
+    assert warmed == [("KRX:005930",)]
+    assert quote_calls == ["KRX:005930", "KRX:005930"]
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_records_massive_provider_status_when_fallback_quote_is_used(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["NAS:AAPL"], "watch_alert_channel_id": 123}}}
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            return SimpleNamespace(price=214.37, provider="massive_reference")
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
+
+    provider = state["system"]["provider_status"]["massive_reference"]
+    assert provider["ok"] is True
+    assert provider["message"] == "quote:NAS:AAPL"
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"

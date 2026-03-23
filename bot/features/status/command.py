@@ -5,16 +5,22 @@ from bot.app.settings import (
     EOD_SUMMARY_ENABLED,
     KIS_APP_KEY,
     KIS_APP_SECRET,
+    MASSIVE_API_KEY,
     MARKETAUX_API_TOKEN,
+    MARKET_DATA_PROVIDER_KIND,
     NEWS_PROVIDER_KIND,
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
     OPENFIGI_API_KEY,
-    POLYGON_API_KEY,
     TWELVEDATA_API_KEY,
 )
 from bot.forum.repository import get_job_last_runs, get_provider_statuses, load_state
 from bot.intel.instrument_registry import registry_status
+
+_LEGACY_PROVIDER_KEYS = {
+    "market_data_provider": "kis_quote",
+    "polygon_reference": "massive_reference",
+}
 
 
 def _provider_row(status: str, message: str, updated_at: str = "") -> dict[str, str]:
@@ -46,14 +52,18 @@ def _default_job_rows() -> dict[str, dict[str, str]]:
 
 
 def _default_provider_rows() -> dict[str, dict[str, str]]:
+    kis_status = "configured" if MARKET_DATA_PROVIDER_KIND == "kis" and KIS_APP_KEY and KIS_APP_SECRET else "disabled"
+    kis_message = "selected=kis" if MARKET_DATA_PROVIDER_KIND == "kis" else f"selected={MARKET_DATA_PROVIDER_KIND}"
+    if MARKET_DATA_PROVIDER_KIND == "kis" and not (KIS_APP_KEY and KIS_APP_SECRET):
+        kis_message = "selected=kis credentials-missing"
     rows = {
         "instrument_registry": registry_status(),
         "kis_quote": _provider_row(
-            "configured" if KIS_APP_KEY and KIS_APP_SECRET else "disabled",
-            "primary quote provider",
+            kis_status,
+            kis_message,
         ),
-        "polygon_reference": _provider_row(
-            "configured" if POLYGON_API_KEY else "disabled",
+        "massive_reference": _provider_row(
+            "configured" if MASSIVE_API_KEY else "disabled",
             "us reference + fallback quote",
         ),
         "twelvedata_reference": _provider_row(
@@ -81,7 +91,11 @@ def _default_provider_rows() -> dict[str, dict[str, str]]:
 
 
 def _merge_defaults(actual: dict[str, dict], defaults: dict[str, dict]) -> dict[str, dict]:
-    merged = dict(actual)
+    merged: dict[str, dict] = {}
+    for key, value in actual.items():
+        normalized_key = _LEGACY_PROVIDER_KEYS.get(key, key)
+        if normalized_key not in merged or normalized_key == key:
+            merged[normalized_key] = value
     for key, value in defaults.items():
         merged.setdefault(key, value)
     return merged

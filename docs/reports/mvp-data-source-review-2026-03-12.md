@@ -12,7 +12,7 @@
 3. `거래일 판정`은 현재 `exchange_calendars`를 유지하되, 공식 소스 확인 레이어를 추가하는 2중화로 전환
 4. `장마감 요약`은 KIS를 1차 후보로 두되, 현재 코드가 요구하는 `상승/하락/거래대금 상위 5`를 한 번에 채우는 API 조합은 구현 전 문서 확인이 더 필요
 5. `공시 보강`은 `OpenDART`를 후속 enrichment 레이어로 추가
-6. `미국 watch/news`는 `Polygon`을 우선 추천하고, Finnhub는 대안으로 보류
+6. `미국 watch/news`는 `Massive`(구 `Polygon.io`)를 우선 추천하고, Finnhub는 대안으로 보류
 7. `한국 heatmap`은 단기적으로 현행 캡처 유지, 중기적으로 자체 렌더 전환
 
 핵심 판단은 다음과 같다.
@@ -57,7 +57,7 @@
 따라서 국내/해외 뉴스를 분리한 뒤 합쳐서 반환하는 구조가 가장 잘 맞는다.
 
 - `DomesticNewsProvider`: 네이버 뉴스 검색 API
-- `GlobalNewsProvider`: Polygon News 또는 Finnhub 대안
+- `GlobalNewsProvider`: Massive News 또는 Finnhub 대안
 - `CompositeNewsProvider`: 두 결과를 `region=domestic|global`로 표준화
 
 ### 2.3 거래일 판정
@@ -196,9 +196,9 @@
 
 ### 판단
 
-현재 확인된 공식 문서 기준으로는 `Polygon` 쪽이 이 저장소 MVP에 더 직접 맞는다. Finnhub는 후보로 유지하되, 이번 리포트에서는 2순위로 둔다.
+현재 확인된 공식 문서 기준으로는 `Massive`(구 `Polygon.io`) 쪽이 이 저장소 MVP에 더 직접 맞는다. Finnhub는 후보로 유지하되, 이번 리포트에서는 2순위로 둔다.
 
-### Polygon을 우선 추천하는 이유
+### Massive를 우선 추천하는 이유
 
 - snapshot REST가 현재 watch 구조와 잘 맞음
 - stocks WebSocket docs가 명확함
@@ -213,13 +213,13 @@
 
 ### 이 코드에 어떻게 사용할지
 
-1. `PolygonUsMarketDataProvider`
+1. `MassiveUsMarketDataProvider`
    - 미국 종목 `get_quote()` 구현
-2. `PolygonGlobalNewsProvider`
+2. `MassiveGlobalNewsProvider`
    - 미국/해외 뉴스 -> `region="global"`
 3. watch 확장 시
    - 한국 종목은 KIS
-   - 미국 종목은 Polygon
+   - 미국 종목은 Massive
    - 심볼 규칙과 시장 식별자 분리 필요
 
 ### 주의사항
@@ -293,7 +293,7 @@
 권장:
 
 - 국내: `KIS Open API`
-- 미국 확장 시: `Polygon`
+- 미국 확장 시: `Massive`
 
 실행 우선순위:
 
@@ -310,7 +310,7 @@
 권장:
 
 - 국내: `네이버 뉴스 검색 API`
-- 해외: `Polygon News` 우선, Finnhub는 대안
+- 해외: `Massive News` 우선, Finnhub는 대안
 
 실행 우선순위:
 
@@ -390,7 +390,7 @@
 
 ### Phase 4
 
-- 미국 뉴스/시세를 Polygon으로 확장
+- 미국 뉴스/시세를 Massive로 확장
 - 미국 watch 지원 여부 결정
 
 ### Phase 5
@@ -404,7 +404,7 @@
 - 국내 시세 / watch: `KIS Open API`
 - 국내 뉴스: `네이버 뉴스 검색 API`
 - 장마감 보강: `KIS + OpenDART`
-- 미국 보조 시세 / 해외 뉴스: `Polygon`
+- 미국 보조 시세 / 해외 뉴스: `Massive`
 - 거래일 판정: `공식 기준 확인 + exchange_calendars fallback`
 - 미국 heatmap: 현행 유지
 - 한국 heatmap: 단기 캡처 유지, 중기 자체 렌더
@@ -427,10 +427,12 @@
   <https://www.nyse.com/trade/hours-calendars>
 - KRX Global: 거래일/휴장 원칙  
   <https://global.krx.co.kr/contents/GLB/06/0606/0606030101/GLB0606030101T3.jsp>
-- Polygon snapshot 문서  
-  <https://polygon.io/docs/rest/stocks/snapshots/single-ticker-snapshot>
-- Polygon WebSocket trades 문서  
-  <https://polygon.io/docs/websocket/stocks/trades>
+- Massive docs 메인  
+  <https://massive.com/docs>
+- Massive Python examples / client naming (`massive`, `MASSIVE_API_KEY`)  
+  <https://massive.com/blog/polygon-io-with-python-for-stock-market-data>
+- Massive WebSocket + REST Python example  
+  <https://massive.com/blog/pattern-for-non-blocking-websocket-and-rest-calls-in-python>
 - pandas_market_calendars 문서  
   <https://pandas-market-calendars.readthedocs.io/>
 
