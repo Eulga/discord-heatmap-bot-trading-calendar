@@ -1,6 +1,21 @@
 # Development Log
 
 ## 2026-03-23
+- Context: `develop` merge 직전 GitHub Codex review가 `bot/intel/providers/market.py` warm-up 경로에서 same-poll fallback을 막는 P2 3건을 보고했다.
+- Change:
+1. `KisMarketDataProvider.warm_quotes()`의 국내 종목 prefetch는 `_fetch_and_store()` 대신 best-effort `_warm_fetch_and_store()`를 사용하도록 바꿨다.
+2. 그래서 국내 warm-up에서 일시적 KIS 오류가 나도 `_quote_errors`를 오염시키지 않고, 같은 poll cycle의 `get_quote()`가 단건 quote path를 다시 시도할 수 있다.
+3. 해외 `multprice` warm-up도 row omission이나 stale/invalid row를 `_quote_errors`로 고정하지 않도록 보정했다.
+4. `tests/unit/test_market_provider.py`에는 `stale batch -> single fallback`, `batch row omission -> single fallback`, `domestic warm failure -> single fallback` 회귀를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. GitHub PR #14의 Codex review findings 기준으로 지적된 same-poll fallback blocker가 현재 코드에서 제거됐는지 재확인했다.
+- Next:
+1. 수정본을 push한 뒤 `@codex review`를 다시 요청하고 shipping flow를 재개한다.
+2. review가 clean이면 `codex/live-watch-rollout-20260323 -> develop` merge를 완료한다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 신규 상장 상품과 상장폐지 상품을 현재 autocomplete 구조에서 어떤 방식으로 체크할지 물었다.
 - Change:
 1. 현재 watch autocomplete가 live search가 아니라 generated registry snapshot 기준이라는 점을 다시 확인했다.

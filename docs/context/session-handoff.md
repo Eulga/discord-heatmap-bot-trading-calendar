@@ -1,6 +1,19 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: `codex/live-watch-rollout-20260323 -> develop` shipping 중 GitHub Codex review가 watch quote warm-up 경로에 P2 3건을 남겼다.
+- Current state:
+1. `bot/intel/providers/market.py`의 warm-up은 이제 best-effort다.
+2. 국내 warm-up failure는 `_quote_errors`를 남기지 않아 same-poll `get_quote()`가 단건 domestic quote를 다시 시도할 수 있다.
+3. 해외 `multprice` warm-up도 row omission/stale row를 hard error로 캐시하지 않아 single-symbol fallback path가 살아 있다.
+4. 관련 회귀 테스트는 `tests/unit/test_market_provider.py`에 추가됐고, `tests\unit\test_market_provider.py + tests\integration\test_intel_scheduler_logic.py`가 통과했다.
+5. 다음 shipping 재시도 대상 PR은 `#14`다.
+- Next:
+1. 현재 head를 push한 뒤 `@codex review`를 다시 요청한다.
+2. review가 clean이면 `develop`으로 merge하고 local branch cleanup을 진행한다.
+- Status: open
+
+## 2026-03-23
 - Context: 사용자가 신규 상장 상품과 상장폐지 상품을 현재 watch autocomplete 구조에서 어떻게 추적할지 물었다.
 - Current state:
 1. 현재 autocomplete source of truth는 live search API가 아니라 generated `instrument_registry.json` snapshot이다.

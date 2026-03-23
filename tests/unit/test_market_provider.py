@@ -181,9 +181,10 @@ async def test_kis_provider_refreshes_and_retries_after_auth_failure(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_kis_provider_rejects_stale_batch_quote(monkeypatch):
+async def test_kis_provider_falls_back_to_single_quote_after_stale_batch_quote(monkeypatch):
     now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
     provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[str] = []
 
     monkeypatch.setattr(
         market_provider,
@@ -192,24 +193,31 @@ async def test_kis_provider_rejects_stale_batch_quote(monkeypatch):
     )
 
     async def fake_request_kis_json(**kwargs):
-        return {
-            "rt_cd": "0",
-            "output2": [
-                {
-                    "excd": "NAS",
-                    "symb": "AAPL",
-                    "last": "214.37",
-                    "khms": "095500",
-                }
-            ],
-        }
+        calls.append(kwargs["path"])
+        if kwargs["path"].endswith("/multprice"):
+            return {
+                "rt_cd": "0",
+                "output2": [
+                    {
+                        "excd": "NAS",
+                        "symb": "AAPL",
+                        "last": "214.37",
+                        "khms": "095500",
+                    }
+                ],
+            }
+        return {"rt_cd": "0", "output": {"last": "214.37", "khms": "100000"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
     await provider.warm_quotes(["NAS:AAPL"], now)
+    quote = await provider.get_quote("NAS:AAPL", now)
 
-    with pytest.raises(RuntimeError, match="stale-quote:NAS:AAPL"):
-        await provider.get_quote("NAS:AAPL", now)
+    assert quote.price == 214.37
+    assert calls == [
+        "/uapi/overseas-price/v1/quotations/multprice",
+        "/uapi/overseas-price/v1/quotations/price",
+    ]
 
 
 @pytest.mark.asyncio
@@ -277,6 +285,67 @@ async def test_kis_provider_falls_back_to_single_quote_after_batch_warm_failure(
     assert calls == [
         ("/uapi/overseas-price/v1/quotations/multprice", "HHDFS76220000"),
         ("/uapi/overseas-price/v1/quotations/price", "HHDFS00000300"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_falls_back_to_single_quote_after_batch_row_omission(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NAS:AAPL", market_code="NAS", ticker_or_code="AAPL", kis_exchange_code="NAS")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        path = kwargs["path"]
+        calls.append((path, kwargs["tr_id"]))
+        if path.endswith("/multprice"):
+            return {"rt_cd": "0", "output2": []}
+        return {"rt_cd": "0", "output": {"last": "214.37", "khms": "100000"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    await provider.warm_quotes(["NAS:AAPL"], now)
+    quote = await provider.get_quote("NAS:AAPL", now)
+
+    assert quote.price == 214.37
+    assert calls == [
+        ("/uapi/overseas-price/v1/quotations/multprice", "HHDFS76220000"),
+        ("/uapi/overseas-price/v1/quotations/price", "HHDFS00000300"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_falls_back_to_single_quote_after_domestic_warm_failure(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("KRX:005930", market_code="KRX", ticker_or_code="005930", kis_exchange_code="KRX")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs["path"])
+        if len(calls) == 1:
+            raise RuntimeError("kis-unreachable")
+        return {"rt_cd": "0", "output": {"stck_prpr": "73100"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    await provider.warm_quotes(["KRX:005930"], now)
+    quote = await provider.get_quote("KRX:005930", now)
+
+    assert quote.price == 73100.0
+    assert calls == [
+        "/uapi/domestic-stock/v1/quotations/inquire-price",
+        "/uapi/domestic-stock/v1/quotations/inquire-price",
     ]
 
 

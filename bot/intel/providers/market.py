@@ -148,7 +148,7 @@ class KisMarketDataProvider:
             overseas.setdefault(item.kis_exchange_code, []).append(item)
 
         if domestic:
-            await asyncio.gather(*(self._fetch_and_store(item, now) for item in domestic))
+            await asyncio.gather(*(self._warm_fetch_and_store(item, now) for item in domestic))
 
         for items in overseas.values():
             for chunk in _chunk(items, 10):
@@ -174,6 +174,16 @@ class KisMarketDataProvider:
         self._quote_cache[resolved.canonical_symbol] = quote
         self._quote_errors.pop(resolved.canonical_symbol, None)
         return quote
+
+    async def _warm_fetch_and_store(self, resolved: _ResolvedSymbol, now: datetime) -> None:
+        try:
+            quote = await self._fetch_quote(resolved, now)
+        except RuntimeError:
+            # Warm-up is best-effort. Leave the symbol uncached so get_quote()
+            # can still retry the single-symbol path in the same poll cycle.
+            return
+        self._quote_cache[resolved.canonical_symbol] = quote
+        self._quote_errors.pop(resolved.canonical_symbol, None)
 
     async def _fetch_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
         if resolved.market_code == "KRX":
@@ -260,13 +270,11 @@ class KisMarketDataProvider:
         for item in chunk:
             row = rows_by_symbol.get((item.kis_exchange_code, item.ticker_or_code))
             if row is None:
-                self._quote_errors[item.canonical_symbol] = f"not-found:{item.canonical_symbol}"
                 continue
             try:
                 quote = self._normalize_overseas_quote(row, item, now)
                 self._ensure_fresh_quote(quote, now)
-            except RuntimeError as exc:
-                self._quote_errors[item.canonical_symbol] = str(exc)
+            except RuntimeError:
                 continue
             self._quote_cache[item.canonical_symbol] = quote
             self._quote_errors.pop(item.canonical_symbol, None)
