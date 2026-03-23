@@ -1,6 +1,20 @@
 # Design Decisions
 
 ## 2026-03-23
+- Context: watch autocomplete coverage를 KRX ETF/ETN까지 넓힌 뒤, 사용자가 신규 상장 상품과 상장폐지 상품을 앞으로 어떤 방식으로 추적할지 물었다.
+- Decision: instrument registry는 당분간 generated snapshot artifact를 source of truth로 유지한다. 신규 상장/상장폐지 자동 추적이 필요해지면 다음 단계로 `정기 rebuild + 이전 artifact와 diff + inactive/delisted 상태 관리`를 추가한다.
+- Why:
+1. 현재 autocomplete hot path는 slash command 응답속도와 안정성이 중요해서, 매 입력마다 live symbol search API를 호출하는 방식보다 local registry snapshot이 더 안전하다.
+2. KRX 상장/상폐, ETN 조기상환, ticker rename 같은 이벤트는 source 반영 시점 차이가 있어 `이번 build에서 안 보인다`는 이유만으로 기존 watch를 즉시 hard delete하면 운영상 더 위험하다.
+3. 이미 guild state에 저장된 canonical symbol은 quote failure와 운영 알림의 근거가 되므로, registry에서 사라졌다고 조용히 제거하지 말고 inactive/delisted로 승격해 사용자 또는 운영자가 정리할 수 있게 해야 한다.
+- Impact:
+1. 현재 코드 기준 신규 상장과 상장폐지는 registry rebuild 전까지 autocomplete에 반영되지 않는다.
+2. 아직 diff artifact, inactive/delisted marker, watchlist reconciliation report는 구현되지 않았다.
+3. 자동 추적이 필요해질 때의 우선순위는 live search 전환이 아니라 daily registry refresh job, old/new diff artifact, inactive/delisted marker, watchlist reconciliation report다.
+4. `/watch remove`는 registry에서 빠진 항목도 state 기준으로 계속 제거 가능해야 하며, quote path는 missing symbol을 명시적으로 드러내는 방향을 유지한다.
+- Status: accepted
+
+## 2026-03-23
 - Context: 사용자가 현재 변경분을 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치에서 가져올 만한 내용을 확인하고 합쳐 달라고 요청했다.
 - Decision: 원격 브랜치는 전체 merge하지 않고, `미국 종목 quote fallback routing`만 현재 KIS rollout 구조에 맞게 selective integration 한다.
 - Why:

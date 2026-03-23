@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -255,6 +256,8 @@ def build_registry(
     seed_records: Iterable[dict[str, Any]],
     dart_xml_bytes: bytes | None = None,
     sec_payload: Iterable[dict[str, Any]] | None = None,
+    krx_etf_rows: Iterable[dict[str, Any]] | None = None,
+    krx_etn_rows: Iterable[dict[str, Any]] | None = None,
     generated_at: str | None = None,
 ) -> InstrumentRegistry:
     merged: dict[str, dict[str, Any]] = {}
@@ -268,6 +271,12 @@ def build_registry(
 
     for payload in build_sec_records(sec_payload or ()):
         _merge_payload(merged, payload, preferred_source="sec")
+
+    for payload in build_krx_etf_records(krx_etf_rows or ()):
+        _merge_payload(merged, payload, preferred_source="krx-etf")
+
+    for payload in build_krx_etn_records(krx_etn_rows or ()):
+        _merge_payload(merged, payload, preferred_source="krx-etn")
 
     records = [
         InstrumentRecord.from_dict(payload)
@@ -328,6 +337,48 @@ def fetch_sec_company_tickers() -> list[dict[str, Any]]:
             continue
         normalized_rows.append({str(key): value for key, value in zip(fields, row, strict=False)})
     return normalized_rows
+
+
+def fetch_krx_etf_rows() -> list[dict[str, Any]]:
+    return fetch_krx_structured_rows("ETF")
+
+
+def fetch_krx_etn_rows() -> list[dict[str, Any]]:
+    return fetch_krx_structured_rows("ETN")
+
+
+def fetch_krx_structured_rows(kind: str) -> list[dict[str, Any]]:
+    kind = kind.strip().upper()
+    if kind not in {"ETF", "ETN", "ELW", "PF"}:
+        raise RuntimeError(f"unsupported-krx-structured-kind:{kind}")
+    referer = f"https://data.krx.co.kr/comm/finder/finder_secuprodisu.jsp?mktsel={kind}"
+    request = urllib.request.Request(
+        "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+        data=urllib.parse.urlencode(
+            {
+                "mktsel": kind,
+                "searchText": "",
+                "locale": "ko_KR",
+                "bld": "dbms/comm/finder/finder_secuprodisu",
+            }
+        ).encode("utf-8"),
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": referer,
+            "Origin": "https://data.krx.co.kr",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows = payload.get("block1") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError(f"krx-structured-invalid-response:{kind.lower()}")
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def parse_dart_corpcode(raw_bytes: bytes) -> list[dict[str, Any]]:
@@ -396,6 +447,42 @@ def build_sec_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
                         "sec_exchange": exchange,
                     },
                     "source": "sec",
+                }
+            )
+        )
+    return [record for record in results if record is not None]
+
+
+def build_krx_etf_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_krx_structured_records(rows, source="krx-etf")
+
+
+def build_krx_etn_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_krx_structured_records(rows, source="krx-etn")
+
+
+def build_krx_structured_records(rows: Iterable[dict[str, Any]], *, source: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        short_code = str(row.get("short_code") or "").strip().upper()
+        name = str(row.get("codeName") or "").strip()
+        full_code = str(row.get("full_code") or "").strip().upper()
+        if not short_code or not name:
+            continue
+        results.append(
+            _normalized_payload(
+                {
+                    "canonical_symbol": f"KRX:{short_code}",
+                    "market_code": "KRX",
+                    "ticker_or_code": short_code,
+                    "display_name_ko": name,
+                    "display_name_en": "",
+                    "aliases": [short_code, full_code, name, f"KRX:{short_code}"],
+                    "provider_ids": {
+                        "kis_exchange_code": "KRX",
+                        "twelve_mic_code": "XKRX",
+                    },
+                    "source": source,
                 }
             )
         )

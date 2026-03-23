@@ -48,6 +48,9 @@ def resolve_watch_add_symbol(symbol: str) -> tuple[str | None, str | None]:
     results = _dedupe_results(load_registry().search(raw, limit=10))
     if len(results) == 1:
         return results[0].record.canonical_symbol, None
+    exact_results = [result for result in results if result.score >= 900]
+    if len(exact_results) == 1:
+        return exact_results[0].record.canonical_symbol, None
     if len(results) > 1:
         return None, (
             "여러 후보가 있어 자동 선택하지 않았습니다.\n"

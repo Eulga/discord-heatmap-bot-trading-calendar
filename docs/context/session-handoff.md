@@ -1,6 +1,69 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 신규 상장 상품과 상장폐지 상품을 현재 watch autocomplete 구조에서 어떻게 추적할지 물었다.
+- Current state:
+1. 현재 autocomplete source of truth는 live search API가 아니라 generated `instrument_registry.json` snapshot이다.
+2. 따라서 신규 상장/상장폐지는 registry rebuild 전까지 autocomplete에 반영되지 않는다.
+3. 이미 guild state에 저장된 watch symbol은 registry에서 사라져도 즉시 삭제되지 않고, remove/list는 state 기준으로 계속 다룬다.
+4. `정기 rebuild + old/new diff + inactive/delisted 상태 관리 + watchlist reconciliation report`는 다음 단계 설계안일 뿐, 아직 구현되지는 않았다.
+- Next:
+1. 실제 자동 추적이 필요해지면 registry refresh job과 diff artifact를 먼저 구현한다.
+2. 그 뒤 inactive/delisted marker를 `/source-status` 또는 admin report와 연결한다.
+- Status: open
+
+## 2026-03-23
+- Context: 사용자가 `KB 천연가스 선물 ETN(H)` 같은 ETN 상품도 `/watch add` autocomplete에서 검색되지 않는다고 보고했다.
+- Current state:
+1. 국내 registry는 이제 OpenDART 상장사 master + KRX 공식 ETF finder + KRX 공식 ETN finder(`dbms/comm/finder/finder_secuprodisu`) rows를 함께 포함한다.
+2. regenerated artifact 기준 counts는 `KRX=5382`, `NAS=4248`, `NYS=3270`, `AMS=0`, 총 `12900`건이다.
+3. 실제 resolution 기준 `KB 천연가스 선물 ETN(H) -> KRX:580020`이 된다.
+4. `tests/unit/test_instrument_registry.py`와 `tests/unit/test_watch_command.py`에 ETN 회귀가 추가됐고 통과했다.
+5. KRX structured finder fetch는 `mktsel`별 동적 `Referer`를 사용하도록 정리돼 ETF/ETN 공통 경로로 유지된다.
+- Next:
+1. 사용자가 Discord에서 직접 `/watch add` autocomplete로 ETN을 실테스트하면 된다.
+2. 필요하면 같은 KRX finder family로 ELW/PF도 추가 확장한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 ETF가 검색되지 않는다고 보고했고, KRX ETF까지 autocomplete에 포함되게 하라고 요청했다.
+- Current state:
+1. 국내 registry는 이제 OpenDART 상장사 master에 더해 KRX 공식 ETF finder(`dbms/comm/finder/finder_secuprodisu`) 기반 ETF rows도 포함한다.
+2. regenerated artifact 기준 counts는 `KRX=4994`, `NAS=4248`, `NYS=3270`, `AMS=0`, 총 `12512`건이다.
+3. 실제 resolution 기준 `삼성전자 -> KRX:005930`, `제주반도체 -> KRX:080220`, `KODEX 200 -> KRX:069500`, `TIGER 200 -> KRX:102110`이 된다.
+4. ETF 유입 후 stock exact query가 ambiguity로 깨지는 회귀는 `watch.command.resolve_watch_add_symbol()`에서 exact match score 우선 규칙으로 보정했다.
+5. 관련 회귀 테스트는 `tests/unit/test_instrument_registry.py`, `tests/unit/test_watch_command.py`에 추가됐고 통과했다.
+- Next:
+1. 사용자가 Discord에서 직접 `/watch add` autocomplete를 실테스트하면 된다.
+2. 필요하면 같은 KRX finder 계열로 ETN/ELW/PF도 추가 확장한다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 `제주반도체` 수준의 비주류 코스닥 종목도 `/watch add` autocomplete에서 검색되게 만들라고 요청했다.
+- Current state:
+1. 원인은 registry build 경로였다. `scripts/build_instrument_registry.py`가 repo `.env`를 읽지 않아 `DART_API_KEY`가 있어도 OpenDART corpCode를 반영하지 못하고 있었다.
+2. 스크립트는 이제 `.env`를 자동으로 로드한다.
+3. generated registry artifact를 다시 빌드한 현재 기준 counts는 `KRX=3914`, `NAS=4248`, `NYS=3270`, `AMS=0`, 총 `11432`건이다.
+4. 실제 검색 검증에서 `load_registry().search("제주반도체", limit=5)`는 `KRX:080220`을 반환한다.
+5. `tests/unit/test_instrument_registry.py`에는 `제주반도체` 검색 회귀가 추가됐고, `tests/unit/test_watch_command.py`와 함께 통과했다.
+- Next:
+1. watch autocomplete 기준선은 이제 OpenDART corpCode가 반영된 full KRX artifact로 본다.
+2. registry가 오래되면 같은 스크립트로 다시 빌드하거나, 필요 시 scheduled refresh를 붙인다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 남은 핵심 과제인 `eod_summary` live 구현과 Massive fallback live 완료에 필요한 조건을 정리한 보고서를 요청했다.
+- Current state:
+1. 보고서는 `docs/reports/eod-massive-completion-report-2026-03-23.md`에 정리돼 있다.
+2. `eod_summary` 쪽은 scheduler/forum/test 프레임은 준비돼 있지만, 실제 blocker는 `KIS endpoint 조합 확정 + live provider 구현 + 실거래일 smoke`다.
+3. Massive fallback 쪽은 코드/테스트는 거의 끝났고, 실제 blocker는 `snapshot entitlement가 붙은 Massive key 확보`와 `fallback이 의도적으로 발동됐음을 증명하는 controlled live smoke`다.
+4. 현재 순서상 먼저 처리할 일은 `eod_summary` live provider 구현이다. Massive는 외부 entitlement가 열리기 전까지 완결할 수 없다.
+- Next:
+1. `eod_summary` 1차 범위를 `KIS only`로 고정하고 `_build_eod_summary_provider()`와 live provider 구현 작업으로 들어간다.
+2. Massive entitlement가 준비되면 direct snapshot smoke와 routed fallback smoke를 분리해서 실행한다.
+- Status: open
+
+## 2026-03-23
 - Context: 사용자가 현재 변경분을 커밋한 뒤 `origin/codex/watch-poll-live-quotes` 브랜치의 유효한 내용을 확인해서 현재 `develop`에 합쳐 달라고 요청했다.
 - Current state:
 1. 현재 rollout 기준선은 `eaeaa7d Roll out live watch quotes and provider docs`로 먼저 커밋해 고정했다.
