@@ -10,10 +10,13 @@ from bot.app.settings import (
     EOD_TARGET_FORUM_ID,
     INTEL_API_RETRY_COUNT,
     INTEL_API_TIMEOUT_SECONDS,
+    KIS_APP_KEY,
+    KIS_APP_SECRET,
     MARKETAUX_API_TOKEN,
     MARKETAUX_NEWS_COUNTRIES,
     MARKETAUX_NEWS_GLOBAL_QUERIES,
     MARKETAUX_NEWS_LANGUAGE,
+    MARKET_DATA_PROVIDER_KIND,
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
     NAVER_NEWS_DOMESTIC_QUERIES,
@@ -63,7 +66,12 @@ from bot.forum.repository import (
 )
 from bot.forum.service import upsert_daily_post
 from bot.intel.instrument_registry import format_watch_symbol
-from bot.intel.providers.market import MockEodSummaryProvider, MockMarketDataProvider
+from bot.intel.providers.market import (
+    ErrorMarketDataProvider,
+    KisMarketDataProvider,
+    MockEodSummaryProvider,
+    MockMarketDataProvider,
+)
 from bot.intel.providers.news import (
     ErrorNewsProvider,
     HybridNewsProvider,
@@ -146,9 +154,24 @@ def _build_news_provider() -> NewsProvider:
     return ErrorNewsProvider(f"unsupported-news-provider:{NEWS_PROVIDER_KIND}")
 
 
+def _build_market_data_provider():
+    if MARKET_DATA_PROVIDER_KIND == "mock":
+        return MockMarketDataProvider()
+    if MARKET_DATA_PROVIDER_KIND == "kis":
+        if not KIS_APP_KEY or not KIS_APP_SECRET:
+            return ErrorMarketDataProvider("kis-credentials-missing")
+        return KisMarketDataProvider(
+            app_key=KIS_APP_KEY,
+            app_secret=KIS_APP_SECRET,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
+    return ErrorMarketDataProvider(f"unsupported-market-data-provider:{MARKET_DATA_PROVIDER_KIND}")
+
+
 news_provider = _build_news_provider()
 eod_provider = MockEodSummaryProvider()
-quote_provider = MockMarketDataProvider()
+quote_provider = _build_market_data_provider()
 
 
 def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
@@ -553,6 +576,8 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     missing_channel_guilds = 0
     send_failures = 0
     watched_symbols = 0
+    pending_guilds: list[tuple[int, discord.abc.Messageable, list[str]]] = []
+    warm_symbols: set[str] = set()
 
     for guild_id in list_guild_ids(state):
         symbols = list_watch_symbols(state, guild_id)
@@ -574,13 +599,23 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         if not isinstance(channel, discord.abc.Messageable) or getattr(channel_guild, "id", None) != guild_id:
             channel_failures += 1
             continue
+        pending_guilds.append((guild_id, channel, symbols))
+        warm_symbols.update(symbols)
 
+    warm_quotes = getattr(quote_provider, "warm_quotes", None)
+    if pending_guilds and callable(warm_quotes):
+        try:
+            await warm_quotes(sorted(warm_symbols), now)
+        except Exception as exc:
+            logger.exception("[intel] watch warm quotes failed: %s", exc)
+
+    for guild_id, channel, symbols in pending_guilds:
         for symbol in symbols:
             try:
                 quote = await quote_provider.get_quote(symbol, now)
-                set_provider_status(state, "market_data_provider", True, f"quote:{symbol}")
+                set_provider_status(state, "kis_quote", True, f"quote:{symbol}")
             except Exception as exc:
-                set_provider_status(state, "market_data_provider", False, str(exc))
+                set_provider_status(state, "kis_quote", False, str(exc))
                 quote_failures += 1
                 continue
 

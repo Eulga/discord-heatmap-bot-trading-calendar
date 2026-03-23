@@ -1,6 +1,91 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 `.env` 값을 실제로 채운 뒤 `openfigi`를 제외한 나머지 API와 `watch_poll` live smoke를 실행해 달라고 요청했다.
+- Current state:
+1. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀는 다시 통과했다.
+2. live smoke 중 KIS token endpoint는 `접근토큰 발급 잠시 후 다시 시도하세요(1분당 1회)`로 403을 돌릴 수 있고, 기존 `bot/intel/providers/market.py`는 이를 `kis-auth-failed`로 오분류하고 있었다.
+3. 이 문제를 수정해 HTTP 403 body의 `EGW00133`/rate-limit 메시지를 `kis-rate-limited`로 분리했고, 관련 unit test를 추가했다.
+4. env/live 검증 결과는 현재 모두 성공이다:
+   - DART corpCode zip fetch 성공
+   - Massive reference ticker fetch 성공
+   - TwelveData quote fetch 성공
+   - Naver provider / Marketaux provider / runtime hybrid news analyze 성공
+   - KIS domestic quote fetch 성공
+   - Discord `watch_poll` smoke 성공 (`watch_poll=ok`, `kis_quote.ok=True`, alert send 1건 후 delete 1건)
+5. Discord 채널 타입도 현재 적합하다: `WATCH_ALERT_CHANNEL_ID`와 `ADMIN_STATUS_CHANNEL_ID`는 `TextChannel`, `NEWS_TARGET_FORUM_ID`와 `EOD_TARGET_FORUM_ID`는 `ForumChannel`이다.
+6. 다만 실제 guild `332110589969039360`의 watch route는 env fallback `WATCH_ALERT_CHANNEL_ID=1483007026023108739`가 아니라 state의 `watch_alert_channel_id=460011902043553792` override를 우선 사용한다.
+- Next:
+1. 운영에서 watch alert 채널을 env fallback으로 통일하려면 guild-level `watch_alert_channel_id` override를 정리하거나 `/setwatchchannel`로 원하는 채널로 다시 맞춘다.
+2. 이후 KIS 관련 smoke나 운영 진단은 provider instance를 불필요하게 여러 개 만들지 않는다. token issuance는 분당 1회 제한이 있고, 현재 코드는 rate-limit을 명시적으로 기록한다.
+- Status: done
+
+## 2026-03-23
+- Context: 최신 reviewer finding 중 남아 있던 KIS warm-up fallback P2도 후속 수정했다.
+- Current state:
+1. `bot/intel/providers/market.py`의 overseas batch warm-up failure는 이제 chunk 전체 symbol을 `_quote_errors`로 오염시키지 않는다.
+2. 그래서 `warm_quotes()`가 실패해도 같은 poll cycle의 `get_quote()`는 single-symbol `price` endpoint로 fallback할 수 있다.
+3. 관련 회귀 테스트를 추가했고, `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q`는 통과했다.
+4. 최신 subagent review에서 나온 P2/P3는 모두 닫혔다. 현재 남은 큰 리스크는 live KIS/Discord smoke 미실행이다.
+- Next:
+1. 운영 env에 credential/channel을 채운 뒤 `watch add -> poll -> alert send -> /source-status` live smoke를 수행한다.
+2. 실제 응답 기준으로 `not-found`, `stale`, rate-limit 메시지의 운영 가독성을 마지막 점검한다.
+- Status: done
+
+## 2026-03-23
+- Context: review finding이던 `/source-status` legacy quote-provider drift를 후속 수정했다.
+- Current state:
+1. `bot/features/status/command.py`는 이제 `market_data_provider -> kis_quote`, `polygon_reference -> massive_reference`를 canonical key로 정규화한다.
+2. 기존 state에 legacy key와 canonical key가 동시에 있어도 canonical row가 우선해 `/source-status`와 `/health`에 quote-provider row가 하나만 남는다.
+3. 관련 회귀 테스트는 `tests/unit/test_status_command.py`에 추가됐고, 결과는 `6 passed`였다.
+4. 현재 reviewer finding 중 남은 open 항목은 `bot/intel/providers/market.py`의 warm-up failure가 same-poll single-symbol fallback까지 막는 P2 하나다.
+- Next:
+1. 필요하면 다음 작업으로 `bot/intel/providers/market.py`의 `_quote_errors`/fallback 경로를 보정한다.
+2. 그 뒤 integration 재실행과 live KIS smoke 순서로 이어간다.
+- Status: done
+
+## 2026-03-23
+- Context: `Polygon.io -> Massive` rename을 user-facing 문서, env, `/source-status` naming에 backward-compatible하게 반영했다.
+- Current state:
+1. `bot/app/settings.py`는 `MASSIVE_API_KEY`를 우선 읽고, legacy `POLYGON_API_KEY`를 fallback으로 허용한다.
+2. `/source-status` 기본 row key는 이제 `massive_reference`고, 과거 state의 `polygon_reference`는 표시 단계에서 같은 key로 정규화된다.
+3. `.env.example`, `README.md`, `AGENTS.md`, context docs, `docs/reports/mvp-data-source-review-2026-03-12.md`는 `Massive` 또는 `Massive (구 Polygon.io)` 표현으로 맞춰졌다.
+4. `.\.venv\Scripts\python.exe -m pytest -q`까지 다시 통과했다.
+5. 내부 `instrument_registry`의 `polygon_primary_exchange` 필드는 아직 live adapter에 묶이지 않아 이번 작업에서는 그대로 뒀다.
+- Next:
+1. 실제 Massive adapter를 붙일 때 env 문서는 `MASSIVE_API_KEY`만 안내하고, code fallback으로만 `POLYGON_API_KEY`를 유지한다.
+2. 필요하면 이후 별도 작업에서 `polygon_primary_exchange` 같은 내부 필드명을 일괄 정리한다.
+- Status: open
+
+## 2026-03-23
+- Context: 현재 KIS watch rollout 변경분을 `integration_tester`와 `reviewer` subagent로 다시 검증했다.
+- Current state:
+1. full integration suite는 `.\.venv\Scripts\python.exe -m pytest tests/integration` 기준 `45 passed, 2 deselected`로 깨지지 않았다.
+2. reviewer는 `bot/intel/providers/market.py`에서 overseas `warm_quotes()` batch failure가 같은 poll cycle의 per-symbol fallback까지 막는 회복성 결함을 찾았다. 현재 `_quote_errors`가 먼저 소비돼 `get_quote()`가 single-symbol fetch를 시도하지 못한다.
+3. reviewer는 `bot/features/status/command.py`에서도 기존 state의 legacy `market_data_provider` key가 남아 있으면 `/source-status`와 `/health`가 `kis_quote`와 함께 둘 다 보여 줄 수 있는 drift를 지적했다.
+4. targeted KIS/watch tests는 통과했지만, 실제 KIS/Discord live smoke는 여전히 env credential/channel 부재로 막혀 있다.
+- Next:
+1. `bot/intel/providers/market.py`에서 batch warm-up 실패 후 single-symbol fetch fallback이 살아 있게 보정한다.
+2. status view나 state migration에서 legacy `market_data_provider` row 정리 방식을 결정한다.
+3. 수정 후 integration 재실행, 가능하면 credential 준비 뒤 live smoke까지 이어간다.
+- Status: open
+
+## 2026-03-23
+- Context: `watch_poll`을 KIS live provider 경로로 연결하고 `.env.example`를 복사-사용 가능한 주석형 템플릿으로 다시 정리했다.
+- Current state:
+1. `bot/features/intel_scheduler.py`는 이제 `MARKET_DATA_PROVIDER_KIND=mock|kis`를 읽어 `quote_provider`를 builder로 생성한다. `kis` 선택 시 credential이 비어 있으면 `kis-credentials-missing`을 내는 `ErrorMarketDataProvider`로 실패가 드러난다.
+2. `bot/intel/providers/market.py`에는 `KisMarketDataProvider`가 추가됐고, access token 캐시, 1회 auth refresh retry, registry 기반 canonical symbol 해석, KRX/해외 경로 분기, poll-cycle quote cache, optional `warm_quotes()`를 지원한다.
+3. watch scheduler는 유효한 guild/channel만 먼저 수집한 뒤 unique symbol warm-up을 수행하고, runtime provider status를 `kis_quote`에 기록한다. 기존 `watch_poll` 실패 의미는 그대로라 quote/channel/send failure가 하나라도 있으면 최종 status는 `failed`다.
+4. `.env.example`는 섹션형으로 재정리됐고, 주석은 섹션 묶음 설명 중심으로 정리됐다. 개별 주석은 `options:`가 필요한 항목만 남기고, `WATCH_ALERT_CHANNEL_ID`의 text/messageable 채널 제약은 섹션 주석으로 남겼다.
+5. 테스트는 `.\.venv\Scripts\python.exe -m pytest -q`까지 모두 통과했다.
+6. 다만 live smoke는 아직 막혀 있다. 현재 `.env` 기준 `KIS_APP_KEY`, `KIS_APP_SECRET`, `WATCH_ALERT_CHANNEL_ID`, `ADMIN_STATUS_CHANNEL_ID`가 모두 비어 있어 KIS/Discord 실연동 검증은 이번 세션에서 수행하지 못했다.
+- Next:
+1. 운영 env에 KIS credential, text `WATCH_ALERT_CHANNEL_ID`, 접근 가능한 `ADMIN_STATUS_CHANNEL_ID`를 채운다.
+2. 그다음 `watch add -> poll -> alert send -> /source-status` 순서로 live smoke를 한 번 수행해 `kis_quote=ok`와 실제 Discord alert message를 확인한다.
+3. live 응답 기준으로 `not-found`, `stale`, rate-limit 메시지와 alert body가 운영에 충분히 읽기 쉬운지 마지막 점검을 한다.
+- Status: open
+
+## 2026-03-23
 - Context: 로컬 `develop`을 최신 원격과 다시 맞춘 뒤, 지금 기준의 다음 작업 우선순위를 재정리했다.
 - Current state:
 1. 로컬 `develop`은 `origin/develop`의 최신 11커밋을 반영한 상태로 정리됐고, sync 직후 기본 회귀는 `107 passed, 2 deselected`였다.
@@ -166,13 +251,13 @@
 3. `bot/forum/repository.py`는 legacy watchlist/baseline/cooldown 키를 읽을 때 canonical symbol로 자동 승격한다.
 4. watch alert 메시지와 `/watch list`는 `이름 + canonical symbol` 형식으로 보여준다.
 5. news provider는 `NEWS_PROVIDER_KIND=marketaux|hybrid`를 지원하고, `hybrid`는 국내 Naver + 해외 Marketaux 조합이다.
-6. `/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해 보여준다.
+6. `/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `massive_reference`, `twelvedata_reference`, `openfigi_mapping`, `eod_provider`의 configured/disabled/paused 상태를 합성해 보여준다.
 7. `EOD_SUMMARY_ENABLED` 기본값은 이제 `false`고, EOD는 문서/상태상 pause 기준으로 정리됐다.
 8. 전체 테스트는 `.\.venv\Scripts\python.exe -m pytest -q` 기준 전부 통과했다.
 - Next:
 1. 국내 종목명 커버리지를 full master로 넓히려면 `DART_API_KEY`를 넣고 `scripts/build_instrument_registry.py`를 다시 실행한다.
 2. `NEWS_PROVIDER_KIND=hybrid`와 `MARKETAUX_API_TOKEN`을 실제 값으로 넣고 global news fetch 품질을 한 번 실반영으로 점검한다.
-3. `Polygon`을 US fallback quote/reference로 붙이고, `OpenFIGI`/`Twelve Data`는 reconciliation/future EOD slot으로 이어 붙인다.
+3. `Massive`(구 `Polygon.io`)를 US fallback quote/reference로 붙이고, `OpenFIGI`/`Twelve Data`는 reconciliation/future EOD slot으로 이어 붙인다.
 - Status: open
 
 ## 2026-03-20

@@ -133,11 +133,12 @@ git commit -m "chore: bootstrap python discord bot"
 - `NEWS_BRIEFING_TIME=07:30`
 - `NEWS_BRIEFING_TRADING_DAYS_ONLY=true|false`
 - `NEWS_PROVIDER_KIND=mock|naver|marketaux|hybrid`
+- `MARKET_DATA_PROVIDER_KIND=mock|kis`
 - `DART_API_KEY=<optional>`
 - `KIS_APP_KEY=<optional>`
 - `KIS_APP_SECRET=<optional>`
 - `MARKETAUX_API_TOKEN=<optional>`
-- `POLYGON_API_KEY=<optional>`
+- `MASSIVE_API_KEY=<optional>`
 - `TWELVEDATA_API_KEY=<optional>`
 - `OPENFIGI_API_KEY=<optional>`
 - `NAVER_NEWS_CLIENT_ID=<optional>`
@@ -166,9 +167,9 @@ git commit -m "chore: bootstrap python discord bot"
 - `LOG_RETENTION_DAYS=7`
 - `LOG_CONSOLE_ENABLED=true`
 - `ADMIN_STATUS_CHANNEL_ID=<optional>`
-- `NEWS_TARGET_FORUM_ID=<optional>`
-- `EOD_TARGET_FORUM_ID=<optional>`
-- `WATCH_ALERT_CHANNEL_ID=<optional>`
+- `NEWS_TARGET_FORUM_ID=<optional forum channel id>`
+- `EOD_TARGET_FORUM_ID=<optional forum channel id>`
+- `WATCH_ALERT_CHANNEL_ID=<optional text channel id>`
 
 현재 MVP의 데이터 소스는 provider 교체 가능한 mock 구현입니다. 운영 전 실제 API provider로 교체하세요.
 실사용 전환용 외부 API 계약은 `docs/specs/external-intel-api-spec.md`를 기준으로 맞춥니다.
@@ -176,12 +177,14 @@ watch 종목 검색은 live 외부 search API가 아니라 repo에 체크인된 
 generated registry artifact는 `bot/intel/data/instrument_registry.json`이고, raw 참고자료는 `docs/references/external/` 아래에 둡니다.
 registry 재생성이 필요하면 `.\.venv\Scripts\python.exe scripts/build_instrument_registry.py`를 사용합니다.
 현재 registry는 국내 seed + SEC 미국 상장사 목록을 합친 형태이며, DART API key가 있으면 국내 종목 마스터를 더 넓힐 수 있습니다.
+`MASSIVE_API_KEY`는 Massive(구 Polygon.io)용 기본 env 이름이고, 코드에서는 legacy `POLYGON_API_KEY`도 fallback으로 읽습니다.
 뉴스 브리핑은 `NEWS_PROVIDER_KIND=naver`와 네이버 Search API Client ID/Secret을 주면 실제 검색 결과 기반으로 동작할 수 있습니다.
 `NEWS_PROVIDER_KIND=hybrid`는 국내는 Naver, 해외는 Marketaux를 사용합니다.
 네이버 뉴스 브리핑은 단일 query보다 `NAVER_NEWS_*_QUERIES`의 다중 query + provider 내부 중요도 점수화가 더 안정적입니다.
 현재 뉴스 선별은 `거시 헤드라인 query`와 `헤드라인급 종목 query`를 함께 사용하고, 개별 종목 기사는 실적/가이던스/규제/대형 계약 같은 고영향 이벤트가 있을 때만 통과시키는 방향을 권장합니다.
 `/watch add`와 `/watch remove`는 autocomplete를 지원하고, 저장값은 `KRX:005930`, `NAS:AAPL` 같은 canonical symbol입니다.
-`/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `polygon_reference`, `twelvedata_reference`, `openfigi_mapping`의 configured/degraded/disabled 상태를 함께 보여줍니다.
+`/source-status`는 `instrument_registry`, `kis_quote`, `naver_news`, `marketaux_news`, `massive_reference`, `twelvedata_reference`, `openfigi_mapping`의 configured/degraded/disabled 상태를 함께 보여줍니다.
+`WATCH_ALERT_CHANNEL_ID` fallback은 forum channel이 아니라 일반 text/messageable channel이어야 합니다.
 `eod_summary`는 2026-03-20 기준 잠정 중단 상태라 기본값이 `false`입니다.
 현재 뉴스 스케줄 포스트는 같은 날 기준 `국내 경제 뉴스 브리핑`과 `해외 경제 뉴스 브리핑` 두 개의 daily thread로 분리해서 올립니다.
 같은 뉴스 스케줄에서 `[YYYY-MM-DD 트렌드 테마 뉴스]` thread도 별도로 생성되며, 이 thread는 starter message + 국내/해외 content message 구조로 업데이트됩니다.

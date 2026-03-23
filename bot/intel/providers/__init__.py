@@ -1,6 +1,8 @@
 from bot.intel.providers.market import (
     EodSummary,
     EodSummaryProvider,
+    ErrorMarketDataProvider,
+    KisMarketDataProvider,
     MockEodSummaryProvider,
     MockMarketDataProvider,
     Quote,
@@ -36,6 +38,8 @@ __all__ = [
     "Quote",
     "EodSummary",
     "EodSummaryProvider",
+    "ErrorMarketDataProvider",
+    "KisMarketDataProvider",
     "MockMarketDataProvider",
     "MockEodSummaryProvider",
 ]

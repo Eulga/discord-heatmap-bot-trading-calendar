@@ -229,7 +229,7 @@ pytest -m live
 ## 9) 다음 세션 즉시 실행 TODO (5개)
 1. `DART_API_KEY`를 확보해 `scripts/build_instrument_registry.py`로 국내 종목 master를 seed 기반이 아니라 full master로 재생성
 2. `NEWS_PROVIDER_KIND=hybrid` + `MARKETAUX_API_TOKEN` 기준으로 해외 뉴스 fetch와 `/setnewsforum` 게시 흐름 실반영 검증
-3. `Polygon` US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
+3. `Massive`(구 `Polygon.io`) US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
 4. `OpenFIGI` reconciliation job 또는 offline 보강 스크립트로 provider 간 symbol mapping 정합성 보강
 5. `eod_summary`는 현재 pause 상태를 유지하고, 재개 요청이 생길 때만 `Twelve Data`/기타 매크로 소스로 재설계
 
