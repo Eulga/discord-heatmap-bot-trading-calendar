@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -5,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.features import intel_scheduler
+from bot.intel.instrument_registry import InstrumentRecord, InstrumentRegistry, ProviderIds
 from bot.intel.providers.market import EodRow, EodSummary
 from bot.intel.providers.news import NewsAnalysis, NewsItem, ThemeBrief, TrendThemeReport
 
@@ -109,7 +111,6 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
     await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
@@ -122,7 +123,7 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {}}}
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
     called = {"fetch": 0}
 
     class Provider:
@@ -134,7 +135,6 @@ async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", 999)
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
     await intel_scheduler._run_news_job(client=FakeForumClient(FakeForumChannel(guild_id=2)), now=now)
@@ -148,7 +148,7 @@ async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch
 
 @pytest.mark.asyncio
 async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {}}}
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
     called = {"fetch": 0}
 
     class Provider:
@@ -160,7 +160,6 @@ async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", 999)
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
     await intel_scheduler._run_news_job(client=FailingFetchForumClient(), now=now)
@@ -186,7 +185,6 @@ async def test_news_job_skips_holiday_before_forum_resolution_errors(monkeypatch
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_TRADING_DAYS_ONLY", True)
-    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
 
     now = datetime(2026, 2, 14, 7, 30, tzinfo=KST)
@@ -241,7 +239,6 @@ async def test_news_job_continues_after_one_forum_resolution_api_error(monkeypat
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
-    monkeypatch.setattr(intel_scheduler, "NEWS_TARGET_FORUM_ID", None)
 
     client = MixedForumClient({123: FakeForumChannel(guild_id=1)}, {999})
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -836,7 +833,6 @@ async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", 999)
 
     now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
     await intel_scheduler._run_eod_job(client=FakeForumClient(FakeForumChannel(guild_id=2)), now=now)
@@ -849,7 +845,7 @@ async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_eod_job_fails_when_forum_resolution_api_errors(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {}}}
+    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
     called = {"summary": 0}
 
     class Provider:
@@ -869,7 +865,6 @@ async def test_eod_job_fails_when_forum_resolution_api_errors(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", 999)
 
     now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
     await intel_scheduler._run_eod_job(client=FailingFetchForumClient(), now=now)
@@ -901,7 +896,6 @@ async def test_eod_job_skips_holiday_before_forum_resolution_errors(monkeypatch)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", None)
 
     now = datetime(2026, 2, 14, 16, 20, tzinfo=KST)
     await intel_scheduler._run_eod_job(client=FailingFetchForumClient(), now=now)
@@ -942,7 +936,6 @@ async def test_eod_job_continues_after_one_forum_resolution_api_error(monkeypatc
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
-    monkeypatch.setattr(intel_scheduler, "EOD_TARGET_FORUM_ID", None)
 
     client = MixedForumClient({123: FakeForumChannel(guild_id=1)}, {999})
     now = datetime(2026, 2, 13, 16, 20, tzinfo=KST)
@@ -989,9 +982,20 @@ class FakeWatchClient:
         return self._channel
 
 
+class MixedWatchClient:
+    def __init__(self, channels_by_id: dict[int, object]):
+        self._channels_by_id = channels_by_id
+
+    def get_channel(self, channel_id: int):
+        return self._channels_by_id.get(channel_id)
+
+    async def fetch_channel(self, channel_id: int):
+        return self._channels_by_id.get(channel_id)
+
+
 @pytest.mark.asyncio
 async def test_watch_poll_fails_when_fallback_channel_belongs_to_other_guild(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"watchlist": ["005930"]}}}
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["005930"], "watch_alert_channel_id": 999}}}
     quote_calls = {"count": 0}
 
     class Provider:
@@ -1003,7 +1007,6 @@ async def test_watch_poll_fails_when_fallback_channel_belongs_to_other_guild(mon
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", 999)
 
     now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
     await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=2)), now=now)
@@ -1026,7 +1029,6 @@ async def test_watch_poll_marks_failed_when_all_quotes_fail(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
 
     now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
     await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
@@ -1034,7 +1036,7 @@ async def test_watch_poll_marks_failed_when_all_quotes_fail(monkeypatch):
     run = state["system"]["job_last_runs"]["watch_poll"]
     assert run["status"] == "failed"
     assert "quote_failures=1" in run["detail"]
-    provider = state["system"]["provider_status"]["market_data_provider"]
+    provider = state["system"]["provider_status"]["kis_quote"]
     assert provider["ok"] is False
     assert provider["message"] == "quote provider down"
 
@@ -1065,7 +1067,6 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
 
     await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeFailingWatchChannel(guild_id=1)), now=now)
 
@@ -1074,7 +1075,7 @@ async def test_watch_poll_marks_failed_when_alert_delivery_fails(monkeypatch):
     assert "alerts=0" in run["detail"]
     assert "alert_attempts=1" in run["detail"]
     assert "send_failures=1" in run["detail"]
-    provider = state["system"]["provider_status"]["market_data_provider"]
+    provider = state["system"]["provider_status"]["kis_quote"]
     assert provider["ok"] is True
     assert provider["message"] == "quote:KRX:005930"
 
@@ -1096,7 +1097,6 @@ async def test_watch_poll_marks_failed_when_quote_failure_happens_after_partial_
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
 
     now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
     await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
@@ -1136,9 +1136,367 @@ async def test_watch_poll_uses_friendly_symbol_display(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
-    monkeypatch.setattr(intel_scheduler, "WATCH_ALERT_CHANNEL_ID", None)
 
     await intel_scheduler._run_watch_poll(client=FakeWatchClient(channel), now=now)
 
     assert channel.messages
     assert "삼성전자 (KRX:005930)" in channel.messages[0]
+
+
+def test_build_market_data_provider_returns_error_provider_when_kis_credentials_missing(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "MARKET_DATA_PROVIDER_KIND", "kis")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_KEY", "")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_SECRET", "")
+
+    provider = intel_scheduler._build_market_data_provider()
+
+    assert provider.__class__.__name__ == "ErrorMarketDataProvider"
+
+
+def test_build_market_data_provider_wraps_kis_with_massive_fallback(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "MARKET_DATA_PROVIDER_KIND", "kis")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_KEY", "key")
+    monkeypatch.setattr(intel_scheduler, "KIS_APP_SECRET", "secret")
+    monkeypatch.setattr(intel_scheduler, "MASSIVE_API_KEY", "massive-key")
+
+    provider = intel_scheduler._build_market_data_provider()
+
+    assert provider.__class__.__name__ == "RoutedMarketDataProvider"
+    assert provider.us_fallback_provider is not None
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_calls_warm_quotes_once_for_unique_symbols(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"watchlist": ["005930"], "watch_alert_channel_id": 123},
+            "2": {"watchlist": ["005930"], "watch_alert_channel_id": 456},
+        },
+    }
+    warmed: list[tuple[str, ...]] = []
+    quote_calls: list[str] = []
+
+    class Provider:
+        async def warm_quotes(self, symbols, now):
+            warmed.append(tuple(symbols))
+
+        async def get_quote(self, symbol, now):
+            quote_calls.append(symbol)
+            return SimpleNamespace(price=73100.0)
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    client = MixedWatchClient(
+        {
+            123: FakeWatchChannel(guild_id=1),
+            456: FakeWatchChannel(guild_id=2),
+        }
+    )
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=client, now=now)
+
+    assert warmed == [("KRX:005930",)]
+    assert quote_calls == ["KRX:005930", "KRX:005930"]
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_records_massive_provider_status_when_fallback_quote_is_used(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["NAS:AAPL"], "watch_alert_channel_id": 123}}}
+
+    class Provider:
+        async def get_quote(self, symbol, now):
+            return SimpleNamespace(price=214.37, provider="massive_reference")
+
+    monkeypatch.setattr(intel_scheduler.discord.abc, "Messageable", FakeMessageable)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeWatchClient(FakeWatchChannel(guild_id=1)), now=now)
+
+    provider = state["system"]["provider_status"]["massive_reference"]
+    assert provider["ok"] is True
+    assert provider["message"] == "quote:NAS:AAPL"
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_instrument_registry_refresh_records_success_and_runtime_source(monkeypatch):
+    state = {"commands": {}, "guilds": {}}
+    saved: dict[str, object] = {}
+
+    previous_registry = InstrumentRegistry(
+        generated_at="2026-03-22T00:00:00+00:00",
+        records=(
+            InstrumentRecord(
+                canonical_symbol="KRX:005930",
+                market_code="KRX",
+                ticker_or_code="005930",
+                display_name_ko="삼성전자",
+                display_name_en="Samsung Electronics",
+                aliases=("삼성전자", "Samsung Electronics", "005930", "KRX:005930"),
+                provider_ids=ProviderIds(kis_exchange_code="KRX"),
+                source="dart",
+            ),
+        ),
+        metadata={"active_source": "bundled"},
+    )
+    refreshed_registry = InstrumentRegistry(
+        generated_at="2026-03-23T00:00:00+00:00",
+        records=(
+            InstrumentRecord(
+                canonical_symbol="KRX:005930",
+                market_code="KRX",
+                ticker_or_code="005930",
+                display_name_ko="삼성전자",
+                display_name_en="Samsung Electronics",
+                aliases=("삼성전자", "Samsung Electronics", "005930", "KRX:005930"),
+                provider_ids=ProviderIds(kis_exchange_code="KRX"),
+                source="dart",
+            ),
+            InstrumentRecord(
+                canonical_symbol="KRX:58L002",
+                market_code="KRX",
+                ticker_or_code="58L002",
+                display_name_ko="KBL002삼성전자콜",
+                display_name_en="",
+                aliases=("KBL002삼성전자콜", "58L002", "KRX:58L002"),
+                provider_ids=ProviderIds(kis_exchange_code="KRX"),
+                source="krx-elw",
+            ),
+        ),
+        metadata={"active_source": "runtime"},
+    )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "load_registry", lambda: previous_registry)
+    monkeypatch.setattr(intel_scheduler, "build_live_registry", lambda dart_api_key: refreshed_registry)
+    monkeypatch.setattr(intel_scheduler, "DART_API_KEY", "dart-key")
+
+    def fake_save_registry(registry, path):
+        saved["registry"] = registry
+        saved["path"] = path
+
+    monkeypatch.setattr(intel_scheduler, "save_registry", fake_save_registry)
+
+    now = datetime(2026, 2, 13, 6, 20, tzinfo=KST)
+    await intel_scheduler._run_instrument_registry_refresh(now)
+
+    run = state["system"]["job_last_runs"]["instrument_registry_refresh"]
+    assert run["status"] == "ok"
+    assert run["detail"] == "source=runtime loaded=2 added=1 removed=0"
+    provider = state["system"]["provider_status"]["instrument_registry"]
+    assert provider["ok"] is True
+    assert provider["message"] == "source=runtime loaded=2 added=1 removed=0"
+    assert saved["path"] == intel_scheduler.RUNTIME_REGISTRY_FILE
+
+
+@pytest.mark.asyncio
+async def test_instrument_registry_refresh_keeps_active_registry_when_rebuild_fails(monkeypatch):
+    state = {"commands": {}, "guilds": {}}
+    save_calls = {"count": 0}
+    active_registry = InstrumentRegistry(
+        generated_at="2026-03-23T00:00:00+00:00",
+        records=(
+            InstrumentRecord(
+                canonical_symbol="KRX:005930",
+                market_code="KRX",
+                ticker_or_code="005930",
+                display_name_ko="삼성전자",
+                display_name_en="Samsung Electronics",
+                aliases=("삼성전자", "Samsung Electronics", "005930", "KRX:005930"),
+                provider_ids=ProviderIds(kis_exchange_code="KRX"),
+                source="dart",
+            ),
+        ),
+        metadata={"active_source": "bundled"},
+    )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "load_registry", lambda: active_registry)
+    monkeypatch.setattr(
+        intel_scheduler,
+        "build_live_registry",
+        lambda dart_api_key: (_ for _ in ()).throw(RuntimeError("dart-api-key-missing")),
+    )
+    monkeypatch.setattr(
+        intel_scheduler,
+        "registry_status",
+        lambda: {
+            "status": "ok",
+            "message": "source=bundled loaded=15649 krx=8131 nas=4248 nys=3270 ams=0",
+            "updated_at": "2026-03-23T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(intel_scheduler, "DART_API_KEY", "")
+
+    def fake_save_registry(*args, **kwargs):
+        save_calls["count"] += 1
+
+    monkeypatch.setattr(intel_scheduler, "save_registry", fake_save_registry)
+
+    now = datetime(2026, 2, 13, 6, 20, tzinfo=KST)
+    await intel_scheduler._run_instrument_registry_refresh(now)
+
+    assert save_calls["count"] == 0
+    run = state["system"]["job_last_runs"]["instrument_registry_refresh"]
+    assert run["status"] == "failed"
+    assert "dart-api-key-missing" in run["detail"]
+    assert "source=bundled loaded=15649" in run["detail"]
+    provider = state["system"]["provider_status"]["instrument_registry"]
+    assert provider["ok"] is False
+    assert "source=bundled loaded=15649" in provider["message"]
+
+
+def test_should_start_instrument_registry_refresh_retries_after_failed_same_day(monkeypatch):
+    now = datetime(2026, 2, 13, 6, 21, tzinfo=KST)
+    state = {
+        "system": {
+            "job_last_runs": {
+                "instrument_registry_refresh": {
+                    "status": "failed",
+                    "detail": "temporary upstream outage",
+                    "run_at": "2026-02-13T06:20:03+09:00",
+                }
+            }
+        }
+    }
+
+    should_run = intel_scheduler._should_start_instrument_registry_refresh(
+        state,
+        now,
+        refresh_hour=6,
+        refresh_minute=20,
+    )
+
+    assert should_run is True
+
+
+def test_should_start_instrument_registry_refresh_catches_up_after_late_start(monkeypatch):
+    should_run = intel_scheduler._should_start_instrument_registry_refresh(
+        {"system": {"job_last_runs": {}}},
+        datetime(2026, 2, 13, 6, 21, tzinfo=KST),
+        refresh_hour=6,
+        refresh_minute=20,
+    )
+
+    assert should_run is True
+
+
+def test_should_start_instrument_registry_refresh_does_not_retry_same_minute_or_missing_dart_key(monkeypatch):
+    same_minute = datetime(2026, 2, 13, 6, 20, 30, tzinfo=KST)
+    state = {
+        "system": {
+            "job_last_runs": {
+                "instrument_registry_refresh": {
+                    "status": "failed",
+                    "detail": "dart-api-key-missing",
+                    "run_at": "2026-02-13T06:20:03+09:00",
+                }
+            }
+        }
+    }
+
+    should_run_same_minute = intel_scheduler._should_start_instrument_registry_refresh(
+        state,
+        same_minute,
+        refresh_hour=6,
+        refresh_minute=20,
+    )
+    should_run_missing_key_later = intel_scheduler._should_start_instrument_registry_refresh(
+        state,
+        datetime(2026, 2, 13, 6, 21, tzinfo=KST),
+        refresh_hour=6,
+        refresh_minute=20,
+    )
+
+    assert should_run_same_minute is False
+    assert should_run_missing_key_later is False
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_runs_registry_refresh_once_at_configured_time(monkeypatch):
+    state = {"commands": {}, "guilds": {}}
+    refresh_calls = {"count": 0}
+    now = datetime(2026, 2, 13, 6, 20, tzinfo=KST)
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_refresh():
+        refresh_calls["count"] += 1
+        return {"source": "runtime", "loaded": 1, "added": 0, "removed": 0}
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20")
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert refresh_calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_keeps_watch_poll_running_while_registry_refresh_is_in_flight(monkeypatch):
+    state = {"commands": {}, "guilds": {}}
+    watch_calls: list[datetime] = []
+    refresh_started = asyncio.Event()
+    release_refresh = asyncio.Event()
+    now = datetime(2026, 2, 13, 6, 20, tzinfo=KST)
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_refresh():
+        refresh_started.set()
+        await release_refresh.wait()
+        return {"source": "runtime", "loaded": 1, "added": 0, "removed": 0}
+
+    async def fake_watch_poll(_client, run_now):
+        watch_calls.append(run_now)
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        assert refresh_started.is_set() is True
+        assert watch_calls == [now]
+        release_refresh.set()
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20")
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_INTERVAL_SECONDS", 60)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_poll", fake_watch_poll)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert watch_calls == [now]

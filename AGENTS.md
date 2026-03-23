@@ -66,7 +66,24 @@
 3. 관련 문서와 컨텍스트 로그가 필요한 만큼 갱신되었다.
 4. 남은 이슈, 가정, 다음 액션이 있으면 마지막에 짧게 정리한다.
 
-## 1-3) 브랜치/약속 문서화 규칙
+## 1-3) 환경변수/운영설정 최우선 규칙
+- 최우선 원칙:
+1. `.env`는 기본적으로 API 토큰, 시크릿, 자격증명처럼 민감하거나 배포 환경별로 주입해야 하는 값을 넣는 곳으로 본다.
+2. channel ID, forum ID, watch alert channel 같은 Discord 라우팅 값은 민감정보가 아니라 운영 상태값으로 보고 `data/state/state.json`을 source of truth로 둔다.
+3. `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID` 같은 env 채널 값은 개발 초기 bootstrap, 로컬 테스트, 임시 기본값 용도로만 허용한다.
+4. runtime이 mutable non-secret 설정을 env에서 직접 authoritative 하게 읽는 방향의 변경은 기본적으로 잘못된 변경으로 본다.
+
+- 예외 규칙:
+1. 예외적으로 env가 runtime source of truth여야 한다면, 왜 state가 아니라 env여야 하는지 먼저 설명 가능해야 한다.
+2. 그 예외는 진행 전에 `docs/context/design-decisions.md`와 `docs/context/session-handoff.md`에 문서화한다.
+3. 문서화 없는 예외는 허용하지 않는다.
+
+- 리뷰/거절 기준:
+1. 코드리뷰에서는 "민감정보는 env, mutable 운영 라우팅은 state" 원칙을 기본 acceptance gate로 사용한다.
+2. 새 코드가 채널/포럼/길드별 라우팅 값을 env에만 저장하거나 env를 runtime 우선 source로 읽으면 원칙 위반으로 보고 거절한다.
+3. 반대로 시크릿이나 자격증명을 state, 로그, 문서에 저장하는 변경도 같은 수준으로 거절한다.
+
+## 1-4) 브랜치/약속 문서화 규칙
 - 운영 약속 문서화 원칙:
 1. 세션 중 새로 합의한 운영 약속, 브랜치 전략, merge 방식, shipping 예외 규칙은 말로만 두지 않고 반드시 문서에 남긴다.
 2. 공통 규칙으로 계속 써야 하는 약속은 `AGENTS.md`에 반영한다.
@@ -79,7 +96,7 @@
 2. 이유 없이 `master`에만 먼저 들어가고 `develop`에는 빠지는 흐름을 만들지 않는다.
 3. 예외적으로 다른 흐름이 필요하면, 진행 전에 이유와 정리 계획을 먼저 문서화한다.
 
-## 1-4) Codex Subagent 운영 규칙
+## 1-5) Codex Subagent 운영 규칙
 - 기본 역할:
 1. `repo_explorer`: 코드 경로/영향 범위 탐색
 2. `reviewer`: 결함/회귀/테스트 리스크 검토
@@ -115,6 +132,11 @@
 5. 상태 저장
 
 ## 3) 운영 규칙 (Rules)
+- 환경변수/상태 저장 기준:
+1. 민감정보와 자격증명은 env에 둔다.
+2. 길드별 channel/forum/watch routing 값은 `data/state/state.json`에 둔다.
+3. env의 channel/forum ID는 bootstrap 또는 개발/테스트 기본값일 뿐, runtime authoritative config로 보지 않는다.
+
 - 서버별 포럼 채널 매핑:
 1. `/setforumchannel`로 길드별 채널 ID 저장
 2. 저장 위치: `data/state/state.json` -> `guilds.{guild_id}.forum_channel_id`
@@ -145,6 +167,10 @@
 2. `kheatmap/usheatmap`: 서버 채널에서만 실행
 
 ## 4) 설정 키/환경변수 (민감값 마스킹)
+- 원칙:
+1. env는 민감정보와 bootstrap/default 값을 담는다.
+2. channel/forum ID는 있어도 bootstrap/default 용도이며, 실운영 source of truth는 state다.
+
 - `DISCORD_BOT_TOKEN=<MASKED>`
 - `DEFAULT_FORUM_CHANNEL_ID=<OPTIONAL_CHANNEL_ID_OR_EMPTY>`
 - `DISCORD_GLOBAL_ADMIN_USER_IDS=<OPTIONAL_USER_ID_LIST>`
@@ -229,7 +255,7 @@ pytest -m live
 ## 9) 다음 세션 즉시 실행 TODO (5개)
 1. `DART_API_KEY`를 확보해 `scripts/build_instrument_registry.py`로 국내 종목 master를 seed 기반이 아니라 full master로 재생성
 2. `NEWS_PROVIDER_KIND=hybrid` + `MARKETAUX_API_TOKEN` 기준으로 해외 뉴스 fetch와 `/setnewsforum` 게시 흐름 실반영 검증
-3. `Polygon` US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
+3. `Massive`(구 `Polygon.io`) US fallback quote/reference adapter를 실제 `watch_poll` 보조 경로에 연결
 4. `OpenFIGI` reconciliation job 또는 offline 보강 스크립트로 provider 간 symbol mapping 정합성 보강
 5. `eod_summary`는 현재 pause 상태를 유지하고, 재개 요청이 생길 때만 `Twelve Data`/기타 매크로 소스로 재설계
 

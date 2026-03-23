@@ -3,7 +3,6 @@ from pathlib import Path
 
 import discord
 
-from bot.app.settings import DEFAULT_FORUM_CHANNEL_ID
 from bot.app.types import AppState
 from bot.common.clock import timestamp_text
 from bot.forum.repository import get_guild_forum_channel_id, load_state, save_state
@@ -13,6 +12,23 @@ from bot.markets.capture_service import get_or_capture_images
 CaptureFunc = Callable[[str, str], Awaitable[Path]]
 BodyBuilder = Callable[[str, list[str], list[str]], str]
 TitleBuilder = Callable[[], str]
+
+
+async def _resolve_guild_forum_channel(
+    client: discord.Client,
+    guild_id: int,
+    forum_channel_id: int,
+) -> discord.ForumChannel | None:
+    channel = client.get_channel(forum_channel_id)
+    if channel is None:
+        try:
+            channel = await client.fetch_channel(forum_channel_id)
+        except Exception:
+            return None
+    channel_guild = getattr(channel, "guild", None)
+    if not isinstance(channel, discord.ForumChannel) or getattr(channel_guild, "id", None) != guild_id:
+        return None
+    return channel
 
 
 async def execute_heatmap_for_guild(
@@ -26,11 +42,13 @@ async def execute_heatmap_for_guild(
 ) -> tuple[bool, str]:
     state: AppState = load_state()
     forum_channel_id = get_guild_forum_channel_id(state, guild_id)
-    if forum_channel_id is None:
-        forum_channel_id = DEFAULT_FORUM_CHANNEL_ID
 
     if forum_channel_id is None:
         return False, "이 서버의 포럼 채널이 설정되지 않았습니다. `/setforumchannel`로 먼저 설정해 주세요."
+
+    resolved_forum = await _resolve_guild_forum_channel(client, guild_id, forum_channel_id)
+    if resolved_forum is None:
+        return False, "이 서버에 연결된 포럼 채널 설정이 유효하지 않습니다. `/setforumchannel`로 다시 설정해 주세요."
 
     image_paths, failed, source_map = await get_or_capture_images(
         state=state,
@@ -60,7 +78,7 @@ async def execute_heatmap_for_guild(
             client=client,
             state=state,
             guild_id=guild_id,
-            forum_channel_id=forum_channel_id,
+            forum_channel_id=resolved_forum.id,
             command_key=command_key,
             post_title=title,
             body_text=body,

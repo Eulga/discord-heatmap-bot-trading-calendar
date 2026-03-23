@@ -5,7 +5,25 @@ import discord
 from discord import app_commands
 
 from bot.app.command_sync import format_command_sync_error, record_command_sync
+from bot.app.settings import (
+    DEFAULT_FORUM_CHANNEL_ID,
+    EOD_TARGET_FORUM_ID,
+    NEWS_TARGET_FORUM_ID,
+    WATCH_ALERT_CHANNEL_ID,
+)
 from bot.common.logging import setup_logging
+from bot.forum.repository import (
+    get_guild_eod_forum_channel_id,
+    get_guild_forum_channel_id,
+    get_guild_news_forum_channel_id,
+    get_guild_watch_alert_channel_id,
+    load_state,
+    save_state,
+    set_guild_eod_forum_channel_id,
+    set_guild_forum_channel_id,
+    set_guild_news_forum_channel_id,
+    set_guild_watch_alert_channel_id,
+)
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
 from bot.features.kheatmap.command import register as register_kheatmap
@@ -15,6 +33,80 @@ from bot.features.watch.command import register as register_watch
 from bot.features.intel_scheduler import intel_scheduler
 
 logger = logging.getLogger(__name__)
+
+
+async def _fetch_channel(client: discord.Client, channel_id: int) -> discord.abc.GuildChannel | discord.Thread | None:
+    channel = client.get_channel(channel_id)
+    if channel is not None:
+        return channel
+    try:
+        return await client.fetch_channel(channel_id)
+    except Exception:
+        return None
+
+
+async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> None:
+    state = load_state()
+    changed = False
+    specs = [
+        (
+            DEFAULT_FORUM_CHANNEL_ID,
+            "DEFAULT_FORUM_CHANNEL_ID",
+            discord.ForumChannel,
+            get_guild_forum_channel_id,
+            set_guild_forum_channel_id,
+        ),
+        (
+            NEWS_TARGET_FORUM_ID,
+            "NEWS_TARGET_FORUM_ID",
+            discord.ForumChannel,
+            get_guild_news_forum_channel_id,
+            set_guild_news_forum_channel_id,
+        ),
+        (
+            EOD_TARGET_FORUM_ID,
+            "EOD_TARGET_FORUM_ID",
+            discord.ForumChannel,
+            get_guild_eod_forum_channel_id,
+            set_guild_eod_forum_channel_id,
+        ),
+        (
+            WATCH_ALERT_CHANNEL_ID,
+            "WATCH_ALERT_CHANNEL_ID",
+            discord.TextChannel,
+            get_guild_watch_alert_channel_id,
+            set_guild_watch_alert_channel_id,
+        ),
+    ]
+
+    for channel_id, env_name, expected_type, getter, setter in specs:
+        if channel_id is None:
+            continue
+        channel = await _fetch_channel(client, channel_id)
+        if channel is None:
+            logger.warning("[startup] ignored %s because channel %s is not accessible", env_name, channel_id)
+            continue
+        if not isinstance(channel, expected_type):
+            logger.warning(
+                "[startup] ignored %s because channel %s is not a %s",
+                env_name,
+                channel_id,
+                expected_type.__name__,
+            )
+            continue
+        guild = getattr(channel, "guild", None)
+        guild_id = getattr(guild, "id", None)
+        if not isinstance(guild_id, int):
+            logger.warning("[startup] ignored %s because channel %s has no guild context", env_name, channel_id)
+            continue
+        if getter(state, guild_id) is not None:
+            continue
+        setter(state, guild_id, channel_id)
+        changed = True
+        logger.info("[startup] bootstrapped %s into state for guild=%s channel=%s", env_name, guild_id, channel_id)
+
+    if changed:
+        save_state(state)
 
 
 class BotApp:
@@ -51,6 +143,7 @@ class BotApp:
                     )
                     record_command_sync("ok", f"{len(synced_commands)} commands synced")
                     self._synced = True
+            await _bootstrap_guild_channel_routes_from_env(self.client)
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 logger.info("Auto screenshot scheduler started.")

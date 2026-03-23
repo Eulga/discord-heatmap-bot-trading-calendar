@@ -15,6 +15,34 @@ def test_resolve_watch_add_symbol_supports_us_ticker():
     assert resolved == "NAS:AAPL"
 
 
+def test_resolve_watch_add_symbol_supports_krx_etf_name():
+    resolved, error = resolve_watch_add_symbol("KODEX 200")
+
+    assert error is None
+    assert resolved == "KRX:069500"
+
+
+def test_resolve_watch_add_symbol_supports_krx_etn_name():
+    resolved, error = resolve_watch_add_symbol("KB 천연가스 선물 ETN(H)")
+
+    assert error is None
+    assert resolved == "KRX:580020"
+
+
+def test_resolve_watch_add_symbol_supports_krx_elw_name():
+    resolved, error = resolve_watch_add_symbol("KBL002삼성전자콜")
+
+    assert error is None
+    assert resolved == "KRX:58L002"
+
+
+def test_resolve_watch_add_symbol_supports_krx_pf_name():
+    resolved, error = resolve_watch_add_symbol("대신 KOSPI200인덱스 X클래스")
+
+    assert error is None
+    assert resolved == "KRX:0106J0"
+
+
 def test_resolve_watch_add_symbol_rejects_ambiguous_query():
     resolved, error = resolve_watch_add_symbol("현대")
 

@@ -1,5 +1,39 @@
 # Review Log
 
+## 2026-03-23
+- Context: `bot/intel/providers/market.py`의 overseas warm-up batch failure가 same-poll single-symbol fallback까지 막는 reviewer P2 후속 수정
+- Finding: 기존 지적은 유효했고, `_warm_overseas_chunk()`가 batch failure를 chunk 전체 `_quote_errors`로 저장해 버려 `get_quote()`가 개별 `price` endpoint fallback을 시도하지 못하고 즉시 실패할 수 있었다.
+- Resolution:
+1. batch request failure와 batch payload-shape failure는 best-effort warm-up failure로만 취급하고, per-symbol `_quote_errors`를 남기지 않게 바꿨다.
+2. 따라서 같은 poll cycle에서도 `get_quote()`가 single-symbol endpoint를 직접 호출해 회복할 수 있다.
+3. `tests/unit/test_market_provider.py`에 batch warm-up failure 후 single fetch fallback 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+- Status: done
+
+## 2026-03-23
+- Context: `/source-status`가 legacy `market_data_provider`와 신규 `kis_quote`를 함께 보여 줄 수 있다는 review finding 후속 수정
+- Finding: 기존 지적은 유효했고, persisted provider state가 append-only인 상황에서 status view merge가 legacy key를 정리하지 않아 health 출력이 ambiguous해질 수 있었다.
+- Resolution:
+1. `bot/features/status/command.py`는 이제 shared alias map으로 `market_data_provider -> kis_quote`, `polygon_reference -> massive_reference`를 canonical key로 합친다.
+2. actual state에 legacy key와 canonical key가 동시에 있을 때는 canonical row를 우선해 stale legacy row가 현재 provider status를 덮어쓰지 않게 했다.
+3. `tests/unit/test_status_command.py`에 legacy key normalization과 canonical-precedence 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_status_command.py -q` 통과 (`6 passed`)
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 현재 uncommitted KIS watch rollout 변경분에 대해 `integration_tester`와 `reviewer` subagent 병렬 검증을 요청했다.
+- Finding:
+1. `bot/intel/providers/market.py`의 overseas batch warm-up 실패는 chunk 안의 모든 symbol을 `_quote_errors`에 기록하고, 같은 poll cycle의 `get_quote()`는 single-symbol fetch 전에 `_quote_errors`를 먼저 확인한다. 그래서 `multprice`의 일시 실패가 있어도 개별 `price` API로 회복할 기회를 잃고, 전체 `watch_poll` quote failure로 굳어질 수 있다.
+2. `bot/features/status/command.py`는 기본 provider row를 `kis_quote`로 바꿨지만, 기존 state 파일의 `market_data_provider`는 정리하지 않는다. 현재 `_merge_defaults()`는 legacy key를 제거하지 않으므로 `/source-status`와 `/health`가 rollout 직후 한동안 두 quote-provider row를 함께 보여 줄 수 있다.
+- Evidence:
+1. `bot/intel/providers/market.py`의 `_warm_overseas_chunk()`는 batch fetch 실패 시 chunk 전체 symbol에 error를 저장하고, `get_quote()`는 cached error가 있으면 single-symbol fetch로 내려가기 전에 바로 예외를 던진다.
+2. `bot/features/status/command.py`의 `source-status`/`health`는 persisted provider state에 defaults를 `setdefault()`로만 합치므로, 기존 `market_data_provider` row가 남아 있으면 그대로 렌더된다.
+- Residual risk:
+1. non-live 테스트는 통과했지만, 실제 KIS upstream payload shape와 rate-limit/auth failure wording은 live smoke로 아직 검증하지 못했다.
+- Status: open
+
 ## 2026-03-22
 - Context: PR `#12`의 Codex review가 auto screenshot state 보존 fix에 추가 data-loss 경로가 남아 있다고 지적했다.
 - Finding:

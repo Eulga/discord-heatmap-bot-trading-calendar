@@ -8,6 +8,23 @@
 - 규칙은 가능한 한 실제로 놓친 사례에서만 추가한다.
 - 리뷰 중에는 칭찬보다 이 문서 규칙 충족 여부를 먼저 본다.
 
+## Rule 2) 민감정보와 운영 라우팅 설정의 저장 위치를 분리한다
+- Added: 2026-03-23
+- Why:
+1. 이 프로젝트는 멀티 길드 Discord 봇이라 channel/forum/watch routing 값을 env에서 runtime fallback처럼 읽기 시작하면 다른 길드까지 잘못 라우팅되기 쉽다.
+2. 반대로 API token, secret, credential을 state나 문서에 두면 보안과 운영 이력이 동시에 나빠진다.
+3. 최근 작업에서 env channel IDs가 cross-guild runtime fallback처럼 동작해 실제 라우팅 문제가 한 번 발생했고, 이를 `state authoritative + env bootstrap-only`로 바로잡았다.
+- Must:
+1. 시크릿, 토큰, 자격증명은 env 또는 동등한 secret store에 있어야 하고, state/log/docs에 저장하는 변경은 거절한다.
+2. channel ID, forum ID, 길드별 routing 값처럼 mutable non-secret 운영 데이터는 `data/state/state.json` 또는 동등한 state layer에 있어야 한다.
+3. env에 남는 channel/forum ID는 bootstrap, 개발 초기값, 테스트 기본값으로만 허용한다. runtime source of truth로 읽는 새 로직은 거절한다.
+4. 예외가 정말 필요하면 왜 env authoritative가 필요한지 설계 문서에 먼저 기록됐는지 확인한다. 문서화 없는 예외는 거절한다.
+5. README, `.env.example`, handoff 문서가 같은 기준으로 설명하는지도 함께 본다.
+- Done when:
+1. 리뷰 메모에 "민감정보는 env, mutable routing은 state" 기준 점검 여부가 남아 있다.
+2. runtime이 길드별 channel/forum 라우팅을 env 우선으로 읽지 않는다.
+3. 문서와 코드가 모두 bootstrap-only env semantics를 같은 표현으로 사용한다.
+
 ## Rule 1) 실패 경로와 운영 정합성까지 리뷰한다
 - Added: 2026-03-18
 - Why:

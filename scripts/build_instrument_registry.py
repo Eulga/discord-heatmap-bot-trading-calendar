@@ -5,12 +5,18 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from bot.intel.instrument_registry import (
     MODULE_ROOT,
     REGISTRY_FILE,
     SEED_FILE,
     build_registry,
     fetch_dart_corpcode_bytes,
+    fetch_krx_elw_rows,
+    fetch_krx_etf_rows,
+    fetch_krx_etn_rows,
+    fetch_krx_pf_rows,
     fetch_sec_company_tickers,
     read_dart_corpcode_bytes,
     save_registry,
@@ -20,6 +26,8 @@ from bot.intel.instrument_registry import (
 REPO_ROOT = MODULE_ROOT.parent.parent
 RAW_DART_FILE = REPO_ROOT / "docs" / "references" / "external" / "opendart-corpcode.xml"
 RAW_SEC_FILE = REPO_ROOT / "docs" / "references" / "external" / "sec-company-tickers-exchange.json"
+
+load_dotenv(REPO_ROOT / ".env")
 
 
 def _load_seed_records() -> list[dict]:
@@ -53,6 +61,10 @@ def main() -> int:
         seed_records=_load_seed_records(),
         dart_xml_bytes=_load_dart_bytes(args.dart_api_key or None),
         sec_payload=_load_sec_rows(),
+        krx_etf_rows=fetch_krx_etf_rows(),
+        krx_etn_rows=fetch_krx_etn_rows(),
+        krx_elw_rows=fetch_krx_elw_rows(),
+        krx_pf_rows=fetch_krx_pf_rows(),
     )
     save_registry(registry, path=args.output)
     print(
