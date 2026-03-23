@@ -1,6 +1,17 @@
 # Session Handoff
 
 ## 2026-03-23
+- Context: 사용자가 `develop` 최신 상태를 반영한 뒤 Docker Compose 서비스를 새로 올려 달라고 요청했다.
+- Current state:
+1. 워크스페이스는 `develop@66d9b6c`까지 fast-forward 동기화된 상태에서 `docker compose up -d --build`를 실행했다.
+2. `discord-heatmap-bot` 컨테이너는 recreate 후 `Up` 상태다.
+3. 재기동 직후 컨테이너 로그에는 Gateway 연결, global commands 11개 sync, `Auto screenshot scheduler started`, `Intel scheduler started`, `Logged in as Drumstick#9496`가 남았다.
+4. startup bootstrap 로그 기준 `DEFAULT_FORUM_CHANNEL_ID`와 `EOD_TARGET_FORUM_ID`가 guild `332110589969039360` state로 다시 반영됐다.
+- Next:
+1. 운영 smoke가 필요하면 Discord에서 `/health`, `/source-status`, `/kheatmap` 중 최소 1개를 눌러 interaction ingress까지 확인한다.
+- Status: done
+
+## 2026-03-23
 - Context: 사용자가 reviewer subagent clean + integration subagent pass를 확인한 뒤 현재 변경분을 커밋/푸시하라고 요청했다.
 - Current state:
 1. instrument registry refresh scheduler는 review 후속 수정까지 반영됐다. refresh task는 background에서 live rebuild만 수행하고, `job_last_runs`/`provider_status` 반영은 메인 scheduler loop가 task 완료 후 기록한다.
