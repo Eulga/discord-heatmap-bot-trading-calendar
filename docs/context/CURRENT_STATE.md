@@ -41,7 +41,7 @@
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
 - State writes are not visibly serialized across commands, schedulers, and startup paths.
-- Exact-minute daily schedulers can miss a run after late start or event-loop delay.
+- Heatmap auto scheduling now has same-day catch-up after its fixed time, but news/EOD daily schedulers are still exact-minute-only and can miss a run after late start or event-loop delay.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch polling can evaluate stale or off-hours quotes as live alert signals.
 - Severity and implementation priority for these concerns are tracked separately in `../reports/qa-issue-review-2026-03-24.md`.
@@ -50,7 +50,7 @@
 - Do not treat `../specs/external-intel-api-spec.md` as the current implementation truth.
 - Do not treat `../specs/qa-test-backlog.md` as current test coverage; it is a backlog-style planning document.
 - Do not treat `../reports/qa-issue-review-2026-03-24.md` as a runtime spec; it is a QA assessment/report.
-- Do not assume live EOD behavior, robust daily catch-up, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
+- Do not assume live EOD behavior, robust daily catch-up beyond the current heatmap auto scheduler, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
 
 ## Last Verified

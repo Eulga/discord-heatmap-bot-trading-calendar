@@ -29,6 +29,10 @@ def _theme_brief(region: str, name: str, now: datetime, base_url: str) -> ThemeB
     )
 
 
+def _news_guild(channel_id: int) -> dict[str, int]:
+    return {"news_forum_channel_id": channel_id}
+
+
 class FakeForumChannel:
     def __init__(self, guild_id: int):
         self.guild = SimpleNamespace(id=guild_id)
@@ -69,7 +73,7 @@ class MixedForumClient:
 
 @pytest.mark.asyncio
 async def test_news_job_records_provider_failure(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class FailingProvider:
         async def fetch(self, now):
@@ -123,8 +127,32 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch):
+async def test_news_job_skips_when_only_base_forum_is_configured(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
+    called = {"fetch": 0}
+
+    class Provider:
+        async def fetch(self, now):
+            called["fetch"] += 1
+            return []
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert called["fetch"] == 0
+    runs = state["system"]["job_last_runs"]
+    assert runs["news_briefing"]["status"] == "skipped"
+    assert "no-target-forums" in runs["news_briefing"]["detail"]
+    assert runs["trend_briefing"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_news_job_skips_explicit_news_forum_from_other_guild(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": _news_guild(999)}}
     called = {"fetch": 0}
 
     class Provider:
@@ -149,7 +177,7 @@ async def test_news_job_skips_global_fallback_forum_from_other_guild(monkeypatch
 
 @pytest.mark.asyncio
 async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(999)}}
     called = {"fetch": 0}
 
     class Provider:
@@ -174,7 +202,7 @@ async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_news_job_skips_holiday_before_forum_resolution_errors(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 999}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(999)}}
     called = {"fetch": 0}
 
     class Provider:
@@ -203,8 +231,8 @@ async def test_news_job_continues_after_one_forum_resolution_api_error(monkeypat
     state = {
         "commands": {},
         "guilds": {
-            "1": {"forum_channel_id": 123},
-            "2": {"forum_channel_id": 999},
+            "1": _news_guild(123),
+            "2": _news_guild(999),
         },
     }
 
@@ -258,7 +286,7 @@ async def test_news_job_continues_after_one_forum_resolution_api_error(monkeypat
 
 @pytest.mark.asyncio
 async def test_news_job_retries_same_items_after_post_failure(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def fetch(self, now):
@@ -302,7 +330,7 @@ async def test_news_job_keeps_ok_status_when_later_tick_has_only_missing_forums(
     state = {
         "commands": {},
         "guilds": {
-            "1": {"forum_channel_id": 123},
+            "1": _news_guild(123),
             "2": {},
         },
     }
@@ -333,8 +361,47 @@ async def test_news_job_keeps_ok_status_when_later_tick_has_only_missing_forums(
 
 
 @pytest.mark.asyncio
+async def test_news_job_posts_only_for_guilds_with_explicit_news_route(monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": _news_guild(123),
+            "2": {"forum_channel_id": 456},
+        },
+    }
+
+    class Provider:
+        async def fetch(self, now):
+            return [
+                NewsItem("국내 기사", "https://example.com/domestic-1", "example.com", now, "domestic"),
+                NewsItem("해외 기사", "https://example.com/global-1", "example.com", now, "global"),
+            ]
+
+    calls: list[tuple[int, str]] = []
+
+    async def ok_post(**kwargs):
+        calls.append((kwargs["guild_id"], kwargs["command_key"]))
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
+
+    now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_news_job(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert calls == [
+        (1, "newsbriefing-domestic"),
+        (1, "newsbriefing-global"),
+    ]
+    assert state["guilds"]["1"]["last_auto_runs"]["newsbriefing"] == "2026-02-13"
+    assert "last_auto_runs" not in state["guilds"]["2"]
+    assert "missing_forum=1" in state["system"]["job_last_runs"]["news_briefing"]["detail"]
+
+
+@pytest.mark.asyncio
 async def test_news_job_uses_configured_limit_per_region(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def fetch(self, now):
@@ -389,7 +456,7 @@ async def test_news_job_uses_configured_limit_per_region(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_news_job_dedups_same_story_across_regions(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def fetch(self, now):
@@ -429,7 +496,7 @@ async def test_news_job_dedups_same_story_across_regions(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_news_job_posts_domestic_and_global_threads_separately(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def fetch(self, now):
@@ -463,8 +530,8 @@ async def test_news_job_marks_failed_when_any_guild_post_fails(monkeypatch):
     state = {
         "commands": {},
         "guilds": {
-            "1": {"forum_channel_id": 123},
-            "2": {"forum_channel_id": 456},
+            "1": _news_guild(123),
+            "2": _news_guild(456),
         },
     }
 
@@ -498,7 +565,7 @@ async def test_news_job_marks_failed_when_any_guild_post_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_news_job_posts_trendbriefing_with_content_messages(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def analyze(self, now):
@@ -556,8 +623,8 @@ async def test_news_job_marks_trend_failed_when_any_guild_trend_post_fails(monke
     state = {
         "commands": {},
         "guilds": {
-            "1": {"forum_channel_id": 123},
-            "2": {"forum_channel_id": 456},
+            "1": _news_guild(123),
+            "2": _news_guild(456),
         },
     }
 
@@ -608,7 +675,7 @@ async def test_news_job_marks_trend_failed_when_any_guild_trend_post_fails(monke
 
 @pytest.mark.asyncio
 async def test_news_job_skips_trendbriefing_when_both_regions_are_below_minimum(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def analyze(self, now):
@@ -651,7 +718,7 @@ async def test_news_job_skips_trendbriefing_when_both_regions_are_below_minimum(
 
 @pytest.mark.asyncio
 async def test_news_job_uses_placeholder_for_region_below_minimum_when_other_region_qualifies(monkeypatch):
-    state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
+    state = {"commands": {}, "guilds": {"1": _news_guild(123)}}
 
     class Provider:
         async def analyze(self, now):

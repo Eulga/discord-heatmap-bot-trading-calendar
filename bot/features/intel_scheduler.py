@@ -369,10 +369,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         ):
             completed_guilds += 1
             continue
-        forum_channel_id = (
-            get_guild_news_forum_channel_id(state, guild_id)
-            or get_guild_forum_channel_id(state, guild_id)
-        )
+        forum_channel_id = get_guild_news_forum_channel_id(state, guild_id)
         if forum_channel_id is None:
             missing_forum += 1
             continue

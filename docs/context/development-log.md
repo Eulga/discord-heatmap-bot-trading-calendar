@@ -1,6 +1,36 @@
 # Development Log
 
 ## 2026-03-24
+- Context: 사용자가 뉴스 forum routing은 explicit route only로 바꾸고, base guild forum fallback을 제거하라고 요청했다.
+- Change:
+1. `bot/features/intel_scheduler.py`의 뉴스 경로는 이제 `news_forum_channel_id`가 있을 때만 pending guild로 잡는다.
+2. `forum_channel_id`만 있는 길드는 `missing_forum`으로 처리되어 뉴스/트렌드 게시 대상에서 제외된다.
+3. startup `NEWS_TARGET_FORUM_ID` bootstrap은 그대로 유지하고, runtime fallback이 아니라 `news_forum_channel_id` state initializer로만 계속 사용한다.
+4. `tests/integration/test_intel_scheduler_logic.py`는 뉴스 성공 경로를 explicit `news_forum_channel_id` 기준으로 갱신했고, base-forum-only skip과 mixed routing state를 추가 검증하도록 확장했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_bot_client.py -q`
+2. `.\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py -q`
+3. 결과: unit `2 passed`, integration `43 passed`
+- Next:
+1. 현재 local state의 guild `1470388757617446924`는 `forum_channel_id`만 있고 `news_forum_channel_id`가 없어, 배포 후 뉴스/트렌드 게시를 계속 원하면 explicit `/setnewsforum` 또는 startup bootstrap으로 state를 채워야 한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 heatmap auto scheduler가 exact scheduled minute를 놓치면 실행을 miss하는 버그를 same-day catch-up 방식으로 고치라고 요청했다.
+- Change:
+1. `bot/features/auto_scheduler.py`는 이제 `15:35`/`06:05` KST exact-minute match가 아니라, fixed scheduled time 이후 same-day catch-up으로 heatmap auto job을 실행한다.
+2. guild state에 `last_auto_attempts`를 추가하고 `bot/forum/repository.py`, `bot/app/types.py`에 helper/type을 보강했다.
+3. 정책은 `하루 1회 scheduled auto attempt`로 고정했다. success, holiday, calendar failure, runner failure 모두 그 날의 auto attempt를 소비하고, success일 때만 `last_auto_runs`가 기록된다.
+4. trading-day check는 late catch-up 시에도 intended schedule 시각 기준으로 평가되도록 scheduled timestamp로 호출한다.
+5. `tests/integration/test_auto_scheduler_logic.py`는 catch-up success, pre-schedule no-op, existing skip guard, failure consumes attempt, state preservation을 포함하도록 확장했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\integration\test_auto_scheduler_logic.py -q`
+2. 결과: `10 passed`
+- Next:
+1. 필요하면 실제 운영에서 scheduled minute 직후 재기동 상황을 한 번 만들어 same-day catch-up이 기대대로 동작하는지 Discord smoke로 확인한다.
+- Status: done
+
+## 2026-03-24
 - Context: 사용자가 documentation update policy를 현재 구조에 맞게 AGENTS/operating-rules에 반영하라고 요청했다.
 - Change:
 1. `AGENTS.md`의 Documentation Update Rules를 최소 수정 원칙과 문서별 update trigger 중심으로 교체했다.

@@ -41,6 +41,12 @@
 - Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
 - Runtime routing should be checked in `data/state/state.json` when validating actual behavior.
 
+## Active Runtime Request Knobs
+- Shared live-provider request behavior:
+  - `INTEL_API_TIMEOUT_SECONDS`
+  - `INTEL_API_RETRY_COUNT`
+- These are active runtime envs used by current live provider construction for news and market-data paths.
+
 ## Feature Toggles
 - News:
   - `NEWS_BRIEFING_ENABLED`
@@ -65,6 +71,9 @@
   - `LOG_CONSOLE_ENABLED`
 
 ## Code-Confirmed Defaults
+- Shared live-provider request behavior:
+  - `INTEL_API_TIMEOUT_SECONDS = 5`
+  - `INTEL_API_RETRY_COUNT = 1`
 - Cache and auto screenshot:
   - `CACHE_TTL_SECONDS = 3600`
   - auto screenshot runs only on exact-minute checks hard-coded as `15:35` KST for Korea and `06:05` KST for US

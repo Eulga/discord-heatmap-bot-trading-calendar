@@ -19,7 +19,7 @@
 - The current system is a Discord bot that can post daily Korea/US heatmap images into Discord forum threads and can also run scheduled news, trend, watch-alert, and registry-refresh jobs. This is confirmed by `bot/main.py`, `bot/app/bot_client.py`, `bot/features/runner.py`, `bot/features/auto_scheduler.py`, and `bot/features/intel_scheduler.py`.
 - The main runtime model is event-driven plus background polling:
   - slash commands trigger manual heatmap posting, route setup, watchlist changes, and status reads
-  - `auto_screenshot_scheduler()` runs every 30 seconds and only acts on exact KST minute matches
+  - `auto_screenshot_scheduler()` runs every 30 seconds and can catch up once per day after the fixed KST schedule has passed
   - `intel_scheduler()` runs every 15 seconds and checks exact-minute news/EOD times plus elapsed watch interval and registry refresh state
   - This is confirmed by `bot/features/auto_scheduler.py` and `bot/features/intel_scheduler.py`.
 - The main external dependencies currently wired into runtime are:
@@ -287,26 +287,27 @@
 - Runtime inputs:
   - current KST time
   - guild auto-screenshot flags in state
-  - last auto-run and last auto-skip dates in state
+  - last auto-attempt, last auto-run, and last auto-skip dates in state
 - Provider inputs:
   - KRX/NYSE trading-day check helpers
   - heatmap capture through `execute_heatmap_for_guild()`
 
 ### 4.4 Processing flow
-1. Every loop, `process_auto_screenshot_tick()` computes current date and eligible jobs by exact hour/minute match.
+1. Every loop, `process_auto_screenshot_tick()` computes current date and eligible jobs whose fixed scheduled time has already passed in KST.
 2. It loads state and enumerates guilds with `auto_screenshot_enabled == True`.
 3. For each job and guild:
-   - skip if `last_auto_runs.{command_key}` already equals today
-   - check trading day with the market-specific calendar helper
-   - on calendar failure, record one skip per date and log a warning
-   - on holiday, record one skip per date and log info
+   - skip if today is already recorded in `last_auto_attempts.{command_key}`, `last_auto_runs.{command_key}`, or `last_auto_skips.{command_key}`
+   - check trading day with the market-specific calendar helper using the scheduled KST timestamp for that job
+   - on calendar failure, record one skip per date, record the day as an attempted auto run, and log a warning
+   - on holiday, record one skip per date, record the day as an attempted auto run, and log info
 4. When a trading day is confirmed, `execute_heatmap_for_guild()` is called.
-5. On success, state is reloaded before saving `last_auto_runs` to avoid clobbering runner changes.
-6. If the refreshed state looks empty while previous guild state existed, the scheduler skips writing `last_auto_runs` and logs a warning.
-7. On failure, only logs are written; no user-facing response exists.
+5. On success, state is reloaded before saving `last_auto_runs` and `last_auto_attempts` to avoid clobbering runner changes.
+6. If the refreshed state looks empty while previous guild state existed, the scheduler skips writing auto metadata and logs a warning.
+7. On failure, state is reloaded before saving `last_auto_attempts`; the failure consumes that day’s scheduled auto attempt and no user-facing response exists.
 
 ### 4.5 Outputs
 - Scheduled forum posts for heatmaps
+ - `guilds.{guild_id}.last_auto_attempts`
 - `guilds.{guild_id}.last_auto_runs`
 - `guilds.{guild_id}.last_auto_skips`
 - logs
@@ -317,8 +318,8 @@
 
 ### 4.7 Error / edge handling (As-Is)
 - Scheduler loop catches all exceptions, logs them, and sleeps 30 seconds before continuing.
-- Skip reason is persisted once per day for holiday or calendar-check failure.
-- There is no visible catch-up logic if startup happens after the exact scheduled minute.
+- Skip reason is persisted once per day for holiday or calendar-check failure, and those outcomes also consume the day’s scheduled auto attempt.
+- There is visible same-day catch-up logic after the fixed scheduled minute, but only one scheduled auto attempt is consumed per guild/job/date.
 
 ### 4.8 Operational constraints
 - Exact-minute schedule only
@@ -538,7 +539,7 @@
   - Naver/Marketaux query, limit, age, timeout, and retry env vars
 - Runtime inputs:
   - current KST datetime
-  - per-guild `news_forum_channel_id` or fallback `forum_channel_id`
+  - per-guild `news_forum_channel_id` from state, including values explicitly configured by command or initialized into state by startup `NEWS_TARGET_FORUM_ID` bootstrap
   - previous job status and per-guild last auto-run dates
 - Provider inputs:
   - `news_provider` singleton built at module import time
@@ -554,7 +555,7 @@
      - `guilds.{guild_id}.last_auto_runs.newsbriefing` equals today
      - both domestic and global daily threads exist for today
      - trend briefing is complete or was explicitly skipped for today
-   - otherwise it resolves the target forum as `news_forum_channel_id` or fallback `forum_channel_id`
+   - otherwise it requires `news_forum_channel_id`; `forum_channel_id` alone does not make the guild eligible for news/trend posting
 3. If `NEWS_BRIEFING_TRADING_DAYS_ONLY` is true, the job checks KRX trading day before forum resolution/posting.
 4. For pending guilds, the forum channel is resolved through `_resolve_guild_forum_channel_id()`.
 5. The job calls the provider analysis path:
@@ -862,7 +863,7 @@
 - Missing or invalid runtime registry payload can raise when directly loaded.
 - `registry_status()` converts registry load failure into a failed status row instead of throwing.
 - On refresh failure, the inspected code records failure detail and does not call `save_registry()` in that run.
-- Refresh is the only inspected scheduler path with explicit same-day catch-up logic after scheduled time.
+- Refresh and heatmap auto scheduling are the inspected scheduler paths with explicit same-day catch-up logic after scheduled time.
 
 ### 4.8 Operational constraints
 - Registry refresh depends on external network access and `DART_API_KEY`.
@@ -925,7 +926,7 @@
 - The bot also retains a legacy `on_message` handler for `!ping`.
 
 ## 5.2 Scheduled execution behavior
-- `auto_screenshot_scheduler()` wakes every 30 seconds and only runs heatmap jobs at exact minute matches `15:35` and `06:05` KST.
+- `auto_screenshot_scheduler()` wakes every 30 seconds and can run heatmap jobs any time after the fixed `15:35` / `06:05` KST schedule has passed, but only once per guild/job/date.
 - `intel_scheduler()` wakes every 15 seconds.
 - News and EOD jobs are exact-minute checks against configured `HH:MM` values.
 - Watch polling is elapsed-interval based using `last_watch_run`.
@@ -1221,9 +1222,9 @@
   - Current operational risk: concurrent writers can overwrite unrelated changes.
   - Confidence: Confirmed
 - Gap ID: G-03
-  - Gap: auto screenshot, news, and EOD schedulers are exact-minute only and do not show same-day catch-up logic after a late start.
-  - Observed evidence: `bot/features/auto_scheduler.py`, `bot/features/intel_scheduler.py`
-  - Current operational risk: startup or reconnect after the scheduled minute can skip a day’s run.
+  - Gap: news and EOD schedulers are exact-minute only and do not show same-day catch-up logic after a late start.
+  - Observed evidence: `bot/features/intel_scheduler.py`
+  - Current operational risk: startup or reconnect after the scheduled minute can skip a day’s news/EOD run.
   - Confidence: Confirmed
 - Gap ID: G-04
   - Gap: route setup commands do not visibly validate the bot’s effective permissions on the chosen channel.
@@ -1272,7 +1273,7 @@
 | --- | --- | --- | --- |
 | Heatmap routing | Runtime heatmap posting reads per-guild forum route from `data/state/state.json` | Whether env bootstrap is always intended to remain supported | Do not assume env IDs are runtime fallback routing |
 | Same-day post reuse | Reuse depends on stored thread/message IDs and successful fetch/edit of existing resources | Reliability under transient Discord fetch failures | Do not assume idempotent upsert under all API failure modes |
-| Auto screenshot schedule | Exact-minute `15:35`/`06:05` checks every 30s | Whether missed runs are acceptable operationally | Do not assume catch-up after late start |
+| Auto screenshot schedule | Checks every 30s and can run once per guild/job/date any time after fixed `15:35`/`06:05` KST schedule has passed | Whether same-day late execution is operationally acceptable for all guilds | Do not assume an exact-minute-only trigger |
 | News posting | Posts separate domestic/global daily threads and an optional trend thread | Whether partial-region success should count as healthy | Do not assume robust regional failure isolation |
 | Trend posting | In current code, the trend thread is skipped unless at least one region has 3+ themes; empty displayed regions are rendered as placeholder content messages | Intended theme-quality guarantee | Do not assume business-quality trend accuracy from current heuristics |
 | EOD summary | Scheduler path exists but provider is mock and feature default is off | Whether live EOD was meant to be production-ready | Do not assume real market-close data |
@@ -1289,3 +1290,4 @@
   - whether watch alerts are meant to be session-aware
   - whether EOD is development-only or supported when enabled
 - The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that distinguishes exact-minute jobs from the registry refresh catch-up path.
+- The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that clearly separates heatmap catch-up behavior from exact-minute news/EOD jobs and the registry refresh catch-up path.

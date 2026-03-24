@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-03-24
+- Context: 뉴스 포스트가 explicit news forum 설정 없이도 기본 guild forum으로 생성되어, operator 입장에서 hidden fallback처럼 보이는 문제가 확인됐다.
+- Decision: 뉴스/트렌드 게시 경로는 explicit `news_forum_channel_id`가 있는 길드만 대상으로 본다. `forum_channel_id`는 뉴스 runtime fallback으로 사용하지 않는다. `NEWS_TARGET_FORUM_ID`는 startup에서 `news_forum_channel_id`를 채우는 bootstrap initializer로만 유지한다.
+- Why:
+1. operator는 news-specific forum을 따로 설정하지 않았으면 뉴스가 게시되지 않는다고 기대하는 편이 자연스럽다.
+2. `forum_channel_id` fallback은 cross-posting과 hidden routing을 만들고, 현재 state만 보고도 “왜 게시됐는지”를 혼동하게 한다.
+3. startup bootstrap과 runtime fallback을 분리하면 env default는 유지하면서도 실제 게시 허용 조건은 더 예측 가능해진다.
+- Impact:
+1. `news_forum_channel_id`가 없는 길드는 `forum_channel_id`만 있어도 뉴스/트렌드 자동 게시 대상이 아니다.
+2. `/setnewsforum`으로 explicit route를 넣거나 startup bootstrap이 `news_forum_channel_id`를 채운 경우에만 뉴스/트렌드 게시가 가능하다.
+3. heatmap, EOD, watch routing 정책은 이번 결정 범위에 포함되지 않는다.
+- Status: accepted
+
 ## 2026-03-23
 - Context: 사용자가 `watch_poll`에서 같은 방향으로 이미 한 번 보낸 변동 알림이 10분 cooldown 뒤 다시 오는 것은 원치 않는다고 보고했다.
 - Decision: watch 알림은 `cooldown only`가 아니라 `same-direction latch + cooldown` 조합으로 운영한다. 즉 같은 심볼이 같은 방향 임계치 밖에 계속 머무르면 첫 알림만 보내고, 임계치 안으로 한 번 복귀해야 같은 방향 알림을 다시 허용한다.

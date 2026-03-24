@@ -5,15 +5,15 @@
 
 ## Current Goals
 
-### 1) 확장 스케줄 실사용 전환
-- Goal: 뉴스 브리핑, 장마감 요약, watchlist 알림 스케줄을 mock 단계에서 실제 외부 API 기반 운영 단계로 전환한다.
+### 1) 확장 스케줄 운영 고도화
+- Goal: 뉴스와 watch 실운영 경로를 안정화하고, 남은 EOD live rollout 및 운영 hardening을 마무리한다.
 - Why:
-1. 새로 추가된 스케줄 기능은 이미 사용자 가치가 있지만, 현재 provider가 mock 구현이라 실제 운영 데이터가 아니다.
-2. 벤더 선택 전에 공통 계약을 먼저 고정해야 구현 방향과 장애 대응 기준이 세션마다 흔들리지 않는다.
-3. watchlist 폴링은 반복 호출 특성이 있어 인증, 응답 스키마, 타임아웃, rate limit 기준이 선행돼야 한다.
+1. 뉴스 provider와 watch/KIS wiring은 이미 live 경로가 존재하지만 운영 완성도는 아직 균일하지 않다.
+2. EOD는 아직 live 경로와 운영 기준 정리가 더 필요하다.
+3. 인증, 응답 스키마, 타임아웃, rate limit 기준이 더 명확해야 이후 구현과 장애 대응 기준이 흔들리지 않는다.
 - Done when:
-1. `docs/specs/external-intel-api-spec.md` 기준 외부 API 계약이 확정된다.
-2. `NewsProvider`, `EodSummaryProvider`, `MarketDataProvider` 중 최소 1개 이상이 실제 API로 대체된다.
+1. 뉴스와 watch 실운영 경로의 검증/운영 기준이 문서와 구현에 반영된다.
+2. EOD live provider 경로 또는 대체 운영 방향이 확정되고 hardening이 반영된다.
 3. 실패/지연/rate limit 대응 정책과 운영용 환경변수 구성이 문서 및 구현에 반영된다.
 - Status: active
 

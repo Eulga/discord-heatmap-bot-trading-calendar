@@ -168,6 +168,23 @@ def set_guild_last_auto_run_date(state: AppState, guild_id: int, command_key: st
         last_auto_runs[command_key] = date_text
 
 
+def get_guild_last_auto_attempt_date(state: AppState, guild_id: int, command_key: str) -> str | None:
+    guild_cfg = _get_guild_config(state, guild_id)
+    last_auto_attempts = guild_cfg.get("last_auto_attempts")
+    if isinstance(last_auto_attempts, dict):
+        value = last_auto_attempts.get(command_key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def set_guild_last_auto_attempt_date(state: AppState, guild_id: int, command_key: str, date_text: str) -> None:
+    guild_cfg = _get_guild_config(state, guild_id)
+    last_auto_attempts = guild_cfg.setdefault("last_auto_attempts", {})
+    if isinstance(last_auto_attempts, dict):
+        last_auto_attempts[command_key] = date_text
+
+
 def get_guild_last_auto_skip_date(state: AppState, guild_id: int, command_key: str) -> str | None:
     guild_cfg = _get_guild_config(state, guild_id)
     last_auto_skips = guild_cfg.get("last_auto_skips")
