@@ -1,6 +1,96 @@
 # Development Log
 
 ## 2026-03-24
+- Context: 사용자가 documentation update policy를 현재 구조에 맞게 AGENTS/operating-rules에 반영하라고 요청했다.
+- Change:
+1. `AGENTS.md`의 Documentation Update Rules를 최소 수정 원칙과 문서별 update trigger 중심으로 교체했다.
+2. `docs/context/operating-rules.md`의 Context Update Rules를 current truth, config/runtime, deep spec, logs, backlog/report 경계가 드러나도록 구체화했다.
+3. `docs/context/session-handoff.md`에 최신 policy 변경을 남기고, 밀려난 older active block은 `docs/context/session-history.md`로 이동했다.
+- Verification:
+1. `AGENTS.md`와 `docs/context/operating-rules.md`를 다시 읽어 중복은 줄이고 역할 경계는 유지됐는지 확인했다.
+2. `session-handoff.md`가 최신 3개 active block만 유지하는지 확인했다.
+3. 이번 단계는 문서 정책 정리 작업이라 테스트는 실행하지 않았다.
+- Next:
+1. 이후 문서 변경은 새 policy에 맞춰 최소 범위로만 반영한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 code verification required 문서 진술을 실제 코드 기준으로 검증하라고 요청했다.
+- Change:
+1. `bot/app/settings.py`, `bot/features/*`, `bot/app/bot_client.py`, `bot/forum/service.py`, `bot/forum/repository.py`, `bot/intel/providers/*`, `bot/markets/cache.py`를 읽어 exact defaults, authorization boundary, provider wiring을 코드 기준으로 재확인했다.
+2. `docs/operations/config-reference.md`에 code-confirmed defaults, bootstrap env 동작, provider wiring, status-only env 역할을 최소 범위로 추가했다.
+3. `docs/operations/runtime-runbook.md`에 setup/admin command와 watch/status/manual command의 현재 코드 기준 authorization boundary를 짧게 추가했다.
+4. `docs/context/CURRENT_STATE.md`는 current behavior concern과 QA review artifact의 경계를 더 분명히 하도록 canonical pointer와 blocker 섹션 표현을 좁혔다.
+- Verification:
+1. 코드 검색으로 `ADMIN_STATUS_CHANNEL_ID`가 settings 외 bot code에서 직접 사용되지 않음을 확인했다.
+2. `TWELVEDATA_API_KEY`, `OPENFIGI_API_KEY`가 현재 bot code에서는 status row 외 active runtime path에 연결되지 않음을 확인했다.
+3. `MASSIVE_API_KEY`/legacy `POLYGON_API_KEY`는 `MARKET_DATA_PROVIDER_KIND=kis`일 때 미국 종목 fallback provider로만 연결되는 것을 확인했다.
+4. 이번 단계는 문서 정확도 보강 작업이라 테스트는 실행하지 않았다.
+- Next:
+1. 추가 문서 개편은 없고, 이후 필요 시 query-list defaults나 heuristic constant 같은 low-value ambiguity만 코드 대조로 좁힌다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 문서 migration plan의 Phase 3 실행을 요청했다.
+- Change:
+1. QA test backlog 문서는 이제 `docs/specs/qa-test-backlog.md`에 있다.
+2. 최신 consolidated QA review report는 이제 `docs/reports/qa-issue-review-2026-03-24.md`에 있다.
+3. `docs/context/CURRENT_STATE.md`, `docs/context/operating-rules.md`의 포인터와 moved report 내부의 supporting evidence 경로를 새 taxonomy에 맞게 갱신했다.
+4. `docs/context/session-handoff.md`는 최신 3개 active block만 유지하도록 한 block을 `docs/context/session-history.md`로 내려 보냈다.
+- Verification:
+1. renamed/moved file 두 개가 실제로 존재하는지 확인했다.
+2. Markdown 파일 전역 검색으로 old QA path 참조를 확인했고, navigation/canonical 포인터는 새 경로로 정리됐는지 점검했다.
+3. historical log/session archive 안의 old path 표기는 당시 기록 보존을 위해 유지했고, 이번 단계는 문서 taxonomy 조정이라 테스트는 실행하지 않았다.
+- Next:
+1. 추가 구조 개편은 없고, 이후에는 code verification required로 남겨둔 항목만 필요 시 코드 대조로 정리한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 문서 migration plan의 Phase 2 실행을 요청했다.
+- Change:
+1. `README.md`를 onboarding-only 구조로 축소했다. setup/run/minimal architecture/tests와 deeper-doc links만 남기고, 운영 상세/환경변수/확장 기능 설명은 제거했다.
+2. `AGENTS.md`를 agent-rules + canonical-doc pointers 문서로 축소했다. 아키텍처 스냅샷, 운영 규칙 상세, 실행 체크리스트, 트러블슈팅, skills 목록, 다음 세션 TODO, 인터페이스 메모를 제거했다.
+3. `docs/context/README.md`의 읽기 순서를 `CURRENT_STATE.md` 우선으로 바꾸고, `session-history.md`와 `operating-rules.md` 역할을 반영했다.
+4. `docs/context/session-handoff.md`는 최신 active handoff 3개만 남기고, older handoff 93개를 `docs/context/session-history.md`로 이동했다.
+- Verification:
+1. `session-handoff.md`의 active block count와 `session-history.md`의 cutover note를 확인했다.
+2. trimmed README/AGENTS가 새 context/operations/spec 문서로 적절히 링크하는지 확인했다.
+3. 이번 단계는 문서 구조 조정이라 테스트는 실행하지 않았다.
+- Next:
+1. Phase 3에서 `docs/specs/qa-test-specification.md`와 `docs/specs/qa-issue-document.md`를 성격에 맞는 이름/위치로 재분류한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 승인한 문서 migration plan의 Phase 1로 새 구조 문서 초안을 먼저 추가하라고 요청했다.
+- Change:
+1. `docs/context/CURRENT_STATE.md`를 추가해 current truth, active workstreams, top blockers, do-not-assume를 짧게 요약했다.
+2. `docs/context/session-history.md`를 추가해 Phase 2에서 handoff archive를 옮길 대상 파일을 만들었다.
+3. `docs/context/operating-rules.md`를 추가해 문서 경계, secrets-vs-state, context update, branch/release rule을 AGENTS 밖으로 분리할 준비를 했다.
+4. `docs/operations/runtime-runbook.md`, `docs/operations/config-reference.md`를 추가해 README/AGENTS에서 분리될 운영/설정 내용을 받을 위치를 만들었다.
+5. 이번 단계에서는 기존 `README.md`, `AGENTS.md`, `docs/context/session-handoff.md` 본문 구조는 아직 손대지 않았다.
+- Verification:
+1. 새 문서 5개가 생성됐는지와 이들이 참조하는 핵심 문서 경로가 실제로 존재하는지 `Test-Path`로 확인했다.
+2. summary 문서에 exact env defaults, exact schedule defaults, Massive wiring 같은 코드 미검증 진술을 canonical fact로 쓰지 않았는지 재검토했다.
+3. 이번 단계는 문서 구조 추가만이라 테스트는 실행하지 않았다.
+- Next:
+1. Phase 2에서 `README.md`와 `AGENTS.md`를 축소하고, `session-handoff.md`를 최신 handoff만 남기도록 분리한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 현재 Markdown 문서 체계를 분석해 덜 오염되고 덜 중복된 개편 방향을 제안해 달라고 요청했다.
+- Change:
+1. `README.md`, `AGENTS.md`, `docs/context/*`, `docs/specs/*`, `docs/reports/*`, `docs/prompts/*`, `.agents/skills/*`의 역할을 분류하고 중복 책임과 source-of-truth 분산 여부를 점검했다.
+2. 핵심 구조 문제로 `AGENTS.md`의 위키화`, `session-handoff.md`의 누적 로그화`, `As-Is/To-Be/current-risk 기준 문서의 분산`을 정리했다.
+3. 권장 방향은 `CURRENT_STATE.md` 신설, `session-handoff`와 `session-history` 분리, `AGENTS.md`를 agent rule 중심으로 축소, `README.md`를 onboarding 위주로 축소하는 쪽으로 제안했다.
+- Verification:
+1. 실제 Markdown 파일 목록과 각 문서 헤더/앞부분을 읽어 근거를 확인했다.
+2. 특히 `session-handoff.md`(1041 lines), `development-log.md`(1235 lines), `as-is-functional-spec.md`(1125 lines), `AGENTS.md`(236 lines), `README.md`(169 lines)를 기준으로 비대화와 역할 중복을 판단했다.
+3. 이번 작업은 분석/제안만이라 테스트는 실행하지 않았다.
+- Next:
+1. 사용자가 원하면 다음 단계에서 제안한 구조에 맞춘 실제 문서 개편 패치를 작은 단계로 나눠 진행한다.
+- Status: done
+
+## 2026-03-24
 - Context: 사용자가 As-Is spec과 QA test spec을 기준으로 execution-ready QA issue document를 요청했다.
 - Change:
 1. `docs/specs/qa-issue-document.md`를 추가했다.

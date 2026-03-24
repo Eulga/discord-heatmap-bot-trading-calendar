@@ -1,8 +1,13 @@
+# QA Issue Review (2026-03-24)
+
+- This is a dated QA review report.
+- It is not a canonical runtime behavior spec.
+
 # 1. Review basis
 - What was treated as authoritative:
   - `docs/specs/as-is-functional-spec.md` was treated as the source of truth for current runtime behavior, visible gaps, and ambiguity boundaries.
 - What was treated as supporting evidence:
-  - `docs/specs/qa-test-specification.md` was used only to validate seriousness, representative failure modes, and missing regression coverage around already-observed weaknesses.
+  - `docs/specs/qa-test-backlog.md` was used only to validate seriousness, representative failure modes, and missing regression coverage around already-observed weaknesses.
 - Limits of confidence:
   - Confidence is high for scheduler trigger semantics, state persistence behavior, Discord posting/upsert flow, route/admin commands, watch/status command surfaces, and EOD mock wiring because those behaviors are directly stated in the As-Is spec.
   - Confidence is lower where the As-Is spec itself marks ambiguity, especially watch market-hours semantics, authorization intent for watch/status commands, hybrid regional failure isolation, and multi-instance deployment support.
