@@ -1,6 +1,61 @@
 # Development Log
 
 ## 2026-03-24
+- Context: 사용자가 As-Is spec과 QA test spec을 기준으로 execution-ready QA issue document를 요청했다.
+- Change:
+1. `docs/specs/qa-issue-document.md`를 추가했다.
+2. 문서는 `docs/specs/as-is-functional-spec.md`를 authoritative source로, `docs/specs/qa-test-specification.md`를 supporting evidence로 두고 root-cause 단위 이슈 16개를 정리했다.
+3. 이슈는 `Defect`, `Incomplete contract`, `Operational risk`, `Documentation gap`로 구분했고, release blocker, implementation phase, GitHub issue shortlist, explicit non-issues까지 포함했다.
+- Verification:
+1. 생성 문서의 섹션 구조가 요청 형식과 맞는지 확인했다.
+2. `## Issue QAI-` 개수를 세어 16개인지 검산했다.
+3. 이번 변경은 문서 작업이라 테스트는 추가 실행하지 않았다.
+- Next:
+1. 후속 작업은 `QAI-01`, `QAI-02`, `QAI-05`, `QAI-03`, `QAI-10` 순으로 실제 GitHub issue/코드 수정으로 옮기면 된다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 방금 만든 As-Is spec에 future-state/과신 표현이 섞였는지 contamination review를 요청했다.
+- Change:
+1. `docs/specs/as-is-functional-spec.md`의 일부 문장을 현재 코드 분기 중심 표현으로 낮췄다.
+2. 특히 `manual heatmap`, `forum upsert`, `watch poll`, `instrument registry refresh`, `legacy !ping`, `startup bootstrap constraint` 쪽 문장을 "보장"이 아니라 "현재 코드가 시도/거절/기록하는 동작" 기준으로 교정했다.
+3. `watch poll`, `legacy !ping` 섹션 confidence는 reachability/semantics ambiguity를 반영해 보수적으로 조정했다.
+4. 후속 검산에서 `instrument registry refresh` confidence 문구 오치환을 수정하고, load/search wiring과 외부 데이터 완전성 ambiguity를 분리했다.
+- Verification:
+1. 수정 후 문서를 다시 읽어 `must`, `requires`, `keep`, `appears`, `guarantee`처럼 과신으로 읽힐 수 있는 문장을 재점검했다.
+2. 이번 변경은 문서 작업이라 테스트는 추가 실행하지 않았다.
+- Next:
+1. 이후 reverse-spec 문서는 feature purpose와 operational constraints를 쓸 때 "attempts", "rejects unless", "records when" 같은 구현 중심 동사만 사용한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 현재 코드 기준 As-Is functional specification을 역추출해 달라고 요청했다.
+- Change:
+1. `docs/specs/as-is-functional-spec.md`를 추가했다.
+2. 문서는 README, 설정, 부트스트랩, slash command, scheduler, forum/state persistence, provider, registry, tests를 근거로 현재 구현 동작만 정리했다.
+3. 구현 사실과 별도로 `ambiguities`, `observed gaps`, `As-Is vs To-Be boundary`를 분리해 미래 설계 추정을 섞지 않도록 정리했다.
+- Verification:
+1. `README.md`, `.env.example`, `bot/app/*`, `bot/features/*`, `bot/forum/*`, `bot/intel/*`, `bot/markets/*`, 주요 integration test 파일을 대조해 각 섹션의 근거 경로를 문서에 명시했다.
+2. 이번 변경은 문서 작업이라 테스트는 추가 실행하지 않았다.
+- Next:
+1. 이후 QA/리팩터링 문서는 이 As-Is spec을 baseline으로 삼고, 실제 코드 변경 없이 바꾸고 싶은 동작은 별도 To-Be 문서로 분리한다.
+2. 후속 문서 후보는 `state schema`, `scheduler contract`, `command authorization policy`다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 principal-level QA 리뷰를 바탕으로 테스트 명세 문서를 만들어 달라고 요청했다.
+- Change:
+1. `docs/specs/qa-test-specification.md`를 추가해 QA 리뷰의 주요 결함을 `unit`, `integration`, `E2E`, `regression`, `failure injection` 테스트 구현 항목으로 변환했다.
+2. 명세에는 state fail-open, mock/live fail-closed, watch freshness/timezone, scheduler catch-up, Discord duplicate upsert, 권한/운영 진단 보호 시나리오를 우선순위(`P0~P2`)와 함께 정리했다.
+- Verification:
+1. 기존 테스트 문서 `docs/specs/integration-test-cases.md`, `docs/specs/integration-live-test-cases.md` 형식과 역할을 대조해 새 문서가 "현재 coverage 설명"이 아니라 "추가 구현할 QA 테스트 backlog" 역할로 분리되게 확인했다.
+2. 이번 변경은 문서 작업이라 테스트는 추가 실행하지 않았다.
+- Next:
+1. 구현 우선순위는 `UT-01`, `UT-02`, `UT-03`, `UT-05`, `IT-01`, `IT-02`, `FI-03` 순으로 두고 실제 test file에 옮긴다.
+2. 테스트 구현을 시작할 때는 현재 integration 문서와 중복되지 않도록 새 케이스와 기존 케이스의 경계를 먼저 표시한다.
+- Status: done
+
+## 2026-03-24
 - Context: 사용자가 slash command 없이도 바로 확인할 수 있게 뉴스/트렌드 게시를 수동 실행해 달라고 요청했다.
 - Change:
 1. 별도 단발 Python 스크립트로 `bot.features.intel_scheduler._run_news_job()`를 직접 호출했다.

@@ -1,6 +1,27 @@
 # Review Log
 
 ## 2026-03-24
+- Context: 사용자가 이전 QA 리뷰에서 P0/P1만 추려 GitHub issue draft와 주차별 구현 순서를 요청했다.
+- Finding:
+1. P0 묶음은 `state fail-open 차단`, `mock/live fail-closed`, `watch quote freshness + market-session gating`이다.
+2. P1 묶음은 `shared watchlist 권한`, `state mutation serialization`, `daily scheduler catch-up`, `transient Discord fetch 시 duplicate post 방지`, `hybrid news partial-region 허용`, `empty-region briefing status 재정의`다.
+3. 구현 순서는 `Week 1=P0`, `Week 2=state/scheduler/Discord idempotency`, `Week 3=news functional degradation + status semantics`로 정리하는 것이 가장 자연스럽다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 principal-level QA 아키텍트 프롬프트를 적용한 전체 QA 리뷰를 요청했다.
+- Finding:
+1. `bot/forum/repository.py`의 `load_state()`는 `JSONDecodeError`/`OSError`에서 빈 state를 정상값처럼 반환하고, 여러 command/scheduler path가 그 값을 다시 저장해 guild routing, watchlist, daily post dedupe state를 통째로 지울 수 있다.
+2. `bot/features/intel_scheduler.py`의 `news/watch`는 기본값이 `enabled + mock provider` 조합이라 운영자가 env를 충분히 채우지 않았을 때도 synthetic data를 실제 브리핑/알림처럼 게시할 수 있다. `eod_summary`도 활성화 시 여전히 `MockEodSummaryProvider`를 사용한다.
+3. `bot/intel/providers/market.py`는 국내 quote를 `asof=now`로 기록해 stale/off-hours domestic quote를 fresh처럼 통과시킬 수 있고, 해외 quote의 `khms`도 scheduler timezone 기준으로 파싱해 미국장 시각 해석이 어긋날 가능성이 있다.
+4. `bot/features/watch/command.py`는 shared guild watchlist를 아무 길드 멤버나 수정할 수 있고, `bot/features/status/command.py`는 `/health`, `/last-run`, `/source-status`를 모든 멤버에게 공개한다.
+5. `bot/features/auto_scheduler.py`와 `bot/features/intel_scheduler.py`의 daily jobs는 exact-minute trigger만 있고 catch-up path가 없어, 늦은 시작/재배포/짧은 stall 뒤에는 그날 run을 조용히 놓칠 수 있다.
+6. `bot/forum/service.py`는 기존 thread/message fetch의 transient `HTTPException`/`Forbidden`을 `NotFound`와 같이 취급해 same-day duplicate thread 또는 trend follow-up duplicate message를 만들 수 있다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest -q` 전체 통과.
+- Status: open
+
+## 2026-03-24
 - Context: 사용자가 `trendbriefing` 생성 시 `Marketaux`로 수집한 영어 해외뉴스가 현재 테마 판정에서 제대로 동작하는지 확인을 요청했다.
 - Finding:
 1. `bot/intel/providers/news.py`의 `MarketauxNewsProvider.analyze()`는 글로벌 trend 후보를 `NaverNewsProvider`처럼 theme probe query로 넓게 모으지 않고, briefing에 남은 기사만 `_fallback_candidates_by_region()`으로 점수화해 사용한다.

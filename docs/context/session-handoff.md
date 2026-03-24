@@ -1,6 +1,60 @@
 # Session Handoff
 
 ## 2026-03-24
+- Context: 사용자가 As-Is spec + QA test spec 기반 QA issue document를 요청했다.
+- Current state:
+1. 새 문서 `docs/specs/qa-issue-document.md`가 추가됐다.
+2. 현재 문서는 As-Is spec을 source of truth로 두고 consolidated issue 16개, root-cause grouping, release blocker 구분, implementation phase, GitHub issue shortlist를 담고 있다.
+3. 최우선 이슈는 `state fail-open`, `unsynchronized state mutation`, `exact-minute scheduler miss`, `forum upsert duplicate on transient Discord failure`, `watch stale/off-hours alert risk`다.
+- Next:
+1. 실제 작업은 shortlist 순서대로 GitHub issue로 전환하거나, 바로 P0/P1 수정 작업으로 이어가면 된다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 As-Is spec contamination review를 요청했다.
+- Current state:
+1. `docs/specs/as-is-functional-spec.md`의 일부 과신 표현이 교정됐다.
+2. 현재 문서는 `manual heatmap`, `forum upsert`, `watch poll`, `instrument registry refresh`, `legacy !ping`에서 "보장" 대신 "현재 코드가 실제로 시도/거절/기록하는 동작" 기준으로 다시 적혀 있다.
+3. `watch poll`과 `legacy !ping`은 reachability/semantics ambiguity를 반영해 confidence가 더 보수적으로 표시된다.
+4. `instrument registry refresh`는 load/search/runtime refresh wiring은 confirmed로, 외부 데이터 완전성은 ambiguous로 다시 분리됐다.
+- Next:
+1. 이후 As-Is 문서를 추가로 만들 때는 feature 목적도 구현 추정임을 분명히 하고, ambiguous runtime reachability가 있으면 confidence를 낮춘다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 현재 구현 기준 reverse-spec As-Is functional specification 문서를 요청했다.
+- Current state:
+1. 새 문서 `docs/specs/as-is-functional-spec.md`가 추가됐다.
+2. 문서는 현재 코드 기준으로 startup, manual heatmap, forum upsert, auto scheduler, admin/watch/status commands, news/trend/EOD/watch scheduler, instrument registry, legacy `!ping`까지 정리했다.
+3. 구현 사실과 별도로 `ambiguities`, `observed gaps`, `As-Is vs To-Be boundary`를 분리해 미래 설계를 섞지 않도록 정리했다.
+- Next:
+1. 이후 QA, 리팩터링, To-Be spec 작업은 이 문서를 baseline으로 삼는다.
+2. current gaps를 고칠 때는 먼저 As-Is 문서 내용이 실제 코드와 맞는지 다시 대조하고, 바뀌는 동작은 별도 변경 문서에 적는다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 QA 리뷰를 테스트 구현 백로그로 바꾼 명세 문서를 요청했다.
+- Current state:
+1. 새 문서 `docs/specs/qa-test-specification.md`가 추가됐다.
+2. 이 문서는 기존 `integration-test-cases.md`와 달리 "현재 구현된 테스트 설명"이 아니라 "추가 구현할 QA 테스트 후보"를 `unit/integration/E2E/regression/failure injection` 기준으로 정리한다.
+3. 최우선 구현 후보는 `state fail-open 차단`, `watch quote freshness/timezone`, `mock/live fail-closed`, `daily scheduler catch-up`, `forum upsert duplicate 방지`, `concurrent state mutation 보호` 관련 테스트다.
+- Next:
+1. 다음 테스트 보강 작업은 새 명세 문서를 source of truth로 삼아 P0/P1 케이스부터 실제 `tests/unit` / `tests/integration`에 옮긴다.
+2. 문서에 정의된 E2E와 failure-injection 케이스는 live smoke와 non-live harness로 어디까지 분리할지 먼저 결정한다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 principal-level QA 프롬프트를 적용한 전체 시스템 QA 리뷰를 요청했다.
+- Current state:
+1. 전체 문서/핵심 코드(`settings`, `bot_client`, `runner`, `auto_scheduler`, `intel_scheduler`, `forum`, `news/market providers`, `tests`)를 기준으로 QA 리뷰를 완료했다.
+2. 현재 최상위 리스크는 `state fail-open으로 인한 state wipe`, `mock data가 live처럼 게시될 수 있는 기본값`, `watch quote freshness/timezone 해석 결함`, `shared watchlist/status surface 권한 부족`, `late-start catch-up 부재`, `Discord transient fetch 시 duplicate thread 생성`이다.
+3. 회귀 확인으로 `.\.venv\Scripts\python.exe -m pytest -q` 전체는 통과했다.
+- Next:
+1. 다음 수정 우선순위는 `state fail-open 차단 + state mutation lock`, `mock/live fail-closed`, `watch permission policy`, `daily scheduler catch-up`, `forum upsert transient error 분리`다.
+2. watch quote는 `domestic/overseas asof 해석`과 `market-hours gating`을 먼저 바로잡고 나서 live smoke를 다시 보는 편이 안전하다.
+- Status: open
+
+## 2026-03-24
 - Context: 사용자가 slash command 없이 바로 확인할 수 있게 뉴스/트렌드 게시를 수동 실행해 달라고 요청했다.
 - Current state:
 1. 오늘자(`2026-03-24`) `newsbriefing-domestic`, `newsbriefing-global`, `trendbriefing` thread가 생성됐다.
