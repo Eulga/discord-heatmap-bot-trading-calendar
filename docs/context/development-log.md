@@ -1,5 +1,73 @@
 # Development Log
 
+## 2026-03-24
+- Context: 사용자가 slash command 없이도 바로 확인할 수 있게 뉴스/트렌드 게시를 수동 실행해 달라고 요청했다.
+- Change:
+1. 별도 단발 Python 스크립트로 `bot.features.intel_scheduler._run_news_job()`를 직접 호출했다.
+2. 실행 시각 기준 오늘자(`2026-03-24`) `newsbriefing-domestic`, `newsbriefing-global`, `trendbriefing` thread가 새로 생성됐다.
+- Verification:
+1. run 결과:
+   - `news_briefing.status=ok`
+   - `trend_briefing.status=ok`
+   - detail=`posted=1 failed=0 missing_forum=0 forum_resolution_failures=0 domestic=20 global=12`
+   - trend detail=`posted=1 failed=0 missing_forum=0 forum_resolution_failures=0 domestic_themes=3 global_themes=3`
+2. state 저장 확인:
+   - `newsbriefing-domestic` thread=`1485802325871296643`
+   - `newsbriefing-global` thread=`1485802328261922876`
+   - `trendbriefing` thread=`1485802330795413606`
+3. 실제 `trendbriefing` content message를 fetch해 numbering이 사라진 새 포맷을 확인했다:
+   `[국내 트렌드 테마] -> 바이오 -> 근거: ... -> 기사: ...`
+4. global section도 동일하게 `금리/Fed -> 근거: ... -> 기사: ...` 형식으로 확인했다.
+- Next:
+1. 사용자가 Discord에서 실제 가독성을 확인한다.
+2. 필요하면 다음 단계로 `| source | time | link` 구분자도 더 부드럽게 정리한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 Discord에서 직접 확인할 수 있게 봇을 다시 켜 달라고 요청했다.
+- Change:
+1. 로컬 workspace에서 `.\.venv\Scripts\python.exe -m bot.main`를 백그라운드 프로세스로 기동했다.
+2. stdout/stderr는 `output/bot-startup.out.log`, `output/bot-startup.err.log`로 리다이렉트했다.
+- Verification:
+1. `data/logs/bot.log` 기준 startup 로그 확인:
+   - gateway 연결 성공
+   - global commands 11개 sync
+   - `Auto screenshot scheduler started`
+   - `Intel scheduler started`
+   - `Logged in as only_test#5605`
+2. 초기 scheduler tick은 `watch_poll status=skipped detail=no-watch-symbols`였다.
+3. 프로세스는 launcher parent(`21556`)와 실제 interpreter child(`27068`) 체인으로 살아 있고, Discord gateway 연결은 child process가 보유 중이다.
+- Next:
+1. 사용자가 Discord에서 trend/news 포맷을 직접 확인한다.
+2. 확인이 끝나면 필요 시 봇 프로세스를 정리한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 `trendbriefing` 게시글에서 테마 제목 아래 기사 줄에 숫자/기호가 섞여 보여 포맷이 어색하다고 보고했다.
+- Change:
+1. `bot/features/news/trend_policy.py`는 theme block 제목에서 번호 prefix(`1.`, `2.`)를 제거하고, 테마명을 독립 헤더 라인으로만 렌더링하도록 바꿨다.
+2. 같은 파일은 `- 근거:` / `- 기사 ...` 형태 대신 `근거:` / `기사:` 접두사를 사용해 계층 표기를 단순화했다.
+3. `tests/unit/test_trend_policy.py`에 plain theme title + `기사:` 포맷 회귀 테스트를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_trend_policy.py -q` 통과
+2. sample render 확인:
+   `[국내 트렌드 테마] -> 반도체 -> 근거: ... -> 기사: ...`
+- Next:
+1. 실제 Discord에서 가독성을 보고, 필요하면 다음 단계로 source/time/link 구분자(`|`)도 더 부드럽게 조정한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 영어 `Marketaux` 해외뉴스 trend 품질 이슈를 당분간 보류하고, 뉴스 provider를 `Naver`로 되돌려 한국 기사만 수집하도록 운영 설정을 바꾸길 원했다.
+- Change:
+1. 로컬 runtime `.env`의 `NEWS_PROVIDER_KIND`를 `hybrid`에서 `naver`로 변경했다.
+2. 이 변경으로 현재 뉴스 브리핑/트렌드의 global 경로는 `Marketaux` 영어 기사 대신 `Naver` 검색 결과만 사용한다.
+- Verification:
+1. `.env`에서 `NEWS_PROVIDER_KIND=naver`로 갱신된 것을 확인했다.
+- Next:
+1. 만약 사용 의도가 "해외 기사 비활성화"가 아니라 "영어 기사만 제외"라면 현재 상태로 충분하다.
+2. 반대로 global thread 자체를 비우거나 끄고 싶다면 별도 코드 변경이 필요하다.
+- Status: done
+
 ## 2026-03-23
 - Context: 전체 modified 파일 리뷰 중 `watch remove -> watch add` 후 첫 알림이 막히는 회귀를 발견했다.
 - Change:

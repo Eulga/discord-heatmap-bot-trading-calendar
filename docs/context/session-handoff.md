@@ -1,5 +1,66 @@
 # Session Handoff
 
+## 2026-03-24
+- Context: 사용자가 slash command 없이 바로 확인할 수 있게 뉴스/트렌드 게시를 수동 실행해 달라고 요청했다.
+- Current state:
+1. 오늘자(`2026-03-24`) `newsbriefing-domestic`, `newsbriefing-global`, `trendbriefing` thread가 생성됐다.
+2. latest job state는 `news_briefing=ok`, `trend_briefing=ok`다.
+3. actual `trendbriefing` content fetch 기준 numbering은 제거된 상태다.
+4. current render sample:
+   - 국내: `[국내 트렌드 테마] / 바이오 / 근거: ... / 기사: ...`
+   - 해외: `[해외 트렌드 테마] / 금리/Fed / 근거: ... / 기사: ...`
+- Next:
+1. 사용자가 Discord UI에서 실제 가독성을 보고 추가 수정을 결정한다.
+2. 다음 후보는 `기사:` 줄의 `| source | time | link` 레이아웃 단순화다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 Discord에서 직접 확인할 수 있게 봇을 다시 켜 달라고 요청했다.
+- Current state:
+1. 로컬 봇 프로세스가 현재 실행 중이다.
+2. startup 로그 기준 gateway 연결, global commands 11개 sync, auto screenshot scheduler 시작, intel scheduler 시작까지 정상 확인됐다.
+3. 첫 scheduler tick은 `watch_poll status=skipped detail=no-watch-symbols`였다.
+4. Windows에서는 launcher parent PID `21556` 아래 실제 interpreter child PID `27068`가 떠 있는 구조이며, Discord 연결은 child process가 보유 중이다.
+- Next:
+1. 사용자가 Discord에서 trend/news 포맷을 직접 확인한다.
+2. 확인이 끝난 뒤 stop 요청이 오면 해당 프로세스를 정리한다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 `trendbriefing` 본문에서 테마 제목 아래 기사 줄의 숫자/기호 표기가 어색하다고 보고해 포맷 정리를 요청했다.
+- Current state:
+1. `bot/features/news/trend_policy.py`는 이제 theme title을 번호 없이 plain text로 렌더링한다.
+2. 대표 기사 줄은 `- ...` 대신 `기사: ...` 형식으로 출력된다.
+3. 현재 sample render는 `[국내 트렌드 테마] / 반도체 / 근거: ... / 기사: ...` 순서다.
+4. 관련 회귀는 `tests/unit/test_trend_policy.py`에 추가됐고 targeted pytest는 통과했다.
+- Next:
+1. 실제 Discord 게시글에서 체감 가독성을 보고, 필요하면 다음 단계로 `|` 구분자나 링크 배치를 더 다듬는다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 영어 `Marketaux` 해외뉴스 품질 이슈를 보류하고, 당분간 `Naver` 기반 한국 기사만 수집하도록 provider 설정을 되돌리길 원했다.
+- Current state:
+1. 로컬 `.env`의 `NEWS_PROVIDER_KIND`는 이제 `naver`다.
+2. 따라서 현재 runtime news path는 `Marketaux`/`hybrid`가 아니라 `NaverNewsProvider` 단일 경로를 사용한다.
+3. 이 상태는 영어 해외기사 수집을 끄는 효과는 있지만, global news thread 자체는 유지된다. 즉 글로벌 섹션은 `Naver` 검색 기반 한국 기사로 계속 채워질 수 있다.
+- Next:
+1. 사용자가 정말 원하는 것이 "한국 기사만"이면 현재 설정으로 충분하다.
+2. 사용자가 원하는 것이 "해외/global 섹션 자체 중단"이면 `naver` 전환과 별도로 global query/게시 경로를 끄는 코드 변경이 필요하다.
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 `trendbriefing` 생성 시 `Marketaux` 영어 해외뉴스가 현재 테마 판정에서 제대로 동작하는지 물었다.
+- Current state:
+1. `NEWS_PROVIDER_KIND=marketaux|hybrid`의 글로벌 trend는 `MarketauxNewsProvider.analyze()`가 briefing items만 모은 뒤 `_fallback_candidates_by_region()`로 만든 후보군에 의존한다.
+2. 이 fallback 후보는 `description/entities` 없이 title/source/recency 중심 점수만 써서, 영어 기사에서 company/entity 문맥을 충분히 활용하지 못한다.
+3. 로컬 논리 검증 기준 `Fed/Treasury yields`, `Apple/Microsoft`, `Nvidia/AMD` headline 조합은 global theme 0개였고, `AI chip/semiconductor`처럼 explicit theme keyword가 들어간 headline만 `AI/반도체`로 매칭됐다.
+4. 글로벌 theme taxonomy의 representative symbol/alias는 일부 영어 ticker를 포함하지만, 상당수 mega-cap/company name이 한국어 중심이라 company-only English headline recall이 낮다.
+5. 현재 unit test는 Marketaux normalization만 검증하고, 영어 trend classification 회귀는 없다.
+- Next:
+1. Marketaux global trend를 계속 운영할 거면 description/entities까지 후보 scoring에 포함하고 글로벌 theme alias를 영어 company name 기준으로 보강한다.
+2. `tests/unit/test_news_provider.py`에 Marketaux 영어 headline trend regression을 추가한다.
+- Status: open
+
 ## 2026-03-23
 - Context: 사용자가 두 스레드에서 섞인 수정분이 문제없는지 전체 코드리뷰와 clean 확인을 요청했다.
 - Current state:

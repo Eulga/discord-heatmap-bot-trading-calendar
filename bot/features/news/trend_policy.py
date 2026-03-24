@@ -42,8 +42,8 @@ def build_trend_region_messages(
 
     header = f"[{label} 트렌드 테마]"
     blocks = []
-    for index, theme in enumerate(themes, start=1):
-        blocks.extend(_fit_theme_block(header, _theme_block(index, theme), max_chars))
+    for theme in themes:
+        blocks.extend(_fit_theme_block(header, _theme_block(theme), max_chars))
     messages: list[str] = []
     current = [header]
 
@@ -67,10 +67,10 @@ def _summary_line(region: str, themes: Sequence[ThemeBrief]) -> str:
     return f"- {label}: {', '.join(theme.theme_name for theme in themes)}"
 
 
-def _theme_block(index: int, theme: ThemeBrief) -> list[str]:
+def _theme_block(theme: ThemeBrief) -> list[str]:
     lines = [
-        _truncate_text(f"{index}. {theme.theme_name}", 120),
-        _truncate_text(f"- 근거: {' | '.join(theme.reason_tags)}", 240),
+        _truncate_text(theme.theme_name, 120),
+        _truncate_text(f"근거: {' | '.join(theme.reason_tags)}", 240),
     ]
     for item in theme.representative_items:
         lines.append(_fmt_item(item))
@@ -79,7 +79,7 @@ def _theme_block(index: int, theme: ThemeBrief) -> list[str]:
 
 def _fmt_item(item: NewsItem) -> str:
     return _truncate_text(
-        f"- {item.title} | {item.source} | {item.published_at.strftime('%H:%M')} | {item.link}",
+        f"기사: {item.title} | {item.source} | {item.published_at.strftime('%H:%M')} | {item.link}",
         480,
     )
 

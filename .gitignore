@@ -19,6 +19,7 @@ venv/
 data/heatmaps/
 data/state/
 data/logs/
+output/
 docs/references/external/*
 !docs/references/external/README.md
 

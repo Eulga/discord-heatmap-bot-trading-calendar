@@ -1,5 +1,15 @@
 # Review Log
 
+## 2026-03-24
+- Context: 사용자가 `trendbriefing` 생성 시 `Marketaux`로 수집한 영어 해외뉴스가 현재 테마 판정에서 제대로 동작하는지 확인을 요청했다.
+- Finding:
+1. `bot/intel/providers/news.py`의 `MarketauxNewsProvider.analyze()`는 글로벌 trend 후보를 `NaverNewsProvider`처럼 theme probe query로 넓게 모으지 않고, briefing에 남은 기사만 `_fallback_candidates_by_region()`으로 점수화해 사용한다.
+2. 이 fallback 경로는 `title`, `source`, `published_at`만 사실상 쓰고 `description`을 빈 문자열로 둬 영어 기사 본문/요약/엔터티 신호를 trend 매칭에 반영하지 못한다.
+3. `_match_theme_candidate()`는 curated keyword/symbol hit와 최소 score를 동시에 요구하는데, 글로벌 taxonomy의 `representative_symbols`와 alias가 상당수 한국어 중심이라 `Apple`, `Microsoft`, `Nvidia`, `Tesla`, `Amazon`, `Meta`, `Alphabet`, `Powell` 같은 영어 company-only headline recall이 낮다.
+4. 로컬 논리 검증에서 `Fed/Treasury yields`, `Apple/Microsoft`, `Nvidia/AMD` headline 조합은 global theme 0개였고, `AI chip/semiconductor`처럼 explicit theme keyword가 제목에 들어간 경우만 `AI/반도체`로 매칭됐다.
+5. 현재 테스트 커버리지는 `tests/unit/test_news_provider.py`의 `test_marketaux_news_provider_normalizes_payload()` 수준이라, Marketaux 영어 trend 판정 회귀를 직접 잡는 테스트가 없다.
+- Status: open
+
 ## 2026-03-23
 - Context: 사용자가 두 스레드에서 진행한 수정이 겹쳤는지 불확실하다며 전체 modified 파일 리뷰와 clean 확인을 요청했다.
 - Finding:

@@ -41,6 +41,29 @@ def test_build_trend_region_messages_splits_by_theme_block():
     assert all(len(message) <= 220 for message in messages)
 
 
+def test_build_trend_region_messages_use_plain_theme_title_and_article_prefix():
+    theme = ThemeBrief(
+        theme_name="반도체",
+        region="domestic",
+        score=52,
+        reason_tags=("기사 4건", "3개 소스"),
+        representative_items=(
+            _make_item("삼성전자 HBM 수주 확대", "source-1", 10),
+            _make_item("SK하이닉스 공급 계약", "source-2", 20),
+        ),
+        article_count=4,
+        source_count=3,
+    )
+
+    message = trend_policy.build_trend_region_messages("domestic", (theme,))[0]
+
+    assert "[국내 트렌드 테마]" in message
+    assert "\n반도체\n" in message
+    assert "\n1. 반도체\n" not in message
+    assert "근거: 기사 4건 | 3개 소스" in message
+    assert "기사: 삼성전자 HBM 수주 확대" in message
+
+
 def test_build_trend_starter_body_summarizes_regions():
     report = TrendThemeReport(
         generated_at=datetime(2026, 3, 19, 7, 30, tzinfo=KST),
