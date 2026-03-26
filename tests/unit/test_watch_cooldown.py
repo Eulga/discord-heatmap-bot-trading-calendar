@@ -1,72 +1,96 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from bot.features.watch import service
-from bot.forum import repository
+from bot.features.watch.session import get_watch_market_session
 
 
 KST = ZoneInfo("Asia/Seoul")
 
 
-def test_watch_cooldown_separate_keys(monkeypatch):
-    state = {"commands": {}, "guilds": {}}
-    now = datetime(2026, 2, 13, 9, 0, tzinfo=KST)
+def test_watch_band_ladder_only_advances_to_new_highest_band():
+    first = service.evaluate_band_event(highest_up_band=0, highest_down_band=0, change_pct=-4.1)
+    repeat = service.evaluate_band_event(highest_up_band=0, highest_down_band=1, change_pct=-4.8)
+    expanded = service.evaluate_band_event(highest_up_band=0, highest_down_band=1, change_pct=-7.4)
 
-    monkeypatch.setattr(service, "now_kst", lambda: now)
-    ok_up, direction_up, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 104.0)
-    assert ok_up is True
-    assert direction_up == "up"
-
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=1))
-    ok_up_2, _, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 104.5)
-    assert ok_up_2 is False
-
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=2))
-    ok_down, direction_down, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 95.0)
-    assert ok_down is True
-    assert direction_down == "down"
+    assert first == service.WatchBandEvent(direction="down", band=1, change_pct=-4.1)
+    assert repeat is None
+    assert expanded == service.WatchBandEvent(direction="down", band=2, change_pct=-7.4)
 
 
-def test_watch_signal_same_direction_requires_rearm_inside_threshold(monkeypatch):
-    state = {"commands": {}, "guilds": {}}
-    now = datetime(2026, 2, 13, 9, 0, tzinfo=KST)
-
-    monkeypatch.setattr(service, "now_kst", lambda: now)
-    ok_first, direction_first, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 96.0)
-    assert ok_first is True
-    assert direction_first == "down"
-
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=11))
-    ok_repeat, direction_repeat, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 96.5)
-    assert ok_repeat is False
-    assert direction_repeat == "down"
-
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=12))
-    ok_reset, direction_reset, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 99.0)
-    assert ok_reset is False
-    assert direction_reset == ""
-
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=13))
-    ok_rearmed, direction_rearmed, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 96.0)
-    assert ok_rearmed is True
-    assert direction_rearmed == "down"
+def test_watch_starter_status_supports_both_active_and_inactive():
+    assert service.starter_status(highest_up_band=0, highest_down_band=0, active=True) == "idle"
+    assert service.starter_status(highest_up_band=2, highest_down_band=0, active=True) == "up-active"
+    assert service.starter_status(highest_up_band=0, highest_down_band=1, active=True) == "down-active"
+    assert service.starter_status(highest_up_band=2, highest_down_band=1, active=True) == "both-active"
+    assert service.starter_status(highest_up_band=2, highest_down_band=1, active=False) == "inactive"
 
 
-def test_watch_signal_readd_starts_fresh_after_remove(monkeypatch):
-    state = {"commands": {}, "guilds": {}}
-    now = datetime(2026, 2, 13, 9, 0, tzinfo=KST)
+def test_watch_rendering_uses_user_facing_copy():
+    updated_at = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
 
-    assert repository.add_watch_symbol(state, 1, "005930") is True
+    starter = service.render_watch_starter(
+        "KRX:005930",
+        reference_price=100.0,
+        current_price=107.1,
+        change_pct=7.1,
+        updated_at=updated_at,
+    )
+    comment = service.render_band_comment(
+        "KRX:005930",
+        direction="up",
+        band=2,
+        change_pct=7.1,
+        updated_at=updated_at,
+    )
+    inactive_placeholder = service.render_watch_placeholder("KRX:005930", active=False)
 
-    monkeypatch.setattr(service, "now_kst", lambda: now)
-    ok_first, direction_first, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 96.0)
-    assert ok_first is True
-    assert direction_first == "down"
+    assert "전일 종가: ₩100.00" in starter
+    assert "현재가: ₩107.10" in starter
+    assert "기준 세션" not in starter
+    assert "당일 alert status" not in starter
+    assert "당일 최고 상승 band" not in starter
+    assert comment == "삼성전자 (KRX:005930) +6% 이상 상승 : +7.10% · 2026-03-26 10:00:00"
+    assert inactive_placeholder.endswith("감시가 중지되었습니다")
 
-    assert repository.remove_watch_symbol(state, 1, "005930") is True
-    assert repository.add_watch_symbol(state, 1, "005930") is True
 
-    monkeypatch.setattr(service, "now_kst", lambda: now + timedelta(minutes=20))
-    ok_readded, direction_readded, _ = service.evaluate_watch_signal(state, 1, "KRX:005930", 100.0, 96.0)
-    assert ok_readded is True
-    assert direction_readded == "down"
+def test_watch_rendering_uses_dollar_symbol_for_us_products():
+    starter = service.render_watch_starter(
+        "NAS:AAPL",
+        reference_price=100.0,
+        current_price=107.1,
+        change_pct=7.1,
+        updated_at=datetime(2026, 3, 27, 0, 0, tzinfo=KST),
+    )
+
+    assert "전일 종가: $100.00" in starter
+    assert "현재가: $107.10" in starter
+
+
+def test_watch_market_session_identifies_krx_open_and_preopen_session_dates():
+    open_now = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
+    preopen_now = datetime(2026, 3, 26, 8, 30, tzinfo=KST)
+
+    open_session = get_watch_market_session("KRX:005930", open_now)
+    preopen_session = get_watch_market_session("KRX:005930", preopen_now)
+
+    assert open_session.market_mic == "XKRX"
+    assert open_session.is_regular_session_open is True
+    assert open_session.session_date == "2026-03-26"
+    assert preopen_session.is_regular_session_open is False
+    assert preopen_session.session_date == "2026-03-25"
+
+
+def test_watch_market_session_identifies_us_regular_session_and_after_close():
+    open_now = datetime(2026, 3, 27, 0, 0, tzinfo=KST)
+    closed_now = datetime(2026, 3, 27, 6, 30, tzinfo=KST)
+
+    open_session = get_watch_market_session("NAS:AAPL", open_now)
+    closed_session = get_watch_market_session("NAS:AAPL", closed_now)
+
+    assert open_session.market_mic == "XNYS"
+    assert open_session.is_regular_session_open is True
+    assert open_session.session_date == "2026-03-26"
+    assert closed_session.is_regular_session_open is False
+    assert closed_session.is_after_regular_close is True
+    assert closed_session.session_date == "2026-03-26"

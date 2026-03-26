@@ -1,5 +1,51 @@
 # Development Log
 
+## 2026-03-27
+- Context: 서브에이전트 코드 리뷰에서 watch forum-thread rollout의 carry-forward finalization, forum route change, KRX stale timestamp 처리에 결함이 지적됐다.
+- Change:
+1. `bot/features/intel_scheduler.py`를 보강해 prior session이 unfinalized인 상태에서 다음 regular session snapshot이 들어오면, current session state를 reset하기 전에 이전 session close finalization을 먼저 수행하도록 수정했다.
+2. `bot/features/watch/thread_service.py`는 기존 symbol thread를 재사용할 때 현재 `watch_forum_channel_id`의 parent forum인지 확인하고, forum route가 바뀐 경우 새 forum에 thread를 다시 만들도록 보완했다.
+3. `bot/intel/providers/market.py`는 KRX quote payload의 체결 시각을 `asof`로 파싱해 domestic stale quote 정책이 실제로 동작하도록 수정했다.
+4. `tests/integration/test_watch_poll_forum_scheduler.py`, `tests/integration/test_watch_forum_flow.py`, `tests/unit/test_market_provider.py`, `docs/specs/watch-poll-functional-spec.md`에 관련 회귀 테스트와 현재 동작 설명을 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py -q`
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit tests/integration -q`
+- Status: done
+
+## 2026-03-26
+- Context: 추가 운영 피드백으로 watch starter의 가격 줄에 시장별 통화 기호가 필요하다는 요청이 들어왔다.
+- Change:
+1. `bot/features/watch/service.py`에 market prefix 기반 가격 포맷 helper를 추가해 KRX는 `₩`, NAS/NYS/AMS는 `$`를 starter의 `전일 종가`와 `현재가`에 붙이도록 바꿨다.
+2. 관련 unit/integration test 기대값과 `docs/specs/watch-poll-functional-spec.md`의 starter contract를 함께 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/integration/test_watch_poll_forum_scheduler.py -q`
+- Status: done
+
+## 2026-03-26
+- Context: 운영자 기능 테스트 피드백으로 watch starter/comment 문구가 내부 개발용어에 가깝다는 수정 요청이 들어왔다.
+- Change:
+1. `bot/features/watch/service.py`의 starter 렌더링에서 `기준 세션`, `당일 alert status`, `당일 최고 상승/하락 band` 노출을 제거하고 `전일 종가`, `현재가`, `변동률`, `마지막 갱신`만 남겼다.
+2. band comment 문구를 `상승 band 돌파` 형식에서 `{band}% 이상 상승/하락 : {change_pct}` 형식으로 바꿨고, inactive placeholder도 `감시가 중지되었습니다`로 정리했다.
+3. 관련 unit/integration test 기대값과 `docs/specs/watch-poll-functional-spec.md`를 함께 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/integration/test_watch_poll_forum_scheduler.py -q`
+- Status: done
+
+## 2026-03-26
+- Context: 사용자가 승인된 watch forum-thread rollout 계획을 그대로 구현하라고 요청했다.
+- Change:
+1. `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`, `bot/features/watch/session.py`, `bot/features/watch/thread_service.py`, `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/forum/repository.py`, `bot/intel/providers/market.py`, `bot/app/types.py`, `bot/app/bot_client.py`를 갱신해 watch polling을 text alert 모델에서 `watch_forum_channel_id` + persistent symbol thread + `WatchSnapshot` + session-aware band/close finalization 모델로 교체했다.
+2. `/setwatchchannel`을 제거하고 `/setwatchforum`을 추가했으며, `/watch add`는 forum route 없으면 거절하고 symbol thread/starter를 즉시 보장하도록 바꿨다.
+3. `tests/unit/*`, `tests/integration/*`의 watch 관련 케이스를 forum-thread/session 모델 기준으로 교체하고, 새 scheduler/thread/provider failure recovery 시나리오를 추가했다.
+4. `docs/context/CURRENT_STATE.md`, `docs/operations/config-reference.md`, `docs/operations/runtime-runbook.md`, `docs/specs/watch-poll-functional-spec.md`, `docs/specs/as-is-functional-spec.md`, `README.md`를 현재 구현 기준으로 최소 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit tests/integration -q`
+2. 결과: 전체 unit/integration watch 회귀 포함 통과.
+3. live Discord/KIS smoke는 credential/forum 권한 검증이 없어 이번 세션에서 수행하지 않았다.
+- Next:
+1. 운영 환경에서 `/setwatchforum -> /watch add -> scheduler poll -> close finalization` live smoke를 1회 수행해 forum 권한, thread follow UX, provider payload 안정성을 확인한다.
+- Status: done
+
 ## 2026-03-26
 - Context: 추가 리뷰에서 `마감가 알림`의 종가 소스와 close finalization partial failure retry semantics가 아직 문서상 열려 있다는 지적이 나왔다.
 - Change:
