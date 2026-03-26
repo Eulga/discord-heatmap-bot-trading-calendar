@@ -1,5 +1,79 @@
 # Development Log
 
+## 2026-03-26
+- Context: 추가 리뷰에서 `마감가 알림`의 종가 소스와 close finalization partial failure retry semantics가 아직 문서상 열려 있다는 지적이 나왔다.
+- Change:
+1. `docs/specs/watch-poll-to-be-spec.md`를 보강해 `마감가`는 after-hours current price가 아니라 same-session official regular close price를 사용하도록 고정했다.
+2. 같은 문서에 `session_close_price` 기반 close finalization 입력 계약, same-session close comment 재사용, `close_comment_ids_by_session` checkpoint 후 finalization 완료 마킹, delete/create/save 중간 실패 시 retry 규칙을 추가했다.
+3. system state 예시의 `watch_reference_snapshots.price`를 `reference_price`로 명확히 바꿨다.
+4. `docs/specs/external-intel-api-spec.md`에 `session_close_price` 필드를 추가하고, close summary는 이 값을 사용해야 한다는 규칙을 명시했다.
+5. `docs/specs/qa-test-backlog.md`에 regular close price source 검증, `session_close_price` 누락 retry, partial close finalization failure recovery 테스트를 추가하고 failure-injection 항목 번호를 정리했다.
+- Verification:
+1. To-Be spec, external API contract, QA backlog 사이에서 `마감가=official regular close price`, `session_close_price`, `partial failure retry` 의미가 일관되는지 대조했다.
+2. 이번 작업도 문서화만 수행했고 코드 변경이나 live verification은 하지 않았다.
+- Next:
+1. 구현 전 `session_close_price`를 quote adapter에서 직접 받을지, 별도 close endpoint로 보강할지 provider 설계를 먼저 확정한다.
+2. close finalization 구현 시 close comment 재사용 probe와 checkpoint save 순서를 코드 레벨 transaction처럼 정리한다.
+- Status: done
+
+## 2026-03-26
+- Context: 서브에이전트 reviewer/tester 검토에서 watch To-Be 문서의 regular-session gate, close catch-up, close history state, QA backlog 누락이 지적됐다.
+- Change:
+1. `docs/specs/watch-poll-to-be-spec.md`를 다시 정리해 intraday update는 regular session open 중에만 허용하고, off-hours는 close finalization-only 경로로 동작하도록 고정했다.
+2. 같은 문서에 `first eligible poll after close` 기준의 idempotent catch-up, multi-session close history(`close_comment_ids_by_session`), external `price -> WatchSnapshot.current_price` 매핑, remove mid-session 후 1회 close finalization 규칙을 추가했다.
+3. `docs/specs/qa-test-backlog.md`를 새 watch forum-thread 모델 기준으로 갱신해 `/setwatchforum`, `/watch add` route gating, symbol thread reuse, close finalization catch-up, remove 중 세션 정리, 3% ladder edge case, close history persistence 회귀를 추가했다.
+4. `docs/context/design-decisions.md`의 2026-03-26 watch target decision을 review 반영본으로 갱신했다.
+- Verification:
+1. To-Be spec, external quote contract, QA backlog 사이에서 `세션`, `off-hours`, `close finalization`, `price/current_price`, `close history` 의미가 일관되는지 대조했다.
+2. 이번 작업도 문서화만 수행했고 코드 변경이나 live verification은 하지 않았다.
+- Next:
+1. 구현 단계에서는 `WatchSnapshot` internal type과 `close_comment_ids_by_session` state schema를 코드 타입으로 먼저 확정한다.
+2. scheduler 구현 전, market calendar helper가 KRX/US 모두에 대해 `session open/close`와 `first eligible poll after close`를 안정적으로 제공하는지 확인한다.
+- Status: done
+
+## 2026-03-26
+- Context: 사용자가 watch forum-thread To-Be spec을 다시 다듬어 `3% band ladder`, `장마감 intraday comment 정리`, `마감가 알림 영구 보존`, `forum route 없으면 add 거절` 규칙을 고정했다.
+- Change:
+1. `docs/specs/watch-poll-to-be-spec.md`를 업데이트해 `세션=market-local regular-session trading date`, `3% band 무제한`, `한 poll에서 최고 신규 band 1건 comment`, `intraday comment 삭제 + 마감가 알림 보존`, `watch_forum_channel_id 없으면 /watch add 거절`을 반영했다.
+2. `docs/specs/external-intel-api-spec.md`의 watch quote 섹션에 `session_date`가 regular-session trading date 기준이며 band ladder / close finalization reset에 쓰인다는 점을 보강했다.
+3. `docs/context/design-decisions.md`의 2026-03-26 watch target decision을 최신 고정안으로 갱신했다.
+- Verification:
+1. To-Be spec 안에서 `세션`, `band ladder`, `close finalization`, `route gating` 규칙이 서로 충돌하지 않는지 재검토했다.
+2. 외부 quote target contract의 `previous_close/session_date` 요구와 To-Be spec의 session/band semantics가 일치하는지 확인했다.
+3. 이번 작업도 문서화만 수행했고 코드 변경이나 live verification은 하지 않았다.
+- Next:
+1. 구현 시 close finalization trigger를 market calendar 기준으로 어디서 계산할지 구체화한다.
+2. state schema에는 intraday comment IDs와 session close finalized flag를 어떤 경로에 둘지 먼저 확정한다.
+- Status: done
+
+## 2026-03-26
+- Context: 사용자가 `watch_poll` 목표 동작을 forum thread + previous_close basis 모델로 고정하고 To-Be 스펙 문서화를 요청했다.
+- Change:
+1. `docs/specs/watch-poll-to-be-spec.md`를 추가해 guild-symbol persistent thread, starter edit, threshold first-crossing comment, session-level alert persistence, previous_close basis, target state model을 정리했다.
+2. `docs/specs/external-intel-api-spec.md`의 watch quote 계약을 target model에 맞춰 `previous_close`, `session_date` 필수 필드가 드러나도록 보강했다.
+3. `docs/context/design-decisions.md`에 watch rollout 목표 모델을 accepted decision으로 기록했다.
+- Verification:
+1. 새 To-Be 문서가 As-Is 문서를 덮어쓰지 않고 별도 목표 명세로 분리됐는지 확인했다.
+2. watch target spec과 external intel API contract 사이에서 `previous_close/session_date` 요구사항이 일관되는지 대조했다.
+3. 이번 작업은 문서화만 수행했고 코드 변경이나 live verification은 하지 않았다.
+- Next:
+1. 구현 시작 전 `watch_forum_channel_id`, symbol thread registry, watch snapshot type 확장 범위를 코드 스키마로 구체화한다.
+2. 구현 단계에서는 기존 text alert state와 new forum-thread state의 migration plan 및 회귀 테스트 범위를 먼저 확정한다.
+- Status: done
+
+## 2026-03-26
+- Context: 사용자가 `watch_poll` 전용 기능명세서를 작성해 달라고 요청했다.
+- Change:
+1. `docs/specs/watch-poll-functional-spec.md`를 새로 추가했다.
+2. 문서는 현재 코드 기준의 `watch_poll` 동작, scheduler trigger, provider wiring, baseline/cooldown/latch 규칙, state schema, 상태 기록, 현재 제약과 rollout gap을 분리해 정리했다.
+3. 내용 근거는 `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`, `bot/forum/repository.py`, `bot/intel/providers/market.py`, 관련 unit/integration tests로 제한했다.
+- Verification:
+1. 기존 canonical docs(`as-is-functional-spec`, `external-intel-api-spec`, `config-reference`)와 코드/테스트를 대조해 문서 경계가 섞이지 않도록 확인했다.
+2. 이번 작업에서는 live Discord/vendor smoke는 다시 실행하지 않았다.
+- Next:
+1. `watch_poll`의 market-hours gating 또는 domestic quote freshness 정책이 구현되면 이 문서의 `Current Constraints and Known Gaps`와 `Rollout Alignment Notes`를 함께 갱신한다.
+- Status: done
+
 ## 2026-03-24
 - Context: 사용자가 뉴스 forum routing은 explicit route only로 바꾸고, base guild forum fallback을 제거하라고 요청했다.
 - Change:

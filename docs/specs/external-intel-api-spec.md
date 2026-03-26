@@ -3,7 +3,7 @@
 ## 목적
 - 새로 추가한 스케줄 기능인 `news_briefing`, `eod_summary`, `watch_poll`을 mock provider에서 실제 운영용 외부 API로 전환하기 위한 표준 계약을 정의한다.
 - 특정 벤더 API를 직접 고정하지 않고, 벤더별 응답을 이 문서의 정규화 스키마로 변환하는 adapter 계층을 기준으로 삼는다.
-- 현재 코드의 provider 인터페이스와 바로 연결되도록 `NewsItem`, `Quote`, `EodSummary` 타입을 기준으로 명세한다.
+- 현재 코드의 provider 인터페이스와 바로 연결되도록 `NewsItem`, `Quote`, `EodSummary` 타입을 기준으로 명세하되, watch target rollout에서는 current `Quote`를 확장/대체하는 internal `WatchSnapshot` 정규화 레이어를 허용한다.
 
 ## 현재 운영 메모 (2026-03-20)
 - `eod_summary`는 현재 잠정 중단 상태다. 이 문서의 EOD 섹션은 future reactivation용 참고 계약으로 유지한다.
@@ -165,7 +165,7 @@
 
 ### 용도
 - `MarketDataProvider.get_quote(symbol, now)`를 대체한다.
-- watchlist 변동률 판단은 `base_price` 대비 `current_price`이므로, 현재가만 정확하면 된다.
+- watch forum-thread rollout 기준으로 scheduler는 `current_price`뿐 아니라 `previous_close`, `session_date`, close finalization용 official regular close price도 필요로 한다.
 - slash command 입력은 종목명/코드/티커를 모두 받을 수 있지만, provider adapter에 들어가는 값은 local registry를 거친 canonical symbol이다.
 
 ### 정규화 엔드포인트
@@ -180,14 +180,20 @@
 {
   "quotes": [
     {
-      "symbol": "005930",
+      "symbol": "KRX:005930",
       "price": 73100.0,
+      "previous_close": 70900.0,
+      "session_close_price": null,
+      "session_date": "2026-03-17",
       "asof": "2026-03-17T10:05:00+09:00"
     },
     {
-      "symbol": "AAPL",
+      "symbol": "NAS:AAPL",
       "price": 214.37,
-      "asof": "2026-03-16T21:05:00-04:00"
+      "previous_close": 208.52,
+      "session_close_price": null,
+      "session_date": "2026-03-16",
+      "asof": "2026-03-16T15:55:00-04:00"
     }
   ]
 }
@@ -196,6 +202,9 @@
 ### 필드 규칙
 - `symbol`: 필수, canonical symbol 문자열 권장 (`KRX:005930`, `NAS:AAPL`)
 - `price`: 필수, `> 0`
+- `previous_close`: 필수, `> 0`
+- `session_close_price`: nullable number. regular session open 중에는 `null` 또는 생략 가능하지만, close finalization용 same-session off-hours snapshot에서는 official regular-session close price로 제공돼야 한다
+- `session_date`: 필수, market-local trading session date (`YYYY-MM-DD`)
 - `asof`: 필수, timezone-aware
 
 ### 운영 규칙
@@ -206,6 +215,14 @@
 - daily refresh는 live source를 직접 다시 fetch한 full rebuild가 성공했을 때만 runtime override artifact를 교체한다
 - 응답에 없는 종목은 adapter에서 `not-found:<symbol>` 형태 예외로 변환한다
 - quote 지연이 길면 잘못된 알림이 나갈 수 있으므로 허용 지연은 2분 이내를 권장한다
+- `previous_close`와 `session_date`는 같은 snapshot 기준으로 일관되게 제공돼야 한다
+- watch forum-thread rollout에서는 intraday 기준가를 `previous_close`로 고정한다
+- `session_date`는 symbol market의 regular-session trading date를 뜻하며, watch band ladder 및 close finalization reset 기준으로 사용한다
+- target watch forum-thread model에서는 `+3%`, `+6%`, `+9%` 및 `-3%`, `-6%`, `-9%` 같은 `3% band` ladder를 계산한다
+- external payload의 `price`는 internal watch scheduler의 `WatchSnapshot.current_price`로 정규화된다
+- external payload의 `session_close_price`는 internal watch scheduler의 `WatchSnapshot.session_close_price`로 정규화된다
+- close finalization에 사용되는 `마감가`는 after-hours `price`가 아니라 `session_close_price`여야 한다
+- provider가 quote payload에 official close를 직접 싣지 못하면 adapter는 별도 종가 endpoint 또는 추가 조회를 통해 `session_close_price`를 보강해야 한다
 
 ## 오류 응답 규칙
 

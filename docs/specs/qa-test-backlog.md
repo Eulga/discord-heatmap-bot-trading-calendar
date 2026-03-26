@@ -83,8 +83,8 @@
 ### IT-03 Setup commands reject channels the bot cannot actually use
 - Title: setup commands validate effective bot permissions
 - Target module: `bot/features/admin/command.py`
-- Setup: guild admin interaction fixture와, 타입은 맞지만 bot에 `send_messages`, `create_public_threads`, `attach_files` 등 필요한 권한이 없는 channel/forum fake를 준비한다.
-- Input: `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchchannel` handler 호출
+- Setup: guild admin interaction fixture와, 타입은 맞지만 bot에 `send_messages`, `create_public_threads`, `send_messages_in_threads`, message cleanup에 필요한 권한 등이 부족한 channel/forum fake를 준비한다.
+- Input: `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchforum` handler 호출
 - Expected output: command는 permission-specific 에러로 실패하고 state를 저장하지 않는다.
 - Failure condition guarded against: 설정 단계는 성공처럼 보이지만 실제 스케줄러 게시 시점에만 실패가 드러나는 latent misconfiguration
 - Priority: `P1`
@@ -107,6 +107,33 @@
 - Failure condition guarded against: 일반 guild member에게 provider failure, credential-missing, schedule metadata가 그대로 노출되는 문제
 - Priority: `P1`
 
+### IT-06 Watch add is route-gated and provisions exactly one symbol thread
+- Title: watch add rejects missing forum route and reuses symbol thread
+- Target module: `bot/features/watch/command.py`, `bot/features/intel_scheduler.py`, `bot/forum/repository.py`
+- Setup: guild state에 `watch_forum_channel_id`가 없는 상태와 있는 상태를 각각 준비하고, 동일 symbol에 대한 existing thread mapping fixture를 둔다.
+- Input: route 없는 상태의 `/watch add`, route 설정 후 첫 `/watch add`, 같은 symbol에 대한 재등록 또는 재추가 경로를 순서대로 호출한다.
+- Expected output: route가 없으면 `/watch add`는 명시적으로 거절되고 state mutation이나 orphan thread가 생기지 않는다. route가 있으면 symbol thread가 정확히 1개만 생성 또는 재사용된다.
+- Failure condition guarded against: forum route 없는 orphan watch state, duplicate symbol thread, broken thread reuse
+- Priority: `P1`
+
+### IT-07 First eligible poll after close finalizes the last unfinalized session exactly once
+- Title: close finalization catches up once after delayed startup
+- Target module: `bot/features/intel_scheduler.py`
+- Setup: regular session close를 지난 시각 fixture, intraday comment가 남아 있는 unfinalized session state, regular close price와 after-hours current price가 서로 다른 close snapshot, 그리고 restart 또는 delayed startup 상황을 준비한다.
+- Input: close 이후 첫 eligible `_run_watch_poll(now)` 또는 scheduler tick을 호출한 뒤 같은 off-hours tick을 다시 호출한다.
+- Expected output: 첫 eligible poll만 intraday comment를 삭제하고 `마감가 알림`을 1건 남긴다. close summary의 `마감가`는 after-hours current price가 아니라 official regular close price를 사용한다. 같은 `session_date`에 대해서는 restart 뒤에도 duplicate close comment가 생기지 않는다.
+- Failure condition guarded against: missed close 뒤 intraday comment 영구 잔류, after-hours 가격을 종가로 오인, restart 후 duplicate close summary
+- Priority: `P1`
+
+### IT-08 Remove during session still finalizes once and then stops
+- Title: removed symbol cleans up intraday state with one last close finalization
+- Target module: `bot/features/watch/command.py`, `bot/features/intel_scheduler.py`
+- Setup: current session에 intraday comment가 이미 생성된 symbol thread와, mid-session remove가 수행된 상태를 준비한다.
+- Input: `/watch remove` 후 close 이후 첫 eligible scheduler tick을 호출한다.
+- Expected output: starter는 inactive로 바뀌고 신규 intraday update는 멈춘다. 다만 해당 session의 intraday comment는 정리되고 `마감가 알림`은 정확히 1건 남는다. 이후 추가 tick은 아무것도 다시 만들지 않는다.
+- Failure condition guarded against: remove 뒤 intraday comment 방치, close summary 누락, remove 뒤 재가동 시 duplicate finalization
+- Priority: `P1`
+
 ## E2E Test
 
 ### E2E-01 Admin-configured live news run posts only live-configured content
@@ -127,13 +154,13 @@
 - Failure condition guarded against: 재시작이나 redeploy 직후 partial post가 duplicate posting으로 증폭되는 문제
 - Priority: `P1`
 
-### E2E-03 Shared watchlist mutation stays isolated by guild and role
-- Title: watch configuration is admin-only and guild-scoped end to end
+### E2E-03 Watch route gating and guild-scoped symbol threads stay isolated end to end
+- Title: watch add is route-gated and thread posting stays inside the configured guild forum
 - Target module: `bot/features/watch/command.py`, `bot/features/intel_scheduler.py`, `bot/forum/repository.py`
-- Setup: guild A와 guild B를 준비하고, guild A에는 admin과 non-admin user를 함께 둔다. watch alert channel은 guild별로 다르게 설정한다.
-- Input: non-admin의 `/watch add`, admin의 `/watch add`, 이후 poll 1회를 순서대로 수행한다.
-- Expected output: non-admin mutation은 거절되고, admin mutation만 저장된다. alert는 설정한 guild channel에만 도착하며 타 guild state는 변하지 않는다.
-- Failure condition guarded against: shared watchlist 무단 변경, cross-server routing leakage
+- Setup: guild A와 guild B를 준비하고, guild A에는 regular user와 admin을 둔다. guild별 watch forum route는 서로 다르게 설정한다.
+- Input: guild A regular user의 route 없는 `/watch add`, admin의 `/setwatchforum`, 이후 같은 user의 `/watch add`, poll 1회를 순서대로 수행한다.
+- Expected output: route 없는 첫 add는 거절된다. route 설정 후 add는 guild A forum 안에만 symbol thread를 만들고 starter/comment도 같은 guild thread에만 남는다. guild B state와 forum은 변하지 않는다.
+- Failure condition guarded against: orphan watch state, cross-guild thread leakage, 잘못된 forum route 해석
 - Priority: `P1`
 
 ## Regression Test
@@ -165,13 +192,13 @@
 - Failure condition guarded against: runtime artifact corruption이 전체 symbol lookup 실패로 번지는 문제
 - Priority: `P2`
 
-### RG-04 Watch command authorization does not regress on future refactors
-- Title: watch add and remove remain restricted after auth changes
-- Target module: `bot/features/watch/command.py`
-- Setup: admin/owner/global-admin/non-admin interaction fixture를 둔다.
-- Input: `/watch add`, `/watch remove` handler 호출
-- Expected output: owner/admin/global-admin만 성공하고, non-admin은 명시적 authorization error를 받는다.
-- Failure condition guarded against: 권한 helper 분리나 slash-command refactor 이후 shared watch surface가 다시 공개되는 문제
+### RG-04 Watch add remains route-gated and symbol thread reuse stays deterministic
+- Title: watch add rejects missing forum route and does not duplicate symbol threads
+- Target module: `bot/features/watch/command.py`, `bot/features/intel_scheduler.py`
+- Setup: route 미설정 guild, route 설정 guild, existing symbol thread mapping, stale thread mapping 복구 fixture를 준비한다.
+- Input: `/watch add`와 subsequent poll/recovery 경로를 호출한다.
+- Expected output: route 없이는 add가 거절되고, route가 있으면 동일 guild-symbol은 thread를 하나만 유지한다. stale mapping 복구 후에도 duplicate thread가 생기지 않는다.
+- Failure condition guarded against: route gating 회귀, duplicate symbol thread, broken recreate semantics
 - Priority: `P1`
 
 ### RG-05 Marketaux trend classification uses wider metadata than title-only fallback
@@ -182,6 +209,24 @@
 - Expected output: relevant theme가 최소 1개 이상 선택되고, briefing title-only fallback보다 recall이 높다.
 - Failure condition guarded against: 영어 글로벌 기사에서 title-only fallback 때문에 real theme가 누락되는 문제
 - Priority: `P2`
+
+### RG-06 Watch 3% ladder edge transitions remain stable
+- Title: multi-band jump, retrace, reversal, and restart do not re-emit old bands
+- Target module: `bot/features/intel_scheduler.py`
+- Setup: `highest_up_band/highest_down_band` state와 thread fixtures를 준비하고, `+2.9 -> +9.2`, `+9.2 -> +4.0`, `+9.2 -> -6.4`, mid-session restart 시나리오를 순차적으로 재현한다.
+- Input: 해당 quote sequence로 poll을 여러 번 호출한다.
+- Expected output: `+9.2`에서는 최고 신규 `+9%` comment 1건만 생성되고 `highest_up_band=3`이 된다. retrace에서는 새 comment가 없고, reversal에서는 `-6%` comment 1건만 추가된다. restart 뒤에도 이미 지난 band는 재발송되지 않는다.
+- Failure condition guarded against: ladder jump flood, retrace duplicate comment, reversal semantics drift, restart 후 band 재발송
+- Priority: `P1`
+
+### RG-07 Close history persists across sessions without duplicate finalization
+- Title: close comments accumulate by session and are never cleaned by next-day rollover
+- Target module: `bot/features/intel_scheduler.py`, `bot/forum/repository.py`
+- Setup: 이틀 연속으로 symbol thread가 close finalization까지 수행된 상태와 next-day startup fixture를 준비한다.
+- Input: 두 연속 session의 close finalization과 다음날 off-hours tick을 호출한다.
+- Expected output: `마감가 알림` comment는 session별로 distinct하게 보존되고, next-day cleanup은 이전 session close comment를 삭제하지 않는다. 이미 finalized된 session에는 duplicate close comment가 생기지 않는다.
+- Failure condition guarded against: close history 유실, next-day cleanup 오작동, duplicate close summary
+- Priority: `P1`
 
 ## Failure Injection Test
 
@@ -194,16 +239,34 @@
 - Failure condition guarded against: 단순 state save 실패가 bot 전체 부트를 깨뜨리는 문제
 - Priority: `P1`
 
-### FI-02 Closed-market watch poll is skipped instead of treated as quote failure
-- Title: off-hours poll becomes skipped with market-session detail
+### FI-02 Off-hours watch poll only finalizes once and never reopens intraday updates
+- Title: first poll after close finalizes once, later off-hours polls no-op
 - Target module: `bot/features/intel_scheduler.py`
-- Setup: KRX/US watch symbols가 등록된 상태에서 휴장일 또는 off-hours 시각 fixture를 준비한다.
-- Input: `_run_watch_poll(now)` 호출
-- Expected output: job status는 `skipped`이고 detail에는 `market-closed`, `holiday`, `session-closed` 계열 정보가 남는다. alert는 발송되지 않는다.
-- Failure condition guarded against: 장이 닫혀 있을 뿐인데 quote failure와 stale alert가 쌓이는 문제
+- Setup: KRX/US watch symbols가 등록된 상태에서 close 직후 poll, 이후 off-hours poll, pre-market poll fixture를 준비하고 unfinalized intraday state를 둔다.
+- Input: `_run_watch_poll(now)`를 close 직후, late off-hours, next pre-market 순서로 호출한다.
+- Expected output: 첫 eligible close 이후 poll만 finalization을 수행한다. 이후 off-hours와 pre-market poll은 intraday starter edit나 신규 band comment를 만들지 않는다. 이미 finalized된 session에 duplicate close comment도 생기지 않는다.
+- Failure condition guarded against: after-hours comment 재개, duplicate close finalization, pre-market overwrite, off-hours를 quote failure로 오분류하는 문제
 - Priority: `P1`
 
-### FI-03 Concurrent state mutations preserve both updates
+### FI-03 Missing session close price defers close finalization until retry
+- Title: same-session off-hours snapshot without session close price stays unfinalized
+- Target module: `bot/features/intel_scheduler.py`
+- Setup: close 직후 off-hours snapshot의 `current_price`는 존재하지만 `session_close_price`가 `null`인 상태와, 다음 poll에서는 same-session official regular close price가 채워지는 fixture를 준비한다.
+- Input: `session_close_price`가 비어 있는 첫 off-hours `_run_watch_poll(now)` 뒤에 값이 채워진 다음 off-hours poll을 다시 호출한다.
+- Expected output: 첫 poll은 `마감가 알림`을 만들지 않고 session을 unfinalized 상태로 유지한다. 다음 poll에서 `session_close_price`가 들어오면 close finalization이 정확히 1회 수행된다.
+- Failure condition guarded against: official close 미도착 상태에서 after-hours current price를 종가로 오인, null close price를 가진 성급한 finalization, retry 누락
+- Priority: `P1`
+
+### FI-04 Partial close finalization retry does not duplicate close summary
+- Title: delete/create/save mid-failure is recovered idempotently on next off-hours poll
+- Target module: `bot/features/intel_scheduler.py`, `bot/forum/repository.py`
+- Setup: unfinalized session에 intraday comment 여러 개와 close snapshot을 준비하고, 첫 close finalization 시도에서 `intraday comment delete 일부 성공 후 failure`, `close comment create 성공 후 state save failure`, `checkpoint save 성공 후 finalization flag save failure`를 각각 강제로 발생시킨다.
+- Input: 실패를 유발한 첫 off-hours `_run_watch_poll(now)` 뒤에 다음 off-hours poll을 다시 호출한다.
+- Expected output: retry는 이미 삭제된 intraday comment의 `NotFound`를 허용적으로 처리하고, same-session `마감가 알림`을 중복 생성하지 않는다. 최종 state는 `close_comment_ids_by_session`와 finalized marker가 실제 Discord 상태와 일치한다.
+- Failure condition guarded against: partial side-effect 뒤 duplicate close summary, delete retry crash, state/Discord 불일치 영구 잔류
+- Priority: `P1`
+
+### FI-05 Concurrent state mutations preserve both updates
 - Title: concurrent command and scheduler writes do not drop unrelated state
 - Target module: `bot/forum/repository.py`, `bot/features/intel_scheduler.py`, `bot/features/watch/command.py`
 - Setup: command path는 watchlist 변경을, scheduler path는 job/provider status 변경을 각각 수행하도록 하고 두 save가 겹치게 만든다.
@@ -212,7 +275,7 @@
 - Failure condition guarded against: load-modify-save race로 마지막 writer만 살아남아 routing, watchlist, job state가 조용히 유실되는 문제
 - Priority: `P0`
 
-### FI-04 Crash after first guild post checkpoints progress before rerun
+### FI-06 Crash after first guild post checkpoints progress before rerun
 - Title: crash mid-loop does not duplicate first guild on rerun
 - Target module: `bot/features/intel_scheduler.py`
 - Setup: 두 guild를 대상으로 한 news 또는 EOD loop를 준비하고, 첫 guild posting 성공 직후 프로세스가 종료되는 failure hook을 건다.
@@ -221,7 +284,7 @@
 - Failure condition guarded against: job-end save만 믿다가 mid-loop crash 후 이미 처리한 guild를 다시 게시하는 문제
 - Priority: `P1`
 
-### FI-05 Partial Discord API outage does not mislead operators into reconfiguration
+### FI-07 Partial Discord API outage does not mislead operators into reconfiguration
 - Title: transient forum fetch outage returns temporary failure instead of config advice
 - Target module: `bot/features/runner.py`
 - Setup: guild state의 forum channel mapping은 정상이지만 `fetch_channel()`이 transient error를 내는 fake client를 준비한다.
