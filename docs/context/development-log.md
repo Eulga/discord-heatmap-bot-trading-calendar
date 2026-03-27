@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-03-27
+- Context: PR #16 재리뷰 후속으로 watch forum-thread remove/re-add 흐름과 legacy hard-cut 문서 정리를 사용자 요청에 따라 마무리했다.
+- Change:
+1. `bot/features/watch/command.py`에서 `/watch add`가 기존 inactive thread를 복구할 때도 active placeholder starter를 명시적으로 다시 쓰도록 바꿨다.
+2. 같은 파일과 `bot/features/watch/thread_service.py`에서 `/watch remove`가 update-only 경로(`allow_create=False`)를 사용하도록 바꿔, 기존 registry가 있어도 stored thread/starter가 stale이면 새 inactive thread를 만들지 않도록 막았다.
+3. `bot/app/settings.py`, `bot/app/types.py`, `bot/forum/repository.py`, `tests/unit/test_bot_client.py`에서 더 이상 쓰지 않는 `WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id` 경로와 `WATCH_ALERT_COOLDOWN_MINUTES` settings surface를 제거했다.
+4. `tests/integration/test_watch_forum_flow.py`에 stale thread handle일 때 recreate를 막는 회귀 테스트와 `/watch remove`의 `allow_create=False` 전달 검증을 추가했다.
+5. `.env.example`, `docs/operations/config-reference.md`, `docs/specs/watch-poll-functional-spec.md`, `docs/specs/as-is-functional-spec.md`를 current code 기준으로 갱신해 watch route hard cut과 band comment 정수 label 의도를 명시했다.
+6. reviewer follow-up으로 `docs/specs/integration-test-cases.md`의 suite overview를 현재 collect 결과(`non-live 71`, `live 2`)에 맞추고, stale했던 watch text-alert 섹션을 `test_watch_forum_flow.py` / `test_watch_poll_forum_scheduler.py` 기준의 현행 forum-thread coverage로 교체했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
+## 2026-03-27
 - Context: 서브에이전트 코드 리뷰에서 watch forum-thread rollout의 carry-forward finalization, forum route change, KRX stale timestamp 처리에 결함이 지적됐다.
 - Change:
 1. `bot/features/intel_scheduler.py`를 보강해 prior session이 unfinalized인 상태에서 다음 regular session snapshot이 들어오면, current session state를 reset하기 전에 이전 session close finalization을 먼저 수행하도록 수정했다.

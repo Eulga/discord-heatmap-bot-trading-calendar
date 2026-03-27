@@ -3,10 +3,12 @@ import logging
 import discord
 from discord import app_commands
 
+from bot.features.watch.service import render_watch_placeholder
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
     add_watch_symbol,
     get_guild_watch_forum_channel_id,
+    get_watch_symbol_thread,
     list_watch_symbols,
     load_state,
     remove_watch_symbol,
@@ -222,6 +224,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
                 forum_channel_id=watch_forum_channel_id,
                 symbol=resolved_symbol,
                 active=True,
+                starter_text=render_watch_placeholder(resolved_symbol, active=True),
             )
         except Exception as exc:
             logger.exception(
@@ -271,20 +274,31 @@ def register(tree: app_commands.CommandTree, client) -> None:
             await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
             return
 
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
         removed = remove_watch_symbol(state, interaction.guild_id, resolved_symbol)
         if removed:
             set_watch_symbol_thread_status(state, interaction.guild_id, resolved_symbol, "inactive")
             watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
-            if watch_forum_channel_id is not None:
+            if existing_thread is not None and watch_forum_channel_id is not None:
                 try:
-                    await upsert_watch_thread(
+                    handle = await upsert_watch_thread(
                         client=client,
                         state=state,
                         guild_id=interaction.guild_id,
                         forum_channel_id=watch_forum_channel_id,
                         symbol=resolved_symbol,
                         active=False,
+                        starter_text=render_watch_placeholder(resolved_symbol, active=False),
+                        allow_create=False,
                     )
+                    if handle is None:
+                        logger.info(
+                            "[command] watch.remove starter-update-skipped guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
+                            interaction.guild_id,
+                            _interaction_user_id(interaction),
+                            symbol,
+                            resolved_symbol,
+                        )
                 except Exception as exc:
                     logger.exception(
                         "[command] watch.remove starter-update-failed guild=%s user=%s symbol=%s resolved=%s detail=%s",

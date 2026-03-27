@@ -75,6 +75,7 @@ class FakeForumChannel:
         self.guild = SimpleNamespace(id=guild_id)
         self._existing_thread = existing_thread
         self._created_thread = created_thread or FakeThread(999, FakeMessage(555, "starter"))
+        self.create_calls: list[tuple[str, str]] = []
         if self._existing_thread is not None and self._existing_thread.parent_id is None:
             self._existing_thread.parent = self
             self._existing_thread.parent_id = self.id
@@ -88,6 +89,7 @@ class FakeForumChannel:
         return None
 
     async def create_thread(self, name: str, content: str):
+        self.create_calls.append((name, content))
         self._created_thread.name = name
         self._created_thread.parent = self
         self._created_thread.parent_id = self.id
@@ -251,6 +253,45 @@ async def test_upsert_watch_thread_recreates_when_existing_thread_belongs_to_oth
 
 
 @pytest.mark.asyncio
+async def test_upsert_watch_thread_does_not_recreate_when_creation_disallowed(monkeypatch):
+    monkeypatch.setattr(thread_service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(thread_service.discord, "Thread", FakeThread)
+    monkeypatch.setattr(thread_service.discord, "NotFound", FakeNotFound)
+    monkeypatch.setattr(thread_service.discord, "Forbidden", FakeNotFound)
+    monkeypatch.setattr(thread_service.discord, "HTTPException", FakeNotFound)
+
+    old_thread = FakeThread(2001, FakeMessage(3001, "gone"), missing_starter=True)
+    new_thread = FakeThread(2002, FakeMessage(3002, "fresh"))
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {},
+    }
+    channel = FakeForumChannel(456, 1, existing_thread=old_thread, created_thread=new_thread)
+    client = FakeClient({456: channel, 2001: old_thread, 2002: new_thread})
+
+    recreated = await thread_service.upsert_watch_thread(
+        client,
+        state,
+        guild_id=1,
+        forum_channel_id=456,
+        symbol="KRX:005930",
+        active=False,
+        starter_text="starter-v2",
+        allow_create=False,
+    )
+
+    assert recreated is None
+    assert channel.create_calls == []
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["thread_id"] == 2001
+
+
+@pytest.mark.asyncio
 async def test_setwatchforum_command_handles_success_unauthorized_and_foreign_forum(monkeypatch):
     tree, client = _tree()
     admin_command.register(tree, client)
@@ -293,7 +334,41 @@ async def test_watch_add_rejects_when_watch_forum_is_missing(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watch_remove_marks_thread_inactive(monkeypatch):
+async def test_watch_add_uses_active_placeholder_when_upserting_thread(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    add_command = next(command for command in group.commands if command.name == "add")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": []}},
+    }
+    calls: list[tuple[str, bool, str | None]] = []
+
+    async def fake_upsert_watch_thread(**kwargs):
+        calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text")))
+        return SimpleNamespace(action="updated")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await add_command.callback(interaction, "005930")
+
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
+    assert calls == [("KRX:005930", True, watch_command.render_watch_placeholder("KRX:005930", active=True))]
+
+
+@pytest.mark.asyncio
+async def test_watch_remove_marks_thread_inactive_and_updates_placeholder(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)
     group = _command_by_name(tree, "watch")
@@ -309,10 +384,10 @@ async def test_watch_remove_marks_thread_inactive(monkeypatch):
         },
         "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
     }
-    calls: list[tuple[str, bool]] = []
+    calls: list[tuple[str, bool, str | None, bool | None]] = []
 
     async def fake_upsert_watch_thread(**kwargs):
-        calls.append((kwargs["symbol"], kwargs["active"]))
+        calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text"), kwargs.get("allow_create")))
         return SimpleNamespace(action="updated")
 
     monkeypatch.setattr(watch_command, "load_state", lambda: state)
@@ -324,4 +399,32 @@ async def test_watch_remove_marks_thread_inactive(monkeypatch):
 
     assert state["guilds"]["1"]["watchlist"] == []
     assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["status"] == "inactive"
-    assert calls == [("KRX:005930", False)]
+    assert calls == [("KRX:005930", False, watch_command.render_watch_placeholder("KRX:005930", active=False), False)]
+
+
+@pytest.mark.asyncio
+async def test_watch_remove_does_not_create_thread_when_no_registry_entry_exists(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    remove_command = next(command for command in group.commands if command.name == "remove")
+
+    state = {
+        "commands": {"watchpoll": {"daily_posts_by_guild": {}, "last_images": {}, "symbol_threads_by_guild": {"1": {}}}},
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+    calls: list[str] = []
+
+    async def fake_upsert_watch_thread(**kwargs):
+        calls.append(kwargs["symbol"])
+        return SimpleNamespace(action="created")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await remove_command.callback(interaction, "005930")
+
+    assert state["guilds"]["1"]["watchlist"] == []
+    assert calls == []

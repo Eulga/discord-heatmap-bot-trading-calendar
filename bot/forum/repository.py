@@ -141,15 +141,6 @@ def get_guild_watch_forum_channel_id(state: AppState, guild_id: int) -> int | No
     return channel_id if isinstance(channel_id, int) else None
 
 
-def set_guild_watch_alert_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
-    _get_guild_config(state, guild_id)["watch_alert_channel_id"] = channel_id
-
-
-def get_guild_watch_alert_channel_id(state: AppState, guild_id: int) -> int | None:
-    channel_id = _get_guild_config(state, guild_id).get("watch_alert_channel_id")
-    return channel_id if isinstance(channel_id, int) else None
-
-
 def set_guild_auto_screenshot_enabled(state: AppState, guild_id: int, enabled: bool) -> None:
     _get_guild_config(state, guild_id)["auto_screenshot_enabled"] = enabled
 

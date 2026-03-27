@@ -424,18 +424,24 @@
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
 3. `/watch remove` resolves against the current guild watchlist, including canonical and legacy representations.
-4. Successful add/remove operations update the guild watchlist in state and save immediately.
-5. Removing a symbol also clears watch cooldown, latch, and baseline runtime state for that symbol.
-6. `/watch list` formats the current symbols using registry display names.
-7. Autocomplete queries the local registry and returns up to 25 choices.
+4. Successful `/watch add` requires `watch_forum_channel_id`, updates the guild watchlist in state, saves immediately, and create-or-recovers the persistent symbol thread with an active placeholder starter.
+5. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
+6. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
+7. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
+8. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
+9. `/watch list` formats the current symbols using registry display names.
+10. Autocomplete queries the local registry and returns up to 25 choices.
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
 - Updated `guilds.{guild_id}.watchlist`
+- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and starter message when add/remove touches a tracked thread
 - Autocomplete choices for symbol search
 
 ### 4.6 Persistence / state interaction
 - Reads/writes `guilds.{guild_id}.watchlist`
+- Reads `guilds.{guild_id}.watch_forum_channel_id`
+- Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
 - Reads/writes `guilds.{guild_id}.watch_alert_cooldowns`
 - Reads/writes `guilds.{guild_id}.watch_alert_latches`
 - Reads/writes `system.watch_baselines.{guild_id}`
@@ -444,6 +450,7 @@
 ### 4.7 Error / edge handling (As-Is)
 - Empty input is rejected.
 - Ambiguous symbol resolution returns candidate text rather than auto-selecting.
+- `/watch add` is rejected when `watch_forum_channel_id` is missing.
 - Duplicate add returns an ignored/already-registered message.
 - Remove on a missing symbol returns an error message.
 - This module does not perform an admin/owner permission check.
@@ -743,7 +750,6 @@
   - `WATCH_POLL_ENABLED`
   - `WATCH_POLL_INTERVAL_SECONDS`
   - `WATCH_ALERT_THRESHOLD_PCT`
-  - `WATCH_ALERT_COOLDOWN_MINUTES`
   - `MARKET_DATA_PROVIDER_KIND`
   - KIS and Massive credentials
 - Runtime inputs:
@@ -770,6 +776,7 @@
    - `previous_close` becomes the reference basis for percent-change rendering
    - the session state resets when `session_date` changes
    - at most one highest newly crossed `3%` band comment is created per poll
+   - the rendered band label truncates `WATCH_ALERT_THRESHOLD_PCT` to an integer before multiplying by the band, while the trailing signed percent still uses the exact `change_pct`
 7. Outside regular-session hours:
    - starter and intraday updates are skipped
    - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
@@ -786,7 +793,7 @@
 - Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
 - Reads/writes `system.watch_reference_snapshots.{guild_id}.{symbol}`
 - Reads/writes `system.watch_session_alerts.{guild_id}.{symbol}`
-- Legacy `watch_alert_channel_id`, cooldown/latch, and `system.watch_baselines` are kept only for compatibility or cleanup, not as active alert inputs
+- Legacy cooldown/latch and `system.watch_baselines` are kept only for compatibility or cleanup, not as active alert inputs
 - Reads/writes provider/job status in `system`
 
 ### 4.7 Error / edge handling (As-Is)
@@ -1011,11 +1018,11 @@
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`
   - Risk if missing: EOD remains disabled by default
-- Name: `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`, `WATCH_ALERT_COOLDOWN_MINUTES`
+- Name: `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`
   - Purpose: enable watch polling and band-comment thresholds
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`
-  - Risk if missing: defaults apply; `WATCH_ALERT_COOLDOWN_MINUTES` is legacy and no longer drives runtime watch behavior
+  - Risk if missing: defaults apply
 - Name: `INSTRUMENT_REGISTRY_REFRESH_ENABLED`, `INSTRUMENT_REGISTRY_REFRESH_TIME`, `DART_API_KEY`
   - Purpose: optional daily registry rebuild
   - Required vs optional: refresh schedule optional, `DART_API_KEY` required only for live rebuild

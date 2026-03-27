@@ -1,5 +1,25 @@
 # Review Log
 
+## 2026-03-27
+- Context: PR #16 재리뷰에서 watch forum-thread follow-up 결함과 남은 문서 불일치를 재확인했다.
+- Finding:
+1. `/watch remove`가 기존 thread registry 없이도 새 inactive thread를 만들 수 있었고, remove가 "삭제"가 아니라 새 forum thread 생성으로 보일 수 있었다.
+2. 기존 symbol thread를 재사용하는 `/watch add` / `/watch remove` 경로에서 starter가 active/inactive placeholder로 전환되지 않아 사용자에게 stale 상태가 남을 수 있었다.
+3. 현재 코드가 이미 hard cut 한 `WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id` / `WATCH_ALERT_COOLDOWN_MINUTES`가 `.env.example`과 current-runtime 문서에 남아 있었다.
+4. current docs에는 band comment label이 `int(WATCH_ALERT_THRESHOLD_PCT) * band`를 사용한다는 설명이 없어, non-integer threshold 운영 의도를 읽어낼 수 없었다.
+5. 후속 reviewer는 `/watch remove`가 stale registry entry를 가진 경우에도 `upsert_watch_thread()` fallback recreate 때문에 새 inactive thread를 만들 수 있다고 지적했다.
+6. 전체 reviewer는 `docs/specs/integration-test-cases.md`가 이번 브랜치의 실제 non-live integration coverage와 watch forum-thread 회귀 파일을 반영하지 못한다고 지적했다.
+- Resolution:
+1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
+2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
+3. legacy watch route env/settings/type/docs surface를 current code에 맞춰 정리하고, hard cut 이후 watch routing source of truth가 `watch_forum_channel_id`뿐임을 문서에 남겼다.
+4. current behavior spec에 band comment label의 정수 절단 의도를 명시했다.
+5. `upsert_watch_thread()`에 `allow_create` 제어를 추가하고 `/watch remove`는 update-only로 호출해, stale registry entry가 있어도 새 inactive thread를 만들지 않도록 막았다.
+6. `docs/specs/integration-test-cases.md`의 suite summary, totals, watch coverage 섹션을 현재 collect 결과와 watch forum-thread 테스트 파일 기준으로 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
 ## 2026-03-24
 - Context: 사용자가 이전 QA 리뷰에서 P0/P1만 추려 GitHub issue draft와 주차별 구현 순서를 요청했다.
 - Finding:

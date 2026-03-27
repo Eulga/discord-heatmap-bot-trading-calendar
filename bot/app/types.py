@@ -52,7 +52,6 @@ class GuildConfig(TypedDict):
     news_forum_channel_id: NotRequired[int]
     eod_forum_channel_id: NotRequired[int]
     watch_forum_channel_id: NotRequired[int]
-    watch_alert_channel_id: NotRequired[int]
     auto_screenshot_enabled: NotRequired[bool]
     last_auto_attempts: NotRequired[dict[str, str]]
     last_auto_runs: NotRequired[dict[str, str]]

@@ -39,8 +39,7 @@
   - `EOD_TARGET_FORUM_ID`
 - Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
 - Runtime routing should be checked in `data/state/state.json` when validating actual behavior.
-- Legacy note:
-  - `WATCH_ALERT_CHANNEL_ID` is still parsed from env for compatibility, but current startup/runtime code does not bootstrap or consume it for watch routing.
+- Watch routing no longer has an env bootstrap/default channel; current code requires per-guild `watch_forum_channel_id` in state.
 
 ## Active Runtime Request Knobs
 - Shared live-provider request behavior:
@@ -59,7 +58,6 @@
   - `WATCH_POLL_INTERVAL_SECONDS`
   - `WATCH_ALERT_THRESHOLD_PCT`
   - `MARKET_DATA_PROVIDER_KIND`
-  - legacy parsed-but-ignored: `WATCH_ALERT_COOLDOWN_MINUTES`
 - EOD:
   - `EOD_SUMMARY_ENABLED`
   - `EOD_SUMMARY_TIME`
@@ -88,7 +86,6 @@
   - `WATCH_POLL_INTERVAL_SECONDS = 60`
   - `WATCH_ALERT_THRESHOLD_PCT = 3.0`
   - `MARKET_DATA_PROVIDER_KIND = "mock"`
-  - legacy parsed-but-ignored: `WATCH_ALERT_COOLDOWN_MINUTES = 10`
 - EOD:
   - `EOD_SUMMARY_ENABLED = False`
   - `EOD_SUMMARY_TIME = "16:20"`

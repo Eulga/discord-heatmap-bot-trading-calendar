@@ -11,12 +11,6 @@ class FakeForumChannel:
         self.guild = SimpleNamespace(id=guild_id)
 
 
-class FakeTextChannel:
-    def __init__(self, channel_id: int, guild_id: int):
-        self.id = channel_id
-        self.guild = SimpleNamespace(id=guild_id)
-
-
 class FakeClient:
     def __init__(self, channels_by_id: dict[int, object]):
         self._channels_by_id = channels_by_id
@@ -66,7 +60,6 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
                 "forum_channel_id": 201,
                 "news_forum_channel_id": 202,
                 "eod_forum_channel_id": 203,
-                "watch_alert_channel_id": 204,
             }
         },
     }
@@ -93,5 +86,4 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
     assert guild["forum_channel_id"] == 201
     assert guild["news_forum_channel_id"] == 202
     assert guild["eod_forum_channel_id"] == 203
-    assert guild["watch_alert_channel_id"] == 204
     assert saves["count"] == 0

@@ -76,7 +76,8 @@ async def upsert_watch_thread(
     symbol: str,
     active: bool,
     starter_text: str | None = None,
-) -> WatchThreadHandle:
+    allow_create: bool = True,
+) -> WatchThreadHandle | None:
     forum_channel = await _resolve_forum_channel(client, guild_id=guild_id, forum_channel_id=forum_channel_id)
     desired_title = _watch_thread_title(symbol)
     desired_starter = starter_text
@@ -107,6 +108,9 @@ async def upsert_watch_thread(
                     status="active" if active else "inactive",
                 )
                 return WatchThreadHandle(thread=thread, starter_message=starter_message, action="updated")
+
+    if not allow_create:
+        return None
 
     created = await forum_channel.create_thread(
         name=desired_title,

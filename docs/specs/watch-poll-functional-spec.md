@@ -12,7 +12,7 @@
 - poll은 regular session open 중 starter message를 갱신하고, `previous_close` 기준 `3% band ladder` 최고 신규 구간에 대해서만 intraday comment를 남긴다.
 - regular session close 후 off-hours poll은 intraday starter edit 없이 close finalization만 시도한다.
 - close finalization은 intraday comment를 삭제하고 same-session `마감가 알림` comment 1건을 남긴다.
-- 기존 `watch_alert_channel_id`, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 legacy read/cleanup 대상으로만 남아 있고, 현재 poll semantics의 authoritative 입력은 아니다.
+- 과거 text watch route (`WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id`)는 hard cut 되었고, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`만 legacy cleanup/read 호환 대상으로 남아 있다.
 
 ## 3. Runtime Inputs and Dependencies
 
@@ -131,13 +131,14 @@
 - `watch_forum_channel_id`가 없으면 명시적으로 거절한다.
 - watchlist에 symbol을 추가하고, 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create or recover 한다.
 - 기존 symbol thread가 현재 configured watch forum에 속하지 않으면 재사용하지 않고 새 forum 아래에서 다시 만든다.
-- starter 내용은 초기 placeholder 또는 현재 snapshot summary다.
+- starter 내용은 create/recover 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
 
 ### `/watch remove`
 - active watchlist에서만 제거한다.
 - legacy cooldown/latch/baseline state는 cleanup된다.
-- symbol thread registry status는 `inactive`로 바뀐다.
-- starter message는 사용자용 `감시가 중지되었습니다` placeholder로 갱신하려고 시도한다.
+- symbol thread registry entry가 이미 있을 때만 status는 `inactive`로 바뀐다.
+- 기존 tracked thread/starter가 현재 watch forum에서 resolve될 때만 starter message를 사용자용 `감시가 중지되었습니다` placeholder로 갱신하려고 시도한다.
+- thread registry가 없거나 stored thread handle이 stale이면 `/watch remove`는 새 inactive thread를 만들지 않는다.
 - 현재 session이 아직 finalization되지 않았으면 scheduler가 off-hours poll에서 1회 close finalization을 끝낸 뒤 완전히 중지한다.
 
 ### `/watch list`
@@ -165,23 +166,24 @@
 1. scheduler가 snapshot을 조회한다.
 2. `previous_close`와 `session_date`가 같지 않으면 provider failure로 본다.
 3. 이전 session이 아직 finalization되지 않은 상태에서 더 늦은 `session_date` snapshot이 오면, current session starter로 넘어가기 전에 prior session close finalization을 먼저 시도한다.
-3. session이 바뀌면 `watch_reference_snapshots`를 새 `previous_close/session_date`로 교체한다.
-4. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
-5. starter message는 아래 정보를 포함해 매 성공 poll마다 edit된다.
+4. session이 바뀌면 `watch_reference_snapshots`를 새 `previous_close/session_date`로 교체한다.
+5. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
+6. starter message는 아래 정보를 포함해 매 성공 poll마다 edit된다.
    - 종목명 / canonical symbol
    - 전일 종가 (`KRX=₩`, `NAS/NYS/AMS=$`)
    - 현재가 (`KRX=₩`, `NAS/NYS/AMS=$`)
    - 변동률
    - 마지막 갱신 시각
-6. `change_pct = ((current_price - previous_close) / previous_close) * 100`를 계산한다.
-7. `3% band ladder` 규칙:
+7. `change_pct = ((current_price - previous_close) / previous_close) * 100`를 계산한다.
+8. `3% band ladder` 규칙:
    - `+3`, `+6`, `+9` ...
    - `-3`, `-6`, `-9` ...
-8. 한 poll에서 여러 band를 건너뛰어도 intraday comment는 최고 신규 band 1건만 남긴다.
+9. 한 poll에서 여러 band를 건너뛰어도 intraday comment는 최고 신규 band 1건만 남긴다.
    - format: `{symbol} +3% 이상 상승 : +3.80% · {timestamp}`
+   - label의 `%` 숫자는 `int(WATCH_ALERT_THRESHOLD_PCT) * band`로 계산되고, 뒤의 signed percent는 실제 `change_pct` 그대로 표시된다.
    - down case도 같은 형식으로 `-3% 이상 하락`을 사용한다.
-9. 같은 session 안에서는 한번 도달한 band를 내리지 않는다.
-10. 반대 방향 ladder는 독립적으로 진행되어 `both-active`가 될 수 있다.
+10. 같은 session 안에서는 한번 도달한 band를 내리지 않는다.
+11. 반대 방향 ladder는 독립적으로 진행되어 `both-active`가 될 수 있다.
 
 ### Off-hours close finalization
 1. unfinalized session이 있는 symbol만 대상이다.
@@ -212,9 +214,9 @@
 - provider status message는 watch path에서 `snapshot:{symbol}` 형식을 쓴다.
 
 ## 8. Legacy Compatibility
-- `WATCH_ALERT_CHANNEL_ID`는 settings에 남아 있어도 startup/runtime에서 watch route로 bootstrap하지 않는다.
-- `watch_alert_channel_id`는 과거 state를 읽을 수는 있지만 현재 watch poll routing source of truth가 아니다.
-- `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 remove cleanup과 legacy read 호환만 남아 있다.
+- `WATCH_ALERT_CHANNEL_ID`는 현재 settings/env surface에서 제거됐고 startup/runtime watch route bootstrap이 없다.
+- persisted `watch_alert_channel_id`는 남아 있어도 현재 inspected code가 lookup하지 않는다.
+- `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 remove cleanup과 legacy read/migration 호환만 남아 있다.
 - 새 alert/session state는 legacy state를 seed하지 않고 첫 성공 snapshot부터 채운다.
 
 ## 9. Job Status and Provider Status
