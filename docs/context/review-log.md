@@ -13,6 +13,7 @@
 8. 같은 review는 same-session remove/re-add 뒤 기존 `highest_up_band/highest_down_band`가 남아 early band alert가 누락될 수 있다고 지적했다.
 9. 같은 review는 malformed persisted symbol 하나가 `get_watch_market_session()` 예외로 전체 `watch_poll` cycle을 중단시킬 수 있다고 지적했다.
 10. 같은 review는 KRX post-close snapshot이 `stck_cntg_hour` 기반 stale-quote 판정 때문에 close finalization까지 가지 못할 수 있다고 지적했다.
+11. follow-up 전체 리뷰는 `/watch add`의 create-or-recover 표현이 실제 duplicate-add no-op 동작과 어긋나 repair command처럼 읽힌다고 지적했다.
 - Resolution:
 1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
 2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
@@ -25,6 +26,7 @@
 9. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해, bad symbol 하나가 같은 cycle의 다른 guild-symbol 처리까지 막지 않도록 수정했다.
 10. `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 snapshot은 `session_close_price`와 current off-hours `session_date`가 맞으면 stale-quote로 reject하지 않도록 완화했다.
 11. malformed symbol isolation 가드는 broad `Exception` 대신 `unsupported-market:*` runtime error만 잡도록 좁혀, 예상 못 한 session 계산 결함이 `snapshot_failures`로 묻히지 않게 수정했다.
+12. current-truth 문서의 `/watch add` 설명을 duplicate add no-op 기준으로 교정해, stale thread repair는 `/watch add`의 계약이 아니라는 점을 명시했다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`

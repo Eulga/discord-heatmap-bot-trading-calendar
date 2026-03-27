@@ -28,7 +28,7 @@
 - `watch_poll` is now code-confirmed as a session-aware forum-thread flow:
   - route source of truth is `watch_forum_channel_id`
   - `/setwatchforum` configures the route
-  - `/watch add` creates or recovers a persistent symbol thread
+  - `/watch add` creates a persistent symbol thread for newly added watch symbols
   - regular session polls edit the starter and append `3% band` comments
   - off-hours polls only attempt close finalization
 - Code-confirmed command boundary:

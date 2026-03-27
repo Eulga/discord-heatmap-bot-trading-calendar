@@ -129,9 +129,9 @@
 - guild context가 필요하다.
 - symbol은 local instrument registry 기준 canonical symbol로 정규화한다.
 - `watch_forum_channel_id`가 없으면 명시적으로 거절한다.
-- watchlist에 symbol을 추가하고, 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create or recover 한다.
-- 기존 symbol thread가 현재 configured watch forum에 속하지 않으면 재사용하지 않고 새 forum 아래에서 다시 만든다.
-- starter 내용은 create/recover 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
+- 이미 watchlist에 있는 symbol을 다시 add하면 no-op으로 거절한다.
+- 새 symbol이 watchlist에 추가되면 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create 한다.
+- starter 내용은 최초 create 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
 - 기존 inactive symbol을 같은 regular session 안에 다시 add하면 `highest_up_band` / `highest_down_band` checkpoint는 reset되어 early band alert를 다시 시작할 수 있다.
 
 ### `/watch remove`

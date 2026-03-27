@@ -424,7 +424,7 @@
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
 3. `/watch remove` resolves against the current guild watchlist, including canonical and legacy representations.
-4. Successful `/watch add` requires `watch_forum_channel_id`, updates the guild watchlist in state, saves immediately, and create-or-recovers the persistent symbol thread with an active placeholder starter.
+4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with an active placeholder starter for the newly added symbol.
 5. Re-adding an inactive symbol during the same open market session resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
 6. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
 7. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
