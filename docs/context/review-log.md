@@ -14,6 +14,8 @@
 9. 같은 review는 malformed persisted symbol 하나가 `get_watch_market_session()` 예외로 전체 `watch_poll` cycle을 중단시킬 수 있다고 지적했다.
 10. 같은 review는 KRX post-close snapshot이 `stck_cntg_hour` 기반 stale-quote 판정 때문에 close finalization까지 가지 못할 수 있다고 지적했다.
 11. follow-up 전체 리뷰는 `/watch add`의 create-or-recover 표현이 실제 duplicate-add no-op 동작과 어긋나 repair command처럼 읽힌다고 지적했다.
+12. 최신 Codex review는 post-close stale snapshot 허용이 `KRX`만 whitelist하고 있어 US close finalization은 여전히 stale-quote에 막힐 수 있다고 지적했다.
+13. 같은 review는 fractional threshold에서 band label이 정수 절단되어 보이는 점을 다시 지적했다.
 - Resolution:
 1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
 2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
@@ -27,9 +29,12 @@
 10. `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 snapshot은 `session_close_price`와 current off-hours `session_date`가 맞으면 stale-quote로 reject하지 않도록 완화했다.
 11. malformed symbol isolation 가드는 broad `Exception` 대신 `unsupported-market:*` runtime error만 잡도록 좁혀, 예상 못 한 session 계산 결함이 `snapshot_failures`로 묻히지 않게 수정했다.
 12. current-truth 문서의 `/watch add` 설명을 duplicate add no-op 기준으로 교정해, stale thread repair는 `/watch add`의 계약이 아니라는 점을 명시했다.
+13. `bot/intel/providers/market.py`의 post-close stale snapshot 허용을 market-agnostic off-hours close snapshot으로 넓혀, US close finalization도 stale-quote에 막히지 않도록 수정했다.
+14. threshold label 정수 절단은 intentional behavior로 유지하되, `docs/context/design-decisions.md`와 current-truth spec에 rationale까지 명시해 future review가 설계 의도를 직접 확인할 수 있게 했다.
 - Verification:
-1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
-2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_market_provider.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+3. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
 - Status: done
 
 ## 2026-03-24

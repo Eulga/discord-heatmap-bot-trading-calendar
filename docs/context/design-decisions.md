@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-03-27
+- Context: watch poll band label이 fractional threshold를 쓰더라도 정수 `%` 문구로 보이는 것이 다시 리뷰 finding으로 올라왔고, 사용자는 이 표현을 의도된 운영 규칙으로 유지하길 원했다.
+- Decision: watch band comment label의 `%` 숫자는 계속 `int(WATCH_ALERT_THRESHOLD_PCT) * band`를 사용한다. fractional threshold를 써도 label은 정수 step으로 보일 수 있으며, 실제 trigger 판단은 float threshold와 exact `change_pct`를 그대로 사용한다.
+- Why:
+1. band label은 사용자에게 “대략 몇 % 구간대냐”를 짧게 보여주는 역할이고, 실제 세부 수치는 뒤에 붙는 exact signed percent가 이미 제공한다.
+2. 기존 운영 의도는 label을 간결하게 유지하는 것이며, threshold float를 그대로 label에 노출하는 것은 현재 UX 목표가 아니다.
+3. 이 동작을 설계 결정으로 명시해 두면, 이후 전체 리뷰에서 intentional behavior를 반복해서 결함으로 해석하는 일을 줄일 수 있다.
+- Impact:
+1. `WATCH_ALERT_THRESHOLD_PCT=2.5` 같은 설정에서도 label은 `+2%`, `+4%`처럼 보일 수 있다.
+2. 실제 alert trigger와 trailing signed percent는 계속 fractional threshold 기준을 따른다.
+3. current-truth spec과 functional spec은 이 의도를 같은 표현으로 설명해야 한다.
+- Status: accepted
+
 ## 2026-03-26
 - Context: 사용자가 watch 기능의 목표 동작을 `text alert + first-seen baseline`에서 `forum thread + previous_close basis` 모델로 고정한 뒤, intraday notification을 더 적극적으로 남기되 thread 오염은 장마감 정리로 제어하자고 요청했다.
 - Decision: watch rollout의 목표 모델은 `길드 공유 watchlist + guild-symbol persistent forum thread + Discord thread follow 기반 개인 notification`으로 둔다. 기준가는 `전일 종가(previous_close)`로 고정하고, starter message는 regular session open 중 poll마다 현재 상태를 갱신한다. intraday comment는 전일 종가 대비 `3% band ladder`(`+3,+6,+9...`, `-3,-6,-9...`) 기준으로 생성하되, 한 poll에서 여러 단계를 건너뛰면 최고 신규 band 1건만 남긴다. `세션`은 symbol market의 regular-session trading date, 즉 market-local `당일`을 뜻한다. intraday starter edit와 band detection은 regular session open 동안만 허용한다. regular session close 후 off-hours poll은 마지막 unfinalized session에 대한 close finalization만 시도하고, first eligible poll after close 기준으로 정확히 1회만 완료돼야 한다. intraday comment는 close finalization 시 모두 삭제하고, 대신 `날짜/전일 종가/official regular close price/최종 변동률`을 담은 `마감가 알림` comment 1건을 영구 보존한다. `마감가`는 after-hours current price가 아니라 same-session official regular close price를 사용한다. close finalization은 same-session close comment를 재사용할 수 있어야 하며, `close_comment_ids_by_session` checkpoint와 finalization 완료 마킹을 분리해 partial failure retry 뒤에도 duplicate close summary를 만들지 않아야 한다. 또한 `watch_forum_channel_id`가 없으면 `/watch add`를 명시적으로 거절한다. symbol이 mid-session remove되더라도 해당 session이 unfinalized라면 close finalization은 1회 수행한다.

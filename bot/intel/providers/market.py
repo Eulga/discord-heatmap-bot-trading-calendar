@@ -975,11 +975,7 @@ def _allows_post_close_stale_snapshot(snapshot: WatchSnapshot, now: datetime) ->
         session = get_watch_market_session(snapshot.symbol, now)
     except Exception:
         return False
-    return (
-        session.market_code == "KRX"
-        and not session.is_regular_session_open
-        and snapshot.session_date == session.session_date
-    )
+    return not session.is_regular_session_open and snapshot.session_date == session.session_date
 
 
 def _ensure_quote_fresh(quote: Quote, now: datetime) -> None:

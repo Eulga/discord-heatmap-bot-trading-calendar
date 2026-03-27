@@ -784,7 +784,8 @@
    - starter and intraday updates are skipped
    - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
-   - KRX post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
+   - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
+   - band-label `%` text intentionally truncates `WATCH_ALERT_THRESHOLD_PCT` to an integer multiple even when the configured threshold is fractional; the trailing signed percent remains the exact `change_pct`
 9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs

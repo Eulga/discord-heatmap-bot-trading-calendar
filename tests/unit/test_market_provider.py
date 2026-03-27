@@ -141,6 +141,22 @@ async def test_kis_provider_allows_post_close_domestic_snapshot_with_last_trade_
 
 
 @pytest.mark.asyncio
+async def test_watch_snapshot_fresh_allows_post_close_us_snapshot(monkeypatch):
+    now = datetime(2026, 3, 24, 9, 10, tzinfo=KST)
+    snapshot = market_provider.WatchSnapshot(
+        symbol="NAS:AAPL",
+        current_price=214.37,
+        previous_close=208.52,
+        session_close_price=214.37,
+        asof=datetime(2026, 3, 24, 9, 0, tzinfo=KST),
+        session_date="2026-03-23",
+        provider="massive_reference",
+    )
+
+    market_provider._ensure_watch_snapshot_fresh(snapshot, now)
+
+
+@pytest.mark.asyncio
 async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
     now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
     provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")

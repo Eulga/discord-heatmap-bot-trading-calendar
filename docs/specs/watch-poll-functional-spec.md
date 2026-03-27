@@ -184,7 +184,8 @@
    - `-3`, `-6`, `-9` ...
 9. 한 poll에서 여러 band를 건너뛰어도 intraday comment는 최고 신규 band 1건만 남긴다.
    - format: `{symbol} +3% 이상 상승 : +3.80% · {timestamp}`
-   - label의 `%` 숫자는 `int(WATCH_ALERT_THRESHOLD_PCT) * band`로 계산되고, 뒤의 signed percent는 실제 `change_pct` 그대로 표시된다.
+   - label의 `%` 숫자는 의도적으로 `int(WATCH_ALERT_THRESHOLD_PCT) * band`로 계산되고, 뒤의 signed percent는 실제 `change_pct` 그대로 표시된다.
+   - 즉 threshold가 `2.5`여도 label은 `+2%`, `+4%`처럼 보일 수 있으며, 실제 trigger 판정은 float threshold를 계속 사용한다.
    - down case도 같은 형식으로 `-3% 이상 하락`을 사용한다.
 10. 같은 session 안에서는 한번 도달한 band를 내리지 않는다.
 11. 반대 방향 ladder는 독립적으로 진행되어 `both-active`가 될 수 있다.
@@ -192,7 +193,7 @@
 ### Off-hours close finalization
 1. unfinalized session이 있는 symbol만 대상이다.
 2. `session_close_price`가 아직 없으면 session은 그대로 unfinalized로 남는다.
-   - KRX는 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, `stck_cntg_hour` 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
+   - market 구분 없이 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, last-trade 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
 3. finalization 순서:
    - intraday comment delete
    - same-session close comment reuse or create
