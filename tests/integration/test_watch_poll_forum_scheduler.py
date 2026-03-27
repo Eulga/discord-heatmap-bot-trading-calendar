@@ -326,7 +326,7 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
                 "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
             }
         },
-        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": []}},
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
         "system": {
             "watch_reference_snapshots": {
                 "1": {
@@ -375,6 +375,38 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
 
     assert intraday.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_does_not_update_stopped_symbol_during_open_session(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    snapshot_calls = {"count": 0}
+    state = {
+        "commands": {
+            "watchpoll": {
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+
+    class Provider:
+        async def get_watch_snapshot(self, symbol, now):
+            snapshot_calls["count"] += 1
+            return _open_snapshot(now, 104.0)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+    assert snapshot_calls["count"] == 0
+    assert forum._threads == {}
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "skipped"
+    assert run["detail"] == "no-watch-symbols"
 
 
 @pytest.mark.asyncio

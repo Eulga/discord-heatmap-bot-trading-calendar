@@ -349,6 +349,10 @@ def _clear_watch_runtime_state(state: AppState, guild_id: int, symbol: str) -> N
     guild_map.pop(target, None)
 
 
+def clear_watch_symbol_runtime_state(state: AppState, guild_id: int, symbol: str) -> None:
+    _clear_watch_runtime_state(state, guild_id, symbol)
+
+
 def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
     normalized, _warning = normalize_stored_watch_symbol(symbol)
     if not normalized:
@@ -361,21 +365,45 @@ def add_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
     return True
 
 
-def remove_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
+def delete_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
     normalized, _warning = normalize_stored_watch_symbol(symbol)
+    target = normalized or symbol.strip().upper()
+    changed = False
+
     watchlist = _normalize_watch_state(state, guild_id)
-    raw = symbol.strip().upper()
-    target = normalized or raw
-    if target not in watchlist and raw not in watchlist:
-        return False
-    removed_symbol = target if target in watchlist else raw
-    watchlist.remove(removed_symbol)
-    _clear_watch_runtime_state(state, guild_id, removed_symbol)
-    return True
+    if target in watchlist:
+        watchlist.remove(target)
+        changed = True
+
+    clear_watch_symbol_runtime_state(state, guild_id, target)
+
+    guild_entries = get_watch_symbol_threads_for_guild(state, guild_id)
+    if guild_entries.pop(target, None) is not None:
+        changed = True
+
+    reference_entries = get_watch_reference_snapshots_for_guild(state, guild_id)
+    if reference_entries.pop(target, None) is not None:
+        changed = True
+
+    alert_entries = get_watch_session_alerts_for_guild(state, guild_id)
+    if alert_entries.pop(target, None) is not None:
+        changed = True
+
+    return changed
 
 
 def list_watch_symbols(state: AppState, guild_id: int) -> list[str]:
     return [x for x in _normalize_watch_state(state, guild_id) if isinstance(x, str)]
+
+
+def get_watch_symbol_status(state: AppState, guild_id: int, symbol: str) -> str:
+    entry = get_watch_symbol_thread(state, guild_id, symbol)
+    status = str(entry.get("status") or "").strip().lower() if isinstance(entry, dict) else ""
+    return "inactive" if status == "inactive" else "active"
+
+
+def list_active_watch_symbols(state: AppState, guild_id: int) -> list[str]:
+    return [symbol for symbol in list_watch_symbols(state, guild_id) if get_watch_symbol_status(state, guild_id, symbol) == "active"]
 
 
 def get_watch_symbol_threads_for_guild(state: AppState, guild_id: int) -> dict[str, WatchThreadEntry]:
@@ -414,6 +442,7 @@ def set_watch_symbol_thread_status(state: AppState, guild_id: int, symbol: str, 
     symbol_key = _normalize_watch_symbol_key(symbol)
     entry = guild_entries.get(symbol_key)
     if not isinstance(entry, dict):
+        guild_entries[symbol_key] = {"status": status}
         return
     entry["status"] = status
 

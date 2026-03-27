@@ -1,6 +1,35 @@
 # Review Log
 
 ## 2026-03-27
+- Context: 서브에이전트 재리뷰에서 새 `add/start/stop/delete` watch command 모델에 대한 후속 점검이 진행됐다.
+- Finding:
+1. `/watch stop`가 tracked thread starter 비활성화에 실패해도 inactive state를 먼저 저장하면, 사용자 화면의 starter는 active처럼 남은 채 scheduler도 다시 고쳐주지 못한다.
+- Resolution:
+1. tracked thread가 있는 `/watch stop`은 inactive placeholder update가 성공한 뒤에만 state를 `inactive`로 저장하도록 수정했다.
+2. starter update가 실패하거나 stale handle로 update-only가 불가능하면 command는 실패 응답을 반환하고 active state와 runtime state를 그대로 유지하게 바꿨다.
+3. 관련 회귀 테스트를 `tests/integration/test_watch_forum_flow.py`에 추가하고 current-truth 문서를 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: 내부 follow-up 검토에서 `/watch remove`가 "watchlist 제거"와 "실시간 감시 중단"을 동시에 의미해 상태/UX가 모호하다는 점이 재확인됐고, 사용자가 command policy를 `add/start/stop/delete`로 재정의했다.
+- Finding:
+1. 기존 `/watch add`에 재활성 기능까지 실으면 duplicate add no-op 계약과 충돌하고, `/watch remove`는 symbol 보관 여부와 실시간 감시 여부를 한 번에 바꿔 operator가 현재 상태를 읽기 어렵다.
+2. stopped symbol을 watchlist에서 지워 버리면 목록/재시작/close finalization과 실제 runtime state가 다시 분리될 수 있다.
+3. destructive delete와 단순 stop은 권한/안전성이 달라 command를 분리하는 편이 낫다.
+- Resolution:
+1. `/watch add`는 신규 symbol 추가만 담당하고, inactive duplicate는 `/watch start` 안내로 정리했다.
+2. `/watch stop`은 watchlist를 유지한 채 status만 `inactive`로 바꾸고, scheduler는 active symbol만 장중 poll 대상으로 삼도록 바꿨다.
+3. `/watch delete`는 owner/admin/global-admin gated destructive command로 추가하고, watchlist/thread/runtime state를 함께 제거하도록 구현했다.
+4. starter/list 출력에 symbol status를 명시해 사용자가 active/inactive를 바로 볼 수 있게 했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
 - Context: PR #16 재리뷰에서 watch forum-thread follow-up 결함과 남은 문서 불일치를 재확인했다.
 - Finding:
 1. `/watch remove`가 기존 thread registry 없이도 새 inactive thread를 만들 수 있었고, remove가 "삭제"가 아니라 새 forum thread 생성으로 보일 수 있었다.

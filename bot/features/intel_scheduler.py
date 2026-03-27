@@ -67,8 +67,8 @@ from bot.forum.repository import (
     get_watch_reference_snapshot,
     get_watch_session_alert,
     list_guild_ids,
+    list_active_watch_symbols,
     list_watch_tracked_symbols,
-    list_watch_symbols,
     load_state,
     save_state,
     set_guild_last_auto_skip,
@@ -733,7 +733,7 @@ def _has_unfinalized_watch_session(alert_entry: dict[str, object]) -> bool:
 
 
 def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], list[str]]:
-    active_symbols = list_watch_symbols(state, guild_id)
+    active_symbols = list_active_watch_symbols(state, guild_id)
     tracked_symbols = list_watch_tracked_symbols(state, guild_id)
     active_set = set(active_symbols)
     targets = list(active_symbols)

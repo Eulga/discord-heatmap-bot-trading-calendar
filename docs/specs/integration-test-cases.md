@@ -19,7 +19,7 @@
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 76건만 실행된다.
+- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 83건만 실행된다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법
@@ -45,11 +45,11 @@
 | Auto scheduler | `tests/integration/test_auto_scheduler_logic.py` | 10 | 아니오 | 포함 | 거래일 판정, 중복 실행 방지, state overwrite |
 | Forum upsert / runner | `tests/integration/test_forum_upsert_flow.py` | 9 | 아니오 | 포함 | 기존 thread 수정, content message sync, partial failure body/state |
 | Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 35 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
-| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 11 | 아니오 | 포함 | thread reuse/recreate, transient fetch failure isolation, forum route gating, remove non-creating contract |
-| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 11 | 아니오 | 포함 | starter/comment update, close finalization, missing forum/provider failure |
+| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 17 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
+| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 12 | 아니오 | 포함 | active-only starter update, stop-after-close finalization, missing forum/provider failure |
 | Live capture | `tests/integration/test_capture_korea_live.py`, `tests/integration/test_capture_us_live.py` | 2 | 예 | 제외 | 외부 사이트 렌더, 파일 생성, flaky 네트워크 |
 
-- 기본 문서 범위 합계: 76건
+- 기본 문서 범위 합계: 83건
 - live 문서 범위 합계: 2건
 - 참고: 최초 계획안의 `NB-01~NB-13`, `EO-01~EO-07` 분할은 현재 소스 테스트 수와 1건씩 어긋난다.
 - 이 문서의 exact file/count inventory는 위 표와 collect 결과를 source of truth로 삼고, 상세 계약은 기능별 핵심 회귀를 대표하는 케이스 중심으로 정리한다.
@@ -536,7 +536,7 @@
 
 ### WF-02 starter message가 사라졌으면 새 thread로 복구
 - 테스트 ID: `WF-02`
-- 기능/보호 계약: registry는 남아 있어도 starter message fetch가 실패하면 watch thread는 새로 recreate되어야 한다.
+- 기능/보호 계약: registry는 남아 있어도 starter message fetch가 `NotFound`면 watch thread는 새로 recreate되어야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_upsert_watch_thread_recreates_when_starter_message_is_missing`
 - 사전 상태: 기존 registry는 thread `2001` / starter `3001`을 가리키지만 starter fetch는 `NotFound`로 실패한다.
 - 입력/트리거: 같은 symbol에 대해 `upsert_watch_thread()`를 다시 호출한다.
@@ -568,82 +568,10 @@
 - 기대 동작: 함수 결과는 `None`이다.
 - 기대 상태 저장 변화: registry는 기존 thread ID `2001`을 유지한다.
 - 기대 status/detail/log: forum `create_thread()` 호출 횟수는 0이다.
-- 회귀 방지 포인트: `/watch remove` 같은 update-only 경로가 stale registry 때문에 새 inactive thread를 만드는 문제를 막는다.
+- 회귀 방지 포인트: `/watch stop` 같은 update-only 경로가 stale registry 때문에 새 inactive thread를 만드는 문제를 막는다.
 
-### WF-05 `/setwatchforum`은 성공/무권한/타 guild forum을 구분
+### WF-05 transient Discord fetch 오류는 duplicate thread recreate로 이어지지 않음
 - 테스트 ID: `WF-05`
-- 기능/보호 계약: watch forum 설정 명령은 authorized same-guild forum만 저장하고, 무권한 사용자와 foreign forum은 거절해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_setwatchforum_command_handles_success_unauthorized_and_foreign_forum`
-- 사전 상태: 빈 guild state, global admin set `{10}`.
-- 입력/트리거: authorized success, unauthorized user, foreign forum의 3개 입력을 순서대로 호출한다.
-- mock/stub 전제: interaction response는 ephemral text를 수집한다.
-- 기대 동작: 성공 케이스만 forum ID를 저장한다.
-- 기대 상태 저장 변화: `guilds.1.watch_forum_channel_id=456`만 기록된다.
-- 기대 status/detail/log: 사용자별 응답 문구가 success / 권한 없음 / 다른 서버 forum 거절로 구분된다.
-- 회귀 방지 포인트: watch routing 설정 권한이 무너져 잘못된 guild forum이 저장되는 문제를 막는다.
-
-### WF-06 `/watch add`는 watch forum route가 없으면 거절
-- 테스트 ID: `WF-06`
-- 기능/보호 계약: watch forum route가 없는 guild에서는 `/watch add`가 thread 생성 전에 명시적으로 실패해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_rejects_when_watch_forum_is_missing`
-- 사전 상태: guild `1` state에는 watch forum route가 없다.
-- 입력/트리거: `/watch add 005930`.
-- mock/stub 전제: state save는 no-op이다.
-- 기대 동작: 명령은 실패 응답을 보낸다.
-- 기대 상태 저장 변화: watchlist와 thread registry는 바뀌지 않는다.
-- 기대 status/detail/log: 응답에는 `/setwatchforum` 설정 요청 안내가 포함된다.
-- 회귀 방지 포인트: forum route 없이 watchlist만 먼저 저장되어 scheduler가 나중에 실패하는 문제를 막는다.
-
-### WF-07 `/watch add`는 re-add 시 active placeholder를 강제로 다시 씀
-- 테스트 ID: `WF-07`
-- 기능/보호 계약: inactive historical thread를 `/watch add`로 복구할 때 starter는 이전 content를 재사용하지 않고 active placeholder로 덮어써야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_uses_active_placeholder_when_upserting_thread`
-- 사전 상태: guild `1`의 registry에는 inactive thread entry가 남아 있고 watchlist는 비어 있다.
-- 입력/트리거: `/watch add 005930`.
-- mock/stub 전제: `upsert_watch_thread()`는 호출 인자를 기록만 한다.
-- 기대 동작: symbol은 watchlist에 다시 추가된다.
-- 기대 상태 저장 변화: `guilds.1.watchlist=["KRX:005930"]`.
-- 기대 status/detail/log: `starter_text` 인자로 active placeholder가 전달된다.
-- 회귀 방지 포인트: re-add 후 첫 poll 전까지 stale starter가 그대로 노출되는 문제를 막는다.
-
-### WF-08 `/watch add`는 같은 세션 재활성화 시 band checkpoint를 리셋
-- 테스트 ID: `WF-08`
-- 기능/보호 계약: same-session inactive symbol을 다시 add하면 old `highest_up_band/highest_down_band` checkpoint를 0으로 되돌려 early band alert를 fresh state로 다시 시작해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_resets_same_session_band_checkpoints_for_reactivated_symbol`
-- 사전 상태: guild `1`의 registry에는 inactive thread entry가 있고, `watch_session_alerts`에는 같은 session의 highest band와 intraday comment id가 남아 있다.
-- 입력/트리거: regular session open 중 `/watch add 005930`.
-- mock/stub 전제: `upsert_watch_thread()`는 성공으로 응답하고 현재 시각은 same-session 장중으로 고정한다.
-- 기대 동작: symbol은 watchlist에 다시 추가되고 starter 복구 경로도 유지된다.
-- 기대 상태 저장 변화: `highest_up_band`와 `highest_down_band`는 `0`으로 reset되지만, close cleanup용 `intraday_comment_ids`와 `close_comment_ids_by_session`은 유지된다.
-- 기대 status/detail/log: reset은 inactive historical thread의 same-session reactivation일 때만 적용된다.
-- 회귀 방지 포인트: remove 후 같은 세션 안에 다시 등록했을 때 stale highest band 때문에 초반 band comment가 누락되는 문제를 막는다.
-
-### WF-09 `/watch remove`는 inactive placeholder update를 update-only로 시도
-- 테스트 ID: `WF-09`
-- 기능/보호 계약: tracked thread가 있는 경우 `/watch remove`는 registry status를 inactive로 바꾸고, 새 thread를 만들지 않는 모드로 inactive placeholder update를 시도해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_remove_marks_thread_inactive_and_updates_placeholder`
-- 사전 상태: guild `1` watchlist와 active thread registry entry가 존재한다.
-- 입력/트리거: `/watch remove 005930`.
-- mock/stub 전제: `upsert_watch_thread()`는 인자만 기록하고 성공으로 응답한다.
-- 기대 동작: symbol은 watchlist에서 제거된다.
-- 기대 상태 저장 변화: registry status는 `inactive`로 바뀐다.
-- 기대 status/detail/log: `starter_text`는 inactive placeholder이고 `allow_create=False`가 전달된다.
-- 회귀 방지 포인트: remove가 stale registry를 핑계로 새 inactive thread를 만들거나, starter를 옛 상태로 남기는 문제를 막는다.
-
-### WF-10 `/watch remove`는 registry entry 자체가 없으면 아무 thread도 만들지 않음
-- 테스트 ID: `WF-10`
-- 기능/보호 계약: watchlist에 symbol이 있어도 tracked thread registry entry가 없으면 `/watch remove`는 state 정리만 하고 thread service를 호출하지 않아야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_remove_does_not_create_thread_when_no_registry_entry_exists`
-- 사전 상태: guild `1` watchlist에는 symbol이 있지만 thread registry map은 비어 있다.
-- 입력/트리거: `/watch remove 005930`.
-- mock/stub 전제: `upsert_watch_thread()`가 호출되면 symbol을 기록하게 만든다.
-- 기대 동작: symbol은 watchlist에서 제거된다.
-- 기대 상태 저장 변화: watchlist만 비워지고 thread registry에는 새 entry가 생기지 않는다.
-- 기대 status/detail/log: thread service 호출 횟수는 0이다.
-- 회귀 방지 포인트: pre-forum legacy state를 제거하는 것만으로 새 inactive forum thread가 생기는 문제를 막는다.
-
-### WF-11 transient Discord fetch 오류는 duplicate thread recreate로 이어지지 않음
-- 테스트 ID: `WF-11`
 - 기능/보호 계약: 기존 thread/starter resolve 중 `Forbidden` 같은 transient Discord fetch 오류가 나면 `upsert_watch_thread()`는 새 thread를 만들지 말고 그대로 실패를 surface해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_upsert_watch_thread_does_not_recreate_on_transient_fetch_error`
 - 사전 상태: registry는 thread `2001` / starter `3001`을 가리키고, 기존 thread는 현재 forum의 child다.
@@ -654,16 +582,160 @@
 - 기대 status/detail/log: forum `create_thread()` 호출 횟수는 0이다.
 - 회귀 방지 포인트: 일시적인 Discord API/권한 오류가 symbol thread를 조용히 fork해 duplicate thread를 만드는 문제를 막는다.
 
+### WF-06 `/setwatchforum`은 성공/무권한/타 guild forum을 구분
+- 테스트 ID: `WF-06`
+- 기능/보호 계약: watch forum 설정 명령은 authorized same-guild forum만 저장하고, 무권한 사용자와 foreign forum은 거절해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_setwatchforum_command_handles_success_unauthorized_and_foreign_forum`
+- 사전 상태: 빈 guild state, global admin set `{10}`.
+- 입력/트리거: authorized success, unauthorized user, foreign forum의 3개 입력을 순서대로 호출한다.
+- mock/stub 전제: interaction response는 ephemral text를 수집한다.
+- 기대 동작: 성공 케이스만 forum ID를 저장한다.
+- 기대 상태 저장 변화: `guilds.1.watch_forum_channel_id=456`만 기록된다.
+- 기대 status/detail/log: 사용자별 응답 문구가 success / 권한 없음 / 다른 서버 forum 거절로 구분된다.
+- 회귀 방지 포인트: watch routing 설정 권한이 무너져 잘못된 guild forum이 저장되는 문제를 막는다.
+
+### WF-07 `/watch add`는 watch forum route가 없으면 거절
+- 테스트 ID: `WF-07`
+- 기능/보호 계약: watch forum route가 없는 guild에서는 `/watch add`가 thread 생성 전에 명시적으로 실패해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_rejects_when_watch_forum_is_missing`
+- 사전 상태: guild `1` state에는 watch forum route가 없다.
+- 입력/트리거: `/watch add 005930`.
+- mock/stub 전제: state save는 no-op이다.
+- 기대 동작: 명령은 실패 응답을 보낸다.
+- 기대 상태 저장 변화: watchlist와 thread registry는 바뀌지 않는다.
+- 기대 status/detail/log: 응답에는 `/setwatchforum` 설정 요청 안내가 포함된다.
+- 회귀 방지 포인트: forum route 없이 watchlist만 먼저 저장되어 scheduler가 나중에 실패하는 문제를 막는다.
+
+### WF-08 `/watch add`는 신규 symbol에 active placeholder thread를 만든다
+- 테스트 ID: `WF-08`
+- 기능/보호 계약: `/watch add`는 신규 symbol일 때만 watchlist를 늘리고, thread create/upsert에는 active placeholder를 넘겨야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_uses_active_placeholder_when_upserting_thread`
+- 사전 상태: guild `1` watchlist와 thread registry가 모두 비어 있다.
+- 입력/트리거: `/watch add 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 호출 인자를 기록만 한다.
+- 기대 동작: symbol은 watchlist에 새로 추가된다.
+- 기대 상태 저장 변화: `guilds.1.watchlist=["KRX:005930"]`.
+- 기대 status/detail/log: `starter_text` 인자로 active placeholder가 전달된다.
+- 회귀 방지 포인트: 신규 add가 thread 없는 state만 남기거나 inactive placeholder를 잘못 재사용하는 문제를 막는다.
+
+### WF-09 `/watch add`는 inactive duplicate를 재활성화하지 않고 `/watch start`를 안내
+- 테스트 ID: `WF-09`
+- 기능/보호 계약: inactive tracked symbol에 대한 duplicate add는 no-op이며, 재활성화는 별도 `/watch start` command로 유도해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_rejects_inactive_symbol_and_points_to_start`
+- 사전 상태: guild `1` watchlist에는 `KRX:005930`이 있고 registry status는 `inactive`다.
+- 입력/트리거: `/watch add 005930`.
+- mock/stub 전제: `upsert_watch_thread()`가 호출되면 symbol을 기록하게 만든다.
+- 기대 동작: 명령은 ignored 응답을 보낸다.
+- 기대 상태 저장 변화: watchlist와 registry status는 그대로다.
+- 기대 status/detail/log: 응답에는 ``/watch start`` 안내가 포함되고, thread service 호출 횟수는 0이다.
+- 회귀 방지 포인트: duplicate add가 silently reactivation으로 바뀌어 command contract와 autocomplete 구분이 흐려지는 문제를 막는다.
+
+### WF-10 `/watch start`는 active placeholder로 실시간 감시를 다시 시작
+- 테스트 ID: `WF-10`
+- 기능/보호 계약: inactive tracked symbol의 `/watch start`는 active placeholder를 넘겨 thread를 update-or-create 해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_start_uses_active_placeholder_when_upserting_thread`
+- 사전 상태: guild `1` watchlist에는 `KRX:005930`이 있고 registry status는 `inactive`다.
+- 입력/트리거: `/watch start 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 호출 인자만 기록한다.
+- 기대 동작: symbol은 그대로 유지되고 start 응답이 돌아온다.
+- 기대 상태 저장 변화: starter write용 인자에 active placeholder가 들어간다.
+- 기대 status/detail/log: `upsert_watch_thread(active=True)`로 호출된다.
+- 회귀 방지 포인트: 재시작이 old inactive starter를 그대로 남기거나 신규 add 경로와 뒤섞이는 문제를 막는다.
+
+### WF-11 `/watch start`는 same-session reactivation 시 highest band checkpoint를 reset
+- 테스트 ID: `WF-11`
+- 기능/보호 계약: same-session inactive symbol을 start하면 old `highest_up_band/highest_down_band` checkpoint를 0으로 되돌려 early band alert를 fresh state로 다시 시작해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_start_resets_same_session_band_checkpoints_for_reactivated_symbol`
+- 사전 상태: guild `1`의 registry에는 inactive thread entry가 있고, `watch_session_alerts`에는 같은 session의 highest band와 intraday comment id가 남아 있다.
+- 입력/트리거: regular session open 중 `/watch start 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 성공으로 응답하고 현재 시각은 same-session 장중으로 고정한다.
+- 기대 동작: start는 성공하고 close cleanup용 state는 유지된다.
+- 기대 상태 저장 변화: `highest_up_band`와 `highest_down_band`는 `0`으로 reset되지만, `intraday_comment_ids`와 `close_comment_ids_by_session`은 유지된다.
+- 기대 status/detail/log: reset은 inactive same-session reactivation일 때만 적용된다.
+- 회귀 방지 포인트: stop 후 같은 세션 안에 다시 시작했을 때 stale highest band 때문에 초반 band comment가 누락되는 문제를 막는다.
+
+### WF-12 `/watch stop`은 watchlist를 유지한 채 inactive placeholder update를 update-only로 시도
+- 테스트 ID: `WF-12`
+- 기능/보호 계약: tracked thread가 있는 경우 `/watch stop`은 registry status를 inactive로 바꾸고, 새 thread를 만들지 않는 모드로 inactive placeholder update를 시도해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_stop_marks_thread_inactive_and_updates_placeholder`
+- 사전 상태: guild `1` watchlist와 active thread registry entry가 존재한다.
+- 입력/트리거: `/watch stop 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 인자만 기록하고 성공으로 응답한다.
+- 기대 동작: symbol은 watchlist에서 제거되지 않는다.
+- 기대 상태 저장 변화: registry status는 `inactive`로 바뀐다.
+- 기대 status/detail/log: `starter_text`는 inactive placeholder이고 `allow_create=False`가 전달된다.
+- 회귀 방지 포인트: stop이 symbol을 곧바로 잃어버리거나, stale registry를 핑계로 새 inactive thread를 만드는 문제를 막는다.
+
+### WF-13 `/watch stop`은 registry entry가 없어도 status-only inactive entry만 남기고 thread를 만들지 않음
+- 테스트 ID: `WF-13`
+- 기능/보호 계약: watchlist에 symbol이 있어도 tracked thread registry entry가 없으면 `/watch stop`은 state 정리만 하고 status-only inactive entry를 남겨야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_stop_without_registry_entry_records_inactive_status_without_thread_create`
+- 사전 상태: guild `1` watchlist에는 symbol이 있지만 thread registry map은 비어 있다.
+- 입력/트리거: `/watch stop 005930`.
+- mock/stub 전제: `upsert_watch_thread()`가 호출되면 symbol을 기록하게 만든다.
+- 기대 동작: symbol은 watchlist에 남고 stop 응답이 돌아온다.
+- 기대 상태 저장 변화: thread registry에는 `{"status": "inactive"}` entry만 생긴다.
+- 기대 status/detail/log: thread service 호출 횟수는 0이다.
+- 회귀 방지 포인트: pre-thread or legacy state를 stop하는 것만으로 새 inactive forum thread가 생기는 문제를 막는다.
+
+### WF-14 `/watch delete`는 admin/owner/global-admin만 허용
+- 테스트 ID: `WF-14`
+- 기능/보호 계약: destructive delete는 일반 guild member가 실행할 수 없어야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_delete_requires_admin`
+- 사전 상태: guild `1` watchlist에는 `KRX:005930`이 있다.
+- 입력/트리거: non-admin user가 `/watch delete 005930`를 호출한다.
+- mock/stub 전제: interaction response는 ephemral text를 수집한다.
+- 기대 동작: 명령은 권한 없음 응답을 보낸다.
+- 기대 상태 저장 변화: watchlist와 tracked state는 바뀌지 않는다.
+- 기대 status/detail/log: 응답은 `권한이 없습니다.`다.
+- 회귀 방지 포인트: 일반 사용자가 thread/history까지 포함한 destructive delete를 실행하는 문제를 막는다.
+
+### WF-15 `/watch delete`는 thread와 watch state를 함께 제거
+- 테스트 ID: `WF-15`
+- 기능/보호 계약: authorized delete는 thread delete와 watchlist/reference/session state cleanup을 함께 끝내야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_delete_removes_watch_state_and_thread`
+- 사전 상태: guild `1`은 inactive tracked thread, watchlist, cooldown, reference snapshot, session alert state를 모두 가진다.
+- 입력/트리거: owner가 `/watch delete 005930`를 호출한다.
+- mock/stub 전제: `delete_watch_thread()`는 thread를 deleted 상태로 표시하고 성공을 반환한다.
+- 기대 동작: symbol은 완전히 삭제된다.
+- 기대 상태 저장 변화: watchlist, thread registry, `watch_reference_snapshots`, `watch_session_alerts`가 모두 비워진다.
+- 기대 status/detail/log: 응답은 `완전히 삭제했습니다.`이고 fake thread는 `deleted=True`가 된다.
+- 회귀 방지 포인트: delete가 symbol 목록만 지우고 thread/runtime state를 남겨 orphan finalization이나 ghost registry를 만드는 문제를 막는다.
+
+### WF-16 `/watch list`는 active/inactive status를 함께 표시
+- 테스트 ID: `WF-16`
+- 기능/보호 계약: list 응답은 tracked symbol 전부를 보여주되 active/inactive를 사용자 화면에서 바로 구분할 수 있어야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_list_shows_active_and_inactive_status`
+- 사전 상태: guild `1` watchlist에는 `KRX:005930`, `NAS:AAPL`이 있고 registry status는 각각 active/inactive다.
+- 입력/트리거: `/watch list`.
+- mock/stub 전제: local instrument registry가 display name을 정상 반환한다.
+- 기대 동작: 응답은 두 symbol 모두를 포함한다.
+- 기대 상태 저장 변화: 읽기 전용 command이므로 state 변경은 없다.
+- 기대 status/detail/log: 각 row에 `실시간 감시중` 또는 `감시 중단됨`이 붙는다.
+- 회귀 방지 포인트: watchlist membership만으로는 active 여부를 읽을 수 없게 된 뒤에도 사용자 화면이 상태를 잃지 않도록 한다.
+
+### WF-17 `/watch stop`은 starter 비활성화 실패 시 active state를 유지
+- 테스트 ID: `WF-17`
+- 기능/보호 계약: tracked thread starter를 inactive placeholder로 바꾸지 못하면 `/watch stop`은 성공으로 저장되면 안 되고, 기존 active state를 유지해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_stop_keeps_active_state_when_starter_update_fails`
+- 사전 상태: guild `1`은 active tracked thread와 watchlist, 그리고 기존 cooldown state를 가진다.
+- 입력/트리거: `/watch stop 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 starter edit 단계에서 예외를 발생시킨다.
+- 기대 동작: 명령은 실패 응답을 반환한다.
+- 기대 상태 저장 변화: thread status는 `active`로 유지되고, cooldown 같은 runtime state도 지워지지 않는다.
+- 기대 status/detail/log: 응답은 `기존 스레드 상태를 갱신하지 못했습니다`를 포함한다.
+- 회귀 방지 포인트: stop 실패 뒤 scheduler는 더 이상 inactive starter를 고쳐주지 않는데도 사용자 화면에는 계속 active starter가 남는 상태-UI 불일치를 막는다.
+
 ## Watch Poll Forum Scheduler
 
-### WP-01 장중 poll은 starter를 갱신하고 최고 신규 band comment 1건만 남김
+### WP-01 장중 poll은 active symbol starter를 갱신하고 최고 신규 band comment 1건만 남김
 - 테스트 ID: `WP-01`
-- 기능/보호 계약: 장중 watch poll은 starter를 snapshot 기준으로 갱신하고, 같은 tick에서 최고 신규 band comment 1건만 남겨야 한다.
+- 기능/보호 계약: 장중 watch poll은 active symbol starter를 snapshot 기준으로 갱신하고, 같은 tick에서 최고 신규 band comment 1건만 남겨야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_updates_starter_and_posts_highest_new_band_comment`
 - 사전 상태: guild `1`은 watch forum `456`과 active watchlist `["KRX:005930"]`를 가진다.
 - 입력/트리거: 장중 snapshot이 `previous_close=100.0`, `current_price=107.1`로 반환된다.
 - mock/stub 전제: provider는 warm-up을 지원하고 forum/thread fake는 starter edit와 comment send를 지원한다.
-- 기대 동작: thread starter는 `전일 종가/현재가/변동률/마지막 갱신`을 포함하도록 갱신된다.
+- 기대 동작: thread starter는 `상태/전일 종가/현재가/변동률/마지막 갱신`을 포함하도록 갱신된다.
 - 기대 상태 저장 변화: provider status와 `watch_poll` job status가 `ok`로 저장된다.
 - 기대 status/detail/log: comment는 `+6% 이상 상승 : +7.10%` 한 건만 남는다.
 - 회귀 방지 포인트: 장중 starter가 갱신되지 않거나 한 tick에서 여러 band comment가 flood되는 문제를 막는다.
@@ -677,7 +749,7 @@
 - mock/stub 전제: provider는 iterator 기반 snapshot sequence를 반환한다.
 - 기대 동작: comment는 첫 상승 band와 이후 반대 방향 하락 band만 남는다.
 - 기대 상태 저장 변화: 같은 세션의 highest band state가 재발송 없이 누적된다.
-- 기대 status/detail/log: starter에는 내부 `당일 alert status` 같은 개발용 문구가 드러나지 않는다.
+- 기대 status/detail/log: starter에는 내부 개발용 checkpoint 문구가 드러나지 않는다.
 - 회귀 방지 포인트: retrace나 same-session 재poll이 지난 band를 다시 보내는 문제를 막는다.
 
 ### WP-03 `session_close_price`가 생길 때까지 close finalization을 미룸
@@ -692,20 +764,32 @@
 - 기대 status/detail/log: thread history의 `마감가 알림` comment는 1건이다.
 - 회귀 방지 포인트: close price가 없는데도 session을 성급히 finalize해 close summary가 비거나 intraday history가 사라지는 문제를 막는다.
 
-### WP-04 inactive symbol도 unfinalized session이 있으면 1회 finalization 후 중지
+### WP-04 stopped symbol도 unfinalized session이 있으면 1회 finalization 후 중지
 - 테스트 ID: `WP-04`
-- 기능/보호 계약: watchlist에서 제거된 inactive symbol이라도 unfinalized session이 남아 있으면 off-hours poll에서 정확히 1회 finalization을 수행해야 한다.
+- 기능/보호 계약: registry status가 `inactive`인 stopped symbol이라도 unfinalized session이 남아 있으면 off-hours poll에서 정확히 1회 finalization을 수행해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_inactive_symbol_once_before_stopping`
-- 사전 상태: watchlist는 비어 있지만 thread registry status는 `inactive`이고 intraday comment 1건이 남아 있다.
+- 사전 상태: watchlist에는 symbol이 남아 있지만 thread registry status는 `inactive`이고 intraday comment 1건이 남아 있다.
 - 입력/트리거: off-hours snapshot이 `session_close_price=98.0`과 함께 들어온다.
 - mock/stub 전제: provider는 항상 같은 close snapshot을 반환한다.
 - 기대 동작: intraday comment는 삭제되고 session은 finalized 된다.
 - 기대 상태 저장 변화: `last_finalized_session_date="2026-03-26"`가 기록된다.
 - 기대 status/detail/log: 추가 poll 없이도 first eligible close poll에서 정리가 끝난다.
-- 회귀 방지 포인트: remove 직후 남은 same-session 정리가 영원히 누락되거나, inactive symbol이 즉시 완전히 무시되는 문제를 막는다.
+- 회귀 방지 포인트: stop 직후 남은 same-session 정리가 영원히 누락되거나, inactive symbol이 즉시 완전히 무시되는 문제를 막는다.
 
-### WP-05 새 장 시작 전 prior session close를 먼저 마무리
+### WP-05 stopped symbol은 장중 snapshot 대상에서 제외
 - 테스트 ID: `WP-05`
+- 기능/보호 계약: stopped symbol은 unfinalized session이 없는 한 장중 quote fetch/starter update 대상이 아니어야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_does_not_update_stopped_symbol_during_open_session`
+- 사전 상태: guild `1` watchlist에는 `KRX:005930`이 남아 있지만 registry status는 `inactive`이고 session alert state는 없다.
+- 입력/트리거: 장중 scheduler tick.
+- mock/stub 전제: provider snapshot 호출 횟수를 센다.
+- 기대 동작: quote fetch는 0회고 thread도 생성되지 않는다.
+- 기대 상태 저장 변화: `system.job_last_runs.watch_poll.status="skipped"`가 저장된다.
+- 기대 status/detail/log: detail은 정확히 `no-watch-symbols`다.
+- 회귀 방지 포인트: stop 이후에도 raw watchlist membership만 보고 장중 poll이 계속 도는 문제를 막는다.
+
+### WP-06 새 장 시작 전 prior session close를 먼저 마무리
+- 테스트 ID: `WP-06`
 - 기능/보호 계약: 이전 session이 unfinalized인 상태에서 더 늦은 `session_date`의 장중 snapshot이 오면, current session starter로 넘어가기 전에 prior session close finalization을 먼저 해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_session`
 - 사전 상태: reference/session state는 `2026-03-26`, intraday comment 1건이 남아 있다.
@@ -716,44 +800,8 @@
 - 기대 status/detail/log: close comment는 1건, starter는 새 세션 `전일 종가`를 반영한다.
 - 회귀 방지 포인트: carry-forward finalization이 빠져 전날 intraday comment가 다음날까지 남거나 새 세션 state reset이 잘못되는 문제를 막는다.
 
-### WP-06 watch forum route가 하나도 없으면 poll을 skip
-- 테스트 ID: `WP-06`
-- 기능/보호 계약: watchlist는 있지만 eligible guild 중 watch forum route가 하나도 없으면 quote fetch 없이 `no-target-forums`로 skip해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_skips_when_only_missing_watch_forum_routes_exist`
-- 사전 상태: guild `1`은 watchlist만 있고 `watch_forum_channel_id`는 없다.
-- 입력/트리거: 장중 scheduler tick.
-- mock/stub 전제: provider는 호출 횟수를 셀 수 있다.
-- 기대 동작: provider snapshot fetch는 0회다.
-- 기대 상태 저장 변화: `system.job_last_runs.watch_poll.status="skipped"`가 저장된다.
-- 기대 status/detail/log: detail에는 `missing_forum_guilds=1`과 `no-target-forums`가 포함된다.
-- 회귀 방지 포인트: route가 없는 길드에서도 무의미한 quote 조회를 계속하거나 misleading failure/ok를 남기는 문제를 막는다.
-
-### WP-07 snapshot provider 예외는 failed와 provider status 실패로 기록
+### WP-07 인접하지 않은 더 늦은 snapshot만 있을 때 old session은 finalize하지 않음
 - 테스트 ID: `WP-07`
-- 기능/보호 계약: `get_watch_snapshot()` 예외는 `watch_poll` failure와 provider status failure를 동시에 남겨야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_records_snapshot_provider_failure`
-- 사전 상태: guild `1`은 watch forum과 active watchlist를 가진다.
-- 입력/트리거: provider가 `MarketDataProviderError(\"quote provider down\")`을 던진다.
-- mock/stub 전제: forum은 정상이고 오류에는 `provider_key=\"kis_quote\"`가 붙어 있다.
-- 기대 동작: 해당 symbol의 thread update는 건너뛴다.
-- 기대 상태 저장 변화: `system.provider_status.kis_quote.ok=False`, `message=\"quote provider down\"`가 저장된다.
-- 기대 status/detail/log: `watch_poll.status=\"failed\"`, detail에 `snapshot_failures=1`이 포함된다.
-- 회귀 방지 포인트: provider 장애가 thread/forum 문제처럼 오인되거나 run status가 `ok`로 남는 문제를 막는다.
-
-### WP-08 warm-up은 guild별 중복 symbol을 합쳐 poll cycle당 1회만 호출
-- 테스트 ID: `WP-08`
-- 기능/보호 계약: 여러 guild가 같은 canonical symbol을 보더라도 `warm_watch_snapshots()`는 poll cycle당 unique symbol set으로 한 번만 호출되어야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_warms_unique_symbols_once`
-- 사전 상태: 두 guild가 각각 다른 forum route를 가지지만 watchlist는 같은 `KRX:005930`을 가진다.
-- 입력/트리거: 장중 scheduler tick 1회.
-- mock/stub 전제: provider는 warm symbols와 개별 snapshot fetch symbol을 모두 기록한다.
-- 기대 동작: warm-up은 `(\"KRX:005930\",)` 한 번만 호출된다.
-- 기대 상태 저장 변화: 각 guild의 개별 snapshot fetch는 계속 수행된다.
-- 기대 status/detail/log: snapshot fetch 호출은 symbol별이 아니라 guild-symbol 처리 수만큼 남는다.
-- 회귀 방지 포인트: 같은 symbol을 guild 수만큼 warm-up 해 외부 API와 warm cache를 과도하게 소모하는 문제를 막는다.
-
-### WP-09 인접하지 않은 더 늦은 snapshot만 있을 때 old session은 finalize하지 않음
-- 테스트 ID: `WP-09`
 - 기능/보호 계약: 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 `snapshot.previous_close`를 old session close로 오인해 finalize하면 안 된다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_keeps_non_adjacent_unfinalized_session_open`
 - 사전 상태: reference/session state는 `2026-03-24`에 고정돼 있고 intraday comment 1건이 남아 있다.
@@ -764,8 +812,8 @@
 - 기대 status/detail/log: `watch_poll.status="failed"`이며 detail에 `comment_failures=1`이 포함된다.
 - 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하고, 이후 올바른 보정 기회를 영구히 잃는 문제를 막는다.
 
-### WP-10 malformed symbol은 다른 watch symbol 처리를 중단시키지 않음
-- 테스트 ID: `WP-10`
+### WP-08 malformed symbol은 다른 watch symbol 처리를 중단시키지 않음
+- 테스트 ID: `WP-08`
 - 기능/보호 계약: persisted watchlist에 malformed/unsupported symbol이 섞여 있어도 scheduler는 해당 symbol만 `snapshot_failures`로 집계하고, 다른 정상 symbol은 계속 처리해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_invalid_symbol_does_not_abort_other_symbols`
 - 사전 상태: guild `1`의 watchlist는 `BAD:123`, `KRX:005930`을 함께 포함하고 watch forum route는 정상이다.
@@ -776,8 +824,8 @@
 - 기대 status/detail/log: `watch_poll.status="failed"`이며 detail에 `snapshot_failures=1`, `updated_threads=1`이 포함된다.
 - 회귀 방지 포인트: persisted state의 bad symbol 하나 때문에 해당 cycle의 나머지 guild-symbol 처리까지 모두 누락되는 scheduler-wide outage를 막는다.
 
-### WP-11 예상 밖 market session 계산 오류는 per-symbol failure로 숨기지 않음
-- 테스트 ID: `WP-11`
+### WP-09 예상 밖 market session 계산 오류는 per-symbol failure로 숨기지 않음
+- 테스트 ID: `WP-09`
 - 기능/보호 계약: unsupported symbol guard는 예상된 malformed-symbol 경로만 격리하고, 정상 symbol에서 발생한 unexpected market-session 계산 오류는 그대로 re-raise해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_re_raises_unexpected_market_session_failure`
 - 사전 상태: guild `1`은 watch forum과 active watchlist `["KRX:005930"]`를 가진다.
@@ -787,6 +835,42 @@
 - 기대 상태 저장 변화: 해당 tick을 `snapshot_failures`로 삼켜 저장하지 않는다.
 - 기대 status/detail/log: caller는 `calendar-broken` 예외를 직접 본다.
 - 회귀 방지 포인트: 실제 session/calendar 결함이 malformed-symbol noise에 묻혀 scheduler 진단이 어려워지는 문제를 막는다.
+
+### WP-10 watch forum route가 하나도 없으면 poll을 skip
+- 테스트 ID: `WP-10`
+- 기능/보호 계약: active symbol은 있지만 eligible guild 중 watch forum route가 하나도 없으면 quote fetch 없이 `no-target-forums`로 skip해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_skips_when_only_missing_watch_forum_routes_exist`
+- 사전 상태: guild `1`은 watchlist만 있고 `watch_forum_channel_id`는 없다.
+- 입력/트리거: 장중 scheduler tick.
+- mock/stub 전제: provider는 호출 횟수를 셀 수 있다.
+- 기대 동작: provider snapshot fetch는 0회다.
+- 기대 상태 저장 변화: `system.job_last_runs.watch_poll.status="skipped"`가 저장된다.
+- 기대 status/detail/log: detail에는 `missing_forum_guilds=1`과 `no-target-forums`가 포함된다.
+- 회귀 방지 포인트: route가 없는 길드에서도 무의미한 quote 조회를 계속하거나 misleading failure/ok를 남기는 문제를 막는다.
+
+### WP-11 snapshot provider 예외는 failed와 provider status 실패로 기록
+- 테스트 ID: `WP-11`
+- 기능/보호 계약: `get_watch_snapshot()` 예외는 `watch_poll` failure와 provider status failure를 동시에 남겨야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_records_snapshot_provider_failure`
+- 사전 상태: guild `1`은 watch forum과 active watchlist를 가진다.
+- 입력/트리거: provider가 `MarketDataProviderError("quote provider down")`을 던진다.
+- mock/stub 전제: forum은 정상이고 오류에는 `provider_key="kis_quote"`가 붙어 있다.
+- 기대 동작: 해당 symbol의 thread update는 건너뛴다.
+- 기대 상태 저장 변화: `system.provider_status.kis_quote.ok=False`, `message="quote provider down"`가 저장된다.
+- 기대 status/detail/log: `watch_poll.status="failed"`, detail에 `snapshot_failures=1`이 포함된다.
+- 회귀 방지 포인트: provider 장애가 thread/forum 문제처럼 오인되거나 run status가 `ok`로 남는 문제를 막는다.
+
+### WP-12 warm-up은 guild별 중복 symbol을 합쳐 poll cycle당 1회만 호출
+- 테스트 ID: `WP-12`
+- 기능/보호 계약: 여러 guild가 같은 canonical symbol을 보더라도 `warm_watch_snapshots()`는 poll cycle당 unique symbol set으로 한 번만 호출되어야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_warms_unique_symbols_once`
+- 사전 상태: 두 guild가 각각 다른 forum route를 가지지만 active symbol은 같은 `KRX:005930`이다.
+- 입력/트리거: 장중 scheduler tick 1회.
+- mock/stub 전제: provider는 warm symbols와 개별 snapshot fetch symbol을 모두 기록한다.
+- 기대 동작: warm-up은 `("KRX:005930",)` 한 번만 호출된다.
+- 기대 상태 저장 변화: 각 guild의 개별 snapshot fetch는 계속 수행된다.
+- 기대 status/detail/log: snapshot fetch 호출은 symbol별이 아니라 guild-symbol 처리 수만큼 남는다.
+- 회귀 방지 포인트: 같은 symbol을 guild 수만큼 warm-up 해 외부 API와 warm cache를 과도하게 소모하는 문제를 막는다.
 
 ## 현재 누락된 고위험 케이스
 

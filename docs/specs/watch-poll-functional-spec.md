@@ -6,10 +6,12 @@
 - 이 문서는 현재 저장소 코드와 테스트로 확인된 사실만 기록한다.
 
 ## 2. Feature Summary
-- `watch_poll`은 길드 공유 watchlist를 기반으로 종목별 persistent forum thread를 유지한다.
+- `watch_poll`은 길드 공유 watchlist를 기반으로 종목별 status(`active`/`inactive`)와 persistent forum thread를 유지한다.
 - authoritative route는 길드 state의 `watch_forum_channel_id`다.
-- `/watch add`는 watch forum route가 없으면 거절되고, 성공 시 symbol thread와 starter message를 즉시 보장한다.
-- poll은 regular session open 중 starter message를 갱신하고, `previous_close` 기준 `3% band ladder` 최고 신규 구간에 대해서만 intraday comment를 남긴다.
+- `/watch add`는 watch forum route가 없으면 거절되고, 새 symbol에 대해서만 symbol thread와 starter message를 즉시 만든다.
+- `/watch start`는 stopped symbol을 다시 active로 전환하고, `/watch stop`은 symbol을 watchlist에 남긴 채 실시간 감시만 중단한다.
+- `/watch delete`는 admin command로 동작하며 symbol을 watchlist와 thread/state에서 완전히 제거한다.
+- poll은 regular session open 중 active symbol의 starter message를 갱신하고, `previous_close` 기준 `3% band ladder` 최고 신규 구간에 대해서만 intraday comment를 남긴다.
 - regular session close 후 off-hours poll은 intraday starter edit 없이 close finalization만 시도한다.
 - close finalization은 intraday comment를 삭제하고 same-session `마감가 알림` comment 1건을 남긴다.
 - 과거 text watch route (`WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id`)는 hard cut 되었고, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`만 legacy cleanup/read 호환 대상으로 남아 있다.
@@ -76,6 +78,9 @@
             "thread_id": 1001,
             "starter_message_id": 1002,
             "status": "active"
+          },
+          "NAS:AAPL": {
+            "status": "inactive"
           }
         }
       }
@@ -130,22 +135,40 @@
 - symbol은 local instrument registry 기준 canonical symbol로 정규화한다.
 - `watch_forum_channel_id`가 없으면 명시적으로 거절한다.
 - 이미 watchlist에 있는 symbol을 다시 add하면 no-op으로 거절한다.
+  - inactive symbol이면 `/watch start`를 사용하라는 안내를 준다.
 - 새 symbol이 watchlist에 추가되면 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create 한다.
 - starter 내용은 최초 create 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
-- 기존 inactive symbol을 같은 regular session 안에 다시 add하면 `highest_up_band` / `highest_down_band` checkpoint는 reset되어 early band alert를 다시 시작할 수 있다.
 - 기존 thread/starter recreate는 authoritative `NotFound`일 때만 허용되고, `Forbidden` 또는 generic `HTTPException`은 transient/thread failure로 surface된다.
 
-### `/watch remove`
-- active watchlist에서만 제거한다.
+### `/watch start`
+- guild context가 필요하다.
+- 현재 guild watchlist에 이미 들어 있고 `inactive` status인 symbol만 대상으로 한다.
+- `watch_forum_channel_id`가 없으면 명시적으로 거절한다.
+- 같은 regular session 안에 stopped 상태였다면 `highest_up_band` / `highest_down_band` checkpoint는 reset되어 early band alert를 다시 시작할 수 있다.
+- thread/starter는 active placeholder로 update-or-create 한다.
+
+### `/watch stop`
+- guild context가 필요하다.
+- 현재 guild watchlist에 이미 들어 있고 `active` status인 symbol만 대상으로 한다.
+- symbol은 watchlist에서 제거하지 않는다.
 - legacy cooldown/latch/baseline state는 cleanup된다.
-- symbol thread registry entry가 이미 있을 때만 status는 `inactive`로 바뀐다.
-- 기존 tracked thread/starter가 현재 watch forum에서 resolve될 때만 starter message를 사용자용 `감시가 중지되었습니다` placeholder로 갱신하려고 시도한다.
-- thread registry가 없거나 stored thread handle이 stale이면 `/watch remove`는 새 inactive thread를 만들지 않는다.
+- symbol thread registry entry가 이미 있으면 status는 `inactive`로 바뀌고, entry가 없어도 status-only inactive entry를 남길 수 있다.
+- 기존 tracked thread/starter가 현재 watch forum에서 resolve될 때만 starter message를 사용자용 inactive placeholder로 갱신하려고 시도한다.
+- thread registry가 없거나 stored thread handle이 stale이면 `/watch stop`은 새 inactive thread를 만들지 않는다.
+- tracked thread/starter가 있는 경우 inactive placeholder update가 성공한 뒤에만 stop state를 저장한다.
+- 기존 thread status 갱신에 실패하면 command는 실패 응답을 반환하고, symbol status와 runtime state는 active 상태로 유지된다.
 - 현재 session이 아직 finalization되지 않았으면 scheduler가 off-hours poll에서 1회 close finalization을 끝낸 뒤 완전히 중지한다.
 
+### `/watch delete`
+- admin command다.
+- guild owner, guild admin, 또는 `DISCORD_GLOBAL_ADMIN_USER_IDS`에 있는 사용자만 실행할 수 있다.
+- 현재 guild watchlist에 들어 있는 tracked symbol만 대상으로 한다.
+- 기존 thread를 먼저 delete 시도한 뒤, watchlist / thread registry / reference snapshot / session alert state를 함께 제거한다.
+- thread handle이 이미 없으면 state cleanup만 진행할 수 있다.
+
 ### `/watch list`
-- active watchlist만 보여준다.
-- inactive historical thread는 목록에 나오지 않는다.
+- 현재 guild watchlist 전체를 보여준다.
+- 각 row는 registry display name과 canonical symbol, 그리고 `실시간 감시중` 또는 `감시 중단됨` status를 함께 보여준다.
 
 ## 6. Polling Semantics
 
@@ -156,8 +179,8 @@
 - off-hours poll은 starter edit나 신규 intraday comment를 만들지 않는다.
 
 ### Target discovery
-- active watchlist symbol은 항상 poll 대상 후보가 된다.
-- inactive symbol이라도 `watch_session_alerts`에 unfinalized session이 남아 있으면 off-hours finalization 후보로 유지된다.
+- active tracked symbol은 항상 poll 대상 후보가 된다.
+- inactive tracked symbol이라도 `watch_session_alerts`에 unfinalized session이 남아 있으면 off-hours finalization 후보로 유지된다.
 - watch forum route가 없는 guild는 `missing_forum_guilds`로 집계된다.
 
 ### Warm-up
@@ -175,6 +198,7 @@
 5. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
 6. starter message는 아래 정보를 포함해 매 성공 poll마다 edit된다.
    - 종목명 / canonical symbol
+   - 상태: `실시간 감시중`
    - 전일 종가 (`KRX=₩`, `NAS/NYS/AMS=$`)
    - 현재가 (`KRX=₩`, `NAS/NYS/AMS=$`)
    - 변동률
@@ -223,7 +247,7 @@
 ## 8. Legacy Compatibility
 - `WATCH_ALERT_CHANNEL_ID`는 현재 settings/env surface에서 제거됐고 startup/runtime watch route bootstrap이 없다.
 - persisted `watch_alert_channel_id`는 남아 있어도 현재 inspected code가 lookup하지 않는다.
-- `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 remove cleanup과 legacy read/migration 호환만 남아 있다.
+- `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 stop/delete cleanup과 legacy read/migration 호환만 남아 있다.
 - 새 alert/session state는 legacy state를 seed하지 않고 첫 성공 snapshot부터 채운다.
 
 ## 9. Job Status and Provider Status
