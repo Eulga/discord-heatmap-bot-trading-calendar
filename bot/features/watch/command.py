@@ -3,7 +3,22 @@ import logging
 import discord
 from discord import app_commands
 
-from bot.forum.repository import add_watch_symbol, list_watch_symbols, load_state, remove_watch_symbol, save_state
+from bot.common.clock import now_kst
+from bot.features.watch.service import render_watch_placeholder
+from bot.features.watch.session import get_watch_market_session
+from bot.features.watch.thread_service import upsert_watch_thread
+from bot.forum.repository import (
+    add_watch_symbol,
+    get_guild_watch_forum_channel_id,
+    get_watch_session_alert,
+    get_watch_symbol_thread,
+    list_watch_symbols,
+    load_state,
+    remove_watch_symbol,
+    save_state,
+    set_watch_symbol_thread_status,
+    update_watch_session_alert,
+)
 from bot.intel.instrument_registry import (
     RegistrySearchResult,
     format_instrument_label,
@@ -16,6 +31,33 @@ from bot.intel.instrument_registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _reset_reactivated_same_session_band_state(state, guild_id: int, symbol: str, existing_thread) -> None:
+    if not isinstance(existing_thread, dict):
+        return
+    if str(existing_thread.get("status") or "") != "inactive":
+        return
+
+    now = now_kst()
+    market_session = get_watch_market_session(symbol, now)
+    if not market_session.is_regular_session_open:
+        return
+
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    active_session_date = str(alert_entry.get("active_session_date") or "")
+    last_finalized_session_date = str(alert_entry.get("last_finalized_session_date") or "")
+    if active_session_date != market_session.session_date or active_session_date == last_finalized_session_date:
+        return
+
+    update_watch_session_alert(
+        state,
+        guild_id,
+        symbol,
+        highest_up_band=0,
+        highest_down_band=0,
+        updated_at=now.isoformat(),
+    )
 
 
 def _interaction_user_id(interaction: discord.Interaction) -> int | None:
@@ -178,21 +220,24 @@ def register(tree: app_commands.CommandTree, client) -> None:
             return
 
         state = load_state()
-        added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
-        save_state(state)
-        if added:
-            logger.info(
-                "[command] watch.add result=ok guild=%s user=%s symbol=%s resolved=%s",
+        watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
+        if watch_forum_channel_id is None:
+            logger.warning(
+                "[command] watch.add result=failed guild=%s user=%s symbol=%s resolved=%s detail=watch-forum-missing",
                 interaction.guild_id,
                 _interaction_user_id(interaction),
                 symbol,
                 resolved_symbol,
             )
             await interaction.response.send_message(
-                f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 추가했습니다.",
+                "watch 포럼이 설정되지 않았습니다. 운영자에게 `/setwatchforum` 설정을 요청해주세요.",
                 ephemeral=True,
             )
-        else:
+            return
+
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
+        added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
+        if not added:
             logger.warning(
                 "[command] watch.add result=ignored guild=%s user=%s symbol=%s resolved=%s",
                 interaction.guild_id,
@@ -201,6 +246,43 @@ def register(tree: app_commands.CommandTree, client) -> None:
                 resolved_symbol,
             )
             await interaction.response.send_message("이미 등록되었거나 잘못된 종목 코드입니다.", ephemeral=True)
+            return
+        _reset_reactivated_same_session_band_state(state, interaction.guild_id, resolved_symbol, existing_thread)
+
+        try:
+            await upsert_watch_thread(
+                client=client,
+                state=state,
+                guild_id=interaction.guild_id,
+                forum_channel_id=watch_forum_channel_id,
+                symbol=resolved_symbol,
+                active=True,
+                starter_text=render_watch_placeholder(resolved_symbol, active=True),
+            )
+        except Exception as exc:
+            logger.exception(
+                "[command] watch.add result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+                exc,
+            )
+            await interaction.response.send_message("thread 생성 또는 starter 복구에 실패했습니다.", ephemeral=True)
+            return
+
+        save_state(state)
+        logger.info(
+            "[command] watch.add result=ok guild=%s user=%s symbol=%s resolved=%s",
+            interaction.guild_id,
+            _interaction_user_id(interaction),
+            symbol,
+            resolved_symbol,
+        )
+        await interaction.response.send_message(
+            f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 추가했습니다.",
+            ephemeral=True,
+        )
 
     watch_add.autocomplete("symbol")(autocomplete_watch_add_symbol)
 
@@ -225,9 +307,41 @@ def register(tree: app_commands.CommandTree, client) -> None:
             await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
             return
 
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
         removed = remove_watch_symbol(state, interaction.guild_id, resolved_symbol)
-        save_state(state)
         if removed:
+            set_watch_symbol_thread_status(state, interaction.guild_id, resolved_symbol, "inactive")
+            watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
+            if existing_thread is not None and watch_forum_channel_id is not None:
+                try:
+                    handle = await upsert_watch_thread(
+                        client=client,
+                        state=state,
+                        guild_id=interaction.guild_id,
+                        forum_channel_id=watch_forum_channel_id,
+                        symbol=resolved_symbol,
+                        active=False,
+                        starter_text=render_watch_placeholder(resolved_symbol, active=False),
+                        allow_create=False,
+                    )
+                    if handle is None:
+                        logger.info(
+                            "[command] watch.remove starter-update-skipped guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
+                            interaction.guild_id,
+                            _interaction_user_id(interaction),
+                            symbol,
+                            resolved_symbol,
+                        )
+                except Exception as exc:
+                    logger.exception(
+                        "[command] watch.remove starter-update-failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
+                        interaction.guild_id,
+                        _interaction_user_id(interaction),
+                        symbol,
+                        resolved_symbol,
+                        exc,
+                    )
+            save_state(state)
             logger.info(
                 "[command] watch.remove result=ok guild=%s user=%s symbol=%s resolved=%s",
                 interaction.guild_id,

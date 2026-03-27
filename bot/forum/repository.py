@@ -2,9 +2,18 @@ import json
 from typing import Any, cast
 
 from bot.app.settings import LEGACY_STATE_FILE, STATE_FILE
-from bot.app.types import AppState, CommandState, DailyPostEntry
+from bot.app.types import (
+    AppState,
+    CommandState,
+    DailyPostEntry,
+    WatchReferenceSnapshotEntry,
+    WatchSessionAlertEntry,
+    WatchThreadEntry,
+)
 from bot.common.fs import atomic_write_json
 from bot.intel.instrument_registry import normalize_stored_watch_symbol
+
+WATCH_POLL_COMMAND_KEY = "watchpoll"
 
 
 def _empty_state() -> AppState:
@@ -69,6 +78,8 @@ def get_command_state(state: AppState, command_key: str) -> CommandState:
     command_state = commands.setdefault(command_key, {})
     command_state.setdefault("daily_posts_by_guild", {})
     command_state.setdefault("last_images", {})
+    if command_key == WATCH_POLL_COMMAND_KEY:
+        command_state.setdefault("symbol_threads_by_guild", {})
     return cast(CommandState, command_state)
 
 
@@ -121,12 +132,12 @@ def get_guild_eod_forum_channel_id(state: AppState, guild_id: int) -> int | None
     return channel_id if isinstance(channel_id, int) else None
 
 
-def set_guild_watch_alert_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
-    _get_guild_config(state, guild_id)["watch_alert_channel_id"] = channel_id
+def set_guild_watch_forum_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
+    _get_guild_config(state, guild_id)["watch_forum_channel_id"] = channel_id
 
 
-def get_guild_watch_alert_channel_id(state: AppState, guild_id: int) -> int | None:
-    channel_id = _get_guild_config(state, guild_id).get("watch_alert_channel_id")
+def get_guild_watch_forum_channel_id(state: AppState, guild_id: int) -> int | None:
+    channel_id = _get_guild_config(state, guild_id).get("watch_forum_channel_id")
     return channel_id if isinstance(channel_id, int) else None
 
 
@@ -218,6 +229,11 @@ def list_guild_ids(state: AppState) -> list[int]:
         if key.isdigit():
             ids.append(int(key))
     return ids
+
+
+def _normalize_watch_symbol_key(symbol: str) -> str:
+    normalized, _warning = normalize_stored_watch_symbol(symbol)
+    return normalized or symbol.strip().upper()
 
 
 def _normalize_watch_state(state: AppState, guild_id: int) -> list[str]:
@@ -360,6 +376,152 @@ def remove_watch_symbol(state: AppState, guild_id: int, symbol: str) -> bool:
 
 def list_watch_symbols(state: AppState, guild_id: int) -> list[str]:
     return [x for x in _normalize_watch_state(state, guild_id) if isinstance(x, str)]
+
+
+def get_watch_symbol_threads_for_guild(state: AppState, guild_id: int) -> dict[str, WatchThreadEntry]:
+    command_state = get_command_state(state, WATCH_POLL_COMMAND_KEY)
+    mapping = command_state.setdefault("symbol_threads_by_guild", {})
+    guild_key = str(guild_id)
+    guild_entries = mapping.setdefault(guild_key, {})
+    return cast(dict[str, WatchThreadEntry], guild_entries)
+
+
+def get_watch_symbol_thread(state: AppState, guild_id: int, symbol: str) -> WatchThreadEntry | None:
+    guild_entries = get_watch_symbol_threads_for_guild(state, guild_id)
+    entry = guild_entries.get(_normalize_watch_symbol_key(symbol))
+    return entry if isinstance(entry, dict) else None
+
+
+def set_watch_symbol_thread(
+    state: AppState,
+    guild_id: int,
+    symbol: str,
+    *,
+    thread_id: int,
+    starter_message_id: int,
+    status: str,
+) -> None:
+    guild_entries = get_watch_symbol_threads_for_guild(state, guild_id)
+    guild_entries[_normalize_watch_symbol_key(symbol)] = {
+        "thread_id": int(thread_id),
+        "starter_message_id": int(starter_message_id),
+        "status": status,
+    }
+
+
+def set_watch_symbol_thread_status(state: AppState, guild_id: int, symbol: str, status: str) -> None:
+    guild_entries = get_watch_symbol_threads_for_guild(state, guild_id)
+    symbol_key = _normalize_watch_symbol_key(symbol)
+    entry = guild_entries.get(symbol_key)
+    if not isinstance(entry, dict):
+        return
+    entry["status"] = status
+
+
+def list_watch_tracked_symbols(state: AppState, guild_id: int) -> list[str]:
+    entries = get_watch_symbol_threads_for_guild(state, guild_id)
+    return sorted(symbol for symbol in entries.keys() if isinstance(symbol, str))
+
+
+def _get_watch_reference_store(state: AppState) -> dict[str, dict[str, WatchReferenceSnapshotEntry]]:
+    system = get_system_state(state)
+    store = system.setdefault("watch_reference_snapshots", {})
+    if not isinstance(store, dict):
+        store = {}
+        system["watch_reference_snapshots"] = store
+    return cast(dict[str, dict[str, WatchReferenceSnapshotEntry]], store)
+
+
+def get_watch_reference_snapshots_for_guild(state: AppState, guild_id: int) -> dict[str, WatchReferenceSnapshotEntry]:
+    store = _get_watch_reference_store(state)
+    guild_key = str(guild_id)
+    guild_entries = store.setdefault(guild_key, {})
+    return cast(dict[str, WatchReferenceSnapshotEntry], guild_entries)
+
+
+def get_watch_reference_snapshot(state: AppState, guild_id: int, symbol: str) -> WatchReferenceSnapshotEntry | None:
+    entry = get_watch_reference_snapshots_for_guild(state, guild_id).get(_normalize_watch_symbol_key(symbol))
+    return entry if isinstance(entry, dict) else None
+
+
+def set_watch_reference_snapshot(
+    state: AppState,
+    guild_id: int,
+    symbol: str,
+    *,
+    basis: str,
+    reference_price: float,
+    session_date: str,
+    checked_at: str,
+) -> None:
+    get_watch_reference_snapshots_for_guild(state, guild_id)[_normalize_watch_symbol_key(symbol)] = {
+        "basis": basis,
+        "reference_price": float(reference_price),
+        "session_date": session_date,
+        "checked_at": checked_at,
+    }
+
+
+def _get_watch_session_alert_store(state: AppState) -> dict[str, dict[str, WatchSessionAlertEntry]]:
+    system = get_system_state(state)
+    store = system.setdefault("watch_session_alerts", {})
+    if not isinstance(store, dict):
+        store = {}
+        system["watch_session_alerts"] = store
+    return cast(dict[str, dict[str, WatchSessionAlertEntry]], store)
+
+
+def get_watch_session_alerts_for_guild(state: AppState, guild_id: int) -> dict[str, WatchSessionAlertEntry]:
+    store = _get_watch_session_alert_store(state)
+    guild_key = str(guild_id)
+    guild_entries = store.setdefault(guild_key, {})
+    return cast(dict[str, WatchSessionAlertEntry], guild_entries)
+
+
+def get_watch_session_alert(state: AppState, guild_id: int, symbol: str) -> WatchSessionAlertEntry:
+    alerts = get_watch_session_alerts_for_guild(state, guild_id)
+    symbol_key = _normalize_watch_symbol_key(symbol)
+    entry = alerts.setdefault(symbol_key, {})
+    if "highest_up_band" not in entry:
+        entry["highest_up_band"] = 0
+    if "highest_down_band" not in entry:
+        entry["highest_down_band"] = 0
+    if "intraday_comment_ids" not in entry or not isinstance(entry.get("intraday_comment_ids"), list):
+        entry["intraday_comment_ids"] = []
+    if "close_comment_ids_by_session" not in entry or not isinstance(entry.get("close_comment_ids_by_session"), dict):
+        entry["close_comment_ids_by_session"] = {}
+    return cast(WatchSessionAlertEntry, entry)
+
+
+def update_watch_session_alert(
+    state: AppState,
+    guild_id: int,
+    symbol: str,
+    *,
+    active_session_date: str | None = None,
+    highest_up_band: int | None = None,
+    highest_down_band: int | None = None,
+    intraday_comment_ids: list[int] | None = None,
+    close_comment_ids_by_session: dict[str, int] | None = None,
+    last_finalized_session_date: str | None = None,
+    updated_at: str | None = None,
+) -> WatchSessionAlertEntry:
+    entry = get_watch_session_alert(state, guild_id, symbol)
+    if active_session_date is not None:
+        entry["active_session_date"] = active_session_date
+    if highest_up_band is not None:
+        entry["highest_up_band"] = int(highest_up_band)
+    if highest_down_band is not None:
+        entry["highest_down_band"] = int(highest_down_band)
+    if intraday_comment_ids is not None:
+        entry["intraday_comment_ids"] = [int(message_id) for message_id in intraday_comment_ids]
+    if close_comment_ids_by_session is not None:
+        entry["close_comment_ids_by_session"] = {str(date_key): int(message_id) for date_key, message_id in close_comment_ids_by_session.items()}
+    if last_finalized_session_date is not None:
+        entry["last_finalized_session_date"] = last_finalized_session_date
+    if updated_at is not None:
+        entry["updated_at"] = updated_at
+    return entry
 
 
 def get_system_state(state: AppState) -> dict[str, Any]:

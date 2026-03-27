@@ -52,7 +52,7 @@
 | F-08 | Scheduled news briefing posting | Implemented | intel scheduler exact-minute check | domestic/global daily forum threads and job/provider status updates | Confirmed |
 | F-09 | Scheduled trend briefing posting | Implemented | nested inside news scheduler | trend summary thread with starter + region content messages | Confirmed |
 | F-10 | Scheduled EOD summary posting | Partially implemented | intel scheduler exact-minute check | daily EOD forum thread using mock summary provider | Confirmed |
-| F-11 | Watch poll and threshold alerting | Implemented | intel scheduler interval check | text-channel alerts and watch/provider/job status updates | Confirmed |
+| F-11 | Watch poll and per-symbol forum-thread alerting | Implemented | intel scheduler interval check | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
 | F-12 | Instrument registry load/search/runtime refresh | Implemented | startup lookup, watch commands, scheduler when enabled | local search, status rows, runtime registry rebuild file | Confirmed |
 | F-13 | Legacy message ping handler (`!ping`) | Implemented | plain text message event | `pong` reply | Confirmed |
 
@@ -73,7 +73,6 @@
   - `DEFAULT_FORUM_CHANNEL_ID`
   - `NEWS_TARGET_FORUM_ID`
   - `EOD_TARGET_FORUM_ID`
-  - `WATCH_ALERT_CHANNEL_ID`
   - logging env vars
 - Runtime inputs:
   - current `data/state/state.json`
@@ -344,7 +343,7 @@
   - `/setforumchannel`
   - `/setnewsforum`
   - `/seteodforum`
-  - `/setwatchchannel`
+  - `/setwatchforum`
   - `/autoscreenshot`
 
 ### 4.3 Inputs
@@ -375,7 +374,7 @@
 - Writes `guilds.{guild_id}.forum_channel_id`
 - Writes `guilds.{guild_id}.news_forum_channel_id`
 - Writes `guilds.{guild_id}.eod_forum_channel_id`
-- Writes `guilds.{guild_id}.watch_alert_channel_id`
+- Writes `guilds.{guild_id}.watch_forum_channel_id`
 - Writes `guilds.{guild_id}.auto_screenshot_enabled`
 
 ### 4.7 Error / edge handling (As-Is)
@@ -385,7 +384,7 @@
 - There is no explicit precheck of the bot’s effective permissions on the selected channel in this module.
 
 ### 4.8 Operational constraints
-- The slash option types enforce `ForumChannel` for forum routes and `TextChannel` for watch routes.
+- The slash option types enforce `ForumChannel` for forum routes.
 - The actual posting capability is assumed, not prevalidated.
 
 ### 4.9 Confidence
@@ -425,18 +424,26 @@
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
 3. `/watch remove` resolves against the current guild watchlist, including canonical and legacy representations.
-4. Successful add/remove operations update the guild watchlist in state and save immediately.
-5. Removing a symbol also clears watch cooldown, latch, and baseline runtime state for that symbol.
-6. `/watch list` formats the current symbols using registry display names.
-7. Autocomplete queries the local registry and returns up to 25 choices.
+4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with an active placeholder starter for the newly added symbol.
+5. Re-adding an inactive symbol during the same open market session resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
+6. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
+7. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
+8. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
+9. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
+10. Stored thread/starter recreation is only allowed for authoritative `discord.NotFound`; transient `discord.Forbidden` and generic `discord.HTTPException` bubble to the caller instead of creating a duplicate thread.
+11. `/watch list` formats the current symbols using registry display names.
+12. Autocomplete queries the local registry and returns up to 25 choices.
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
 - Updated `guilds.{guild_id}.watchlist`
+- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and starter message when add/remove touches a tracked thread
 - Autocomplete choices for symbol search
 
 ### 4.6 Persistence / state interaction
 - Reads/writes `guilds.{guild_id}.watchlist`
+- Reads `guilds.{guild_id}.watch_forum_channel_id`
+- Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
 - Reads/writes `guilds.{guild_id}.watch_alert_cooldowns`
 - Reads/writes `guilds.{guild_id}.watch_alert_latches`
 - Reads/writes `system.watch_baselines.{guild_id}`
@@ -445,6 +452,7 @@
 ### 4.7 Error / edge handling (As-Is)
 - Empty input is rejected.
 - Ambiguous symbol resolution returns candidate text rather than auto-selecting.
+- `/watch add` is rejected when `watch_forum_channel_id` is missing.
 - Duplicate add returns an ignored/already-registered message.
 - Remove on a missing symbol returns an error message.
 - This module does not perform an admin/owner permission check.
@@ -731,10 +739,10 @@
 - `bot/features/eod/policy.py`
 - `bot/intel/providers/market.py`
 
-## Feature: Watch poll and threshold alerting
+## Feature: Watch poll and per-symbol forum-thread alerting
 
 ### 4.1 Purpose
-- Current code polls watched symbols on an interval, compares current quotes against stored baseline prices, and may send threshold alerts into per-guild text channels.
+- Current code polls watched symbols on an interval, updates a persistent per-symbol forum thread starter during regular session hours, emits band-crossing comments, and finalizes the session with a close comment after hours.
 
 ### 4.2 Trigger
 - `intel_scheduler()` interval check when `WATCH_POLL_ENABLED` is true
@@ -744,63 +752,73 @@
   - `WATCH_POLL_ENABLED`
   - `WATCH_POLL_INTERVAL_SECONDS`
   - `WATCH_ALERT_THRESHOLD_PCT`
-  - `WATCH_ALERT_COOLDOWN_MINUTES`
   - `MARKET_DATA_PROVIDER_KIND`
   - KIS and Massive credentials
 - Runtime inputs:
   - guild watchlists
-  - guild watch alert channel IDs
-  - per-symbol baseline, cooldown, and latch state
+  - guild `watch_forum_channel_id`
+  - `commands.watchpoll.symbol_threads_by_guild`
+  - `system.watch_reference_snapshots`
+  - `system.watch_session_alerts`
   - current datetime
 - Provider inputs:
   - `quote_provider` module-level singleton
-  - optional `warm_quotes()` on the provider
+  - `get_watch_snapshot()` and optional `warm_watch_snapshots()` on the provider
 - Discord resource inputs:
-  - text/messageable watch alert channel per guild
+  - per-symbol forum threads and starter/comments in the configured watch forum
 
 ### 4.4 Processing flow
 1. `_run_watch_poll()` loads state and scans all guilds.
-2. Guilds with no watchlist entries are ignored.
-3. Guilds with watch symbols but no configured watch alert channel are counted as `missing_channel_guilds`.
-4. The alert channel is resolved. If the resolved object is not messageable or belongs to a different guild, the guild is counted as a channel failure and skipped.
-5. If the provider exposes `warm_quotes()`, it is called once with the unique symbol set across pending guilds.
-6. For each guild and symbol:
-   - `quote_provider.get_quote()` is called
-   - provider status for that quote provider is updated immediately on success or failure
-   - baseline is read from state; if none exists, current price becomes the baseline
-   - `evaluate_watch_signal()` computes percent change, threshold direction, cooldown, and same-direction latch behavior
-   - baseline is persisted as the existing baseline or the first observed price
-   - if a signal should be sent, a plain text alert is posted to the configured channel
-7. Final job status is derived from counts of processed symbols, quote failures, channel failures, and send failures.
+2. Target symbols are the union of active watchlist entries and inactive symbols that still have an unfinalized session in `system.watch_session_alerts`.
+3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
+4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set across pending guilds.
+5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
+6. For each guild and symbol, `_run_watch_poll()` resolves or recreates the persistent symbol thread, then calls `quote_provider.get_watch_snapshot()`.
+7. During market regular-session hours:
+   - the starter message is updated from the latest snapshot
+   - `previous_close` becomes the reference basis for percent-change rendering
+   - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
+   - the session state resets when `session_date` changes
+   - at most one highest newly crossed `3%` band comment is created per poll
+   - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
+8. Outside regular-session hours:
+   - starter and intraday updates are skipped
+   - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
+   - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
+   - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
+   - band-label `%` text follows the same effective-threshold rule even when the configured threshold is fractional or below `1.0`; the trailing signed percent remains the exact `change_pct`
+9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs
-- Plain text alerts in configured watch channels
+- Starter message edits and thread comments in per-symbol watch forum threads
 - `system.job_last_runs.watch_poll`
-- provider status updates such as `kis_quote` or `massive_reference`
-- baseline/cooldown/latch state updates
+- provider status updates keyed per snapshot fetch
+- watch reference/session state updates
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `guilds.{guild_id}.watch_alert_channel_id`
-- Reads/writes `guilds.{guild_id}.watch_alert_cooldowns`
-- Reads/writes `guilds.{guild_id}.watch_alert_latches`
-- Reads/writes `system.watch_baselines.{guild_id}.{symbol}`
+- Reads/writes `guilds.{guild_id}.watch_forum_channel_id`
+- Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
+- Reads/writes `system.watch_reference_snapshots.{guild_id}.{symbol}`
+- Reads/writes `system.watch_session_alerts.{guild_id}.{symbol}`
+- Legacy cooldown/latch and `system.watch_baselines` are kept only for compatibility or cleanup, not as active alert inputs
 - Reads/writes provider/job status in `system`
 
 ### 4.7 Error / edge handling (As-Is)
-- Quote failures increment counters and skip alert generation for that symbol.
-- Channel lookup failures increment counters and skip that guild.
-- Alert-send failures increment counters but the job continues.
-- Final job status becomes `failed` if any quote/channel/send failures occurred.
-- There is no explicit market-session or trading-day gating in this function.
+- Snapshot failures increment counters and skip starter/comment updates for that symbol.
+- Missing or invalid watch forum/thread failures increment counters and skip that symbol.
+- Comment delete/create failures increment counters but the job continues for other symbols.
+- Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.
+- Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints
 - The watchlist is stored under each guild’s state entry rather than under a user-scoped key.
-- In the inspected polling path, once a baseline exists for a symbol, later polls write that same baseline price back to state rather than replacing it with the current price.
-- Same-direction repeat-alert suppression is implemented through `watch_alert_latches` plus `watch_alert_cooldowns`.
-- Quote freshness and symbol coverage depend on the selected provider path and its internal checks.
+- Watch thread reuse is keyed by `(guild_id, canonical_symbol)` and does not rotate daily.
+- Session semantics are market-calendar aware for KRX and US regular sessions.
+- Quote freshness and symbol coverage still depend on the selected provider path and its internal checks.
+- The detailed current watch behavior is documented in `docs/specs/watch-poll-functional-spec.md`.
 
 ### 4.9 Confidence
-- Confirmed for polling, alert-attempt, and state-write paths; ambiguous for intended session/off-hours semantics.
+- Confirmed for scheduler, thread, snapshot, and state-write paths in local code and tests; live Discord/KIS smoke remains unverified in this session.
 
 ### 4.10 Evidence notes
 - `bot/features/intel_scheduler.py`
@@ -972,7 +990,7 @@
   - Required vs optional: optional
   - Observed usage: admin route/toggle command authorization
   - Risk if missing: only guild-owner/admin authorization remains
-- Name: `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`, `WATCH_ALERT_CHANNEL_ID`
+- Name: `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`
   - Purpose: bootstrap/default route IDs
   - Required vs optional: optional
   - Observed usage: startup bootstrap into per-guild state, not direct runtime routing in the inspected paths
@@ -1007,8 +1025,8 @@
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`
   - Risk if missing: EOD remains disabled by default
-- Name: `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`, `WATCH_ALERT_COOLDOWN_MINUTES`
-  - Purpose: enable watch polling and alert thresholds
+- Name: `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`
+  - Purpose: enable watch polling and band-comment thresholds
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`
   - Risk if missing: defaults apply
@@ -1057,7 +1075,7 @@
   - Observed usage: implemented by `MockNewsProvider`, `NaverNewsProvider`, `MarketauxNewsProvider`, `HybridNewsProvider`, `ErrorNewsProvider`
   - Risk if missing: news job fails or uses mock/error behavior
 - Name: `MarketDataProvider`
-  - Purpose: return `Quote` for watch polling
+  - Purpose: return `WatchSnapshot` for watch polling
   - Required vs optional: required for watch polling
   - Observed usage: implemented by `MockMarketDataProvider`, `KisMarketDataProvider`, `MassiveSnapshotMarketDataProvider`, `RoutedMarketDataProvider`, `ErrorMarketDataProvider`
   - Risk if missing: watch job fails or uses mock/error behavior
@@ -1073,11 +1091,11 @@
   - Required vs optional: required per feature/guild
   - Observed usage: stored in state and resolved before posting
   - Risk if missing: feature is skipped or command fails for that guild
-- Name: per-guild watch alert text channels
-  - Purpose: target for watch alerts
-  - Required vs optional: required for alert delivery
-  - Observed usage: resolved at watch-poll time
-  - Risk if missing: watch job counts missing-channel guilds and sends no alerts there
+- Name: per-guild watch forums with persistent symbol threads
+  - Purpose: target for watch starter updates and band/close comments
+  - Required vs optional: required for watch delivery
+  - Observed usage: resolved at watch-poll time and `/watch add`
+  - Risk if missing: watch job counts missing-forum guilds and `/watch add` is rejected
 - Name: forum threads and starter/content messages
   - Purpose: concrete posted artifacts for same-day upsert
   - Required vs optional: created as needed
@@ -1200,10 +1218,10 @@
   - What cannot be confirmed: whether multi-instance deployment is supported or intentionally unsupported.
   - Why this ambiguity matters: operational guidance and failure analysis differ sharply between single-writer and multi-writer assumptions.
 - Area: Watch polling market-hours semantics
-  - Why ambiguous: trading-day helpers exist, but watch poll does not call them.
-  - What seems likely: watch polling runs regardless of market hours and relies on provider freshness behavior only.
-  - What cannot be confirmed: whether off-hours alerts are intentionally allowed or just not yet handled.
-  - Why this ambiguity matters: “current behavior” and “desired business behavior” may diverge here.
+  - Why ambiguous: detailed operator intent for thread-follow expectations and future notification-volume tuning still lives outside this document.
+  - What seems likely: current implementation intentionally uses market-session-aware starter/comment behavior with off-hours close finalization only.
+  - What cannot be confirmed: whether future rollout will add starter-update suppression or further forum-notification controls.
+  - Why this ambiguity matters: operator expectations for Discord notification volume depend on these choices.
 - Area: Heatmap command response visibility
   - Why ambiguous: `run_heatmap_command()` uses `interaction.response.defer(thinking=True)` and `followup.send(message)` without `ephemeral=True`.
   - What seems likely: the result message is a normal visible follow-up.
@@ -1252,9 +1270,9 @@
   - Current operational risk: transient Discord API issues may lead to duplicate same-day forum content.
   - Confidence: Confirmed
 - Gap ID: G-09
-  - Gap: watch polling does not visibly gate by market session, and domestic quote freshness uses `now` as `asof`.
-  - Observed evidence: `bot/features/intel_scheduler.py::_run_watch_poll`, `bot/intel/providers/market.py::_fetch_domestic_quote`
-  - Current operational risk: stale or off-hours quotes may still participate in alert logic.
+  - Gap: live Discord/KIS smoke for the new watch forum-thread flow is still unverified in the inspected session.
+  - Observed evidence: implementation and automated tests were updated locally, but no live forum permission or vendor credential check was executed here.
+  - Current operational risk: runtime permission issues or provider payload mismatches may still appear only in production-like conditions.
   - Confidence: Confirmed
 - Gap ID: G-10
   - Gap: EOD summary runtime provider is mock-only in the inspected code.
@@ -1277,7 +1295,7 @@
 | News posting | Posts separate domestic/global daily threads and an optional trend thread | Whether partial-region success should count as healthy | Do not assume robust regional failure isolation |
 | Trend posting | In current code, the trend thread is skipped unless at least one region has 3+ themes; empty displayed regions are rendered as placeholder content messages | Intended theme-quality guarantee | Do not assume business-quality trend accuracy from current heuristics |
 | EOD summary | Scheduler path exists but provider is mock and feature default is off | Whether live EOD was meant to be production-ready | Do not assume real market-close data |
-| Watch polling | Polls stored watchlist on interval and can send threshold alerts | Intended market-hours policy and baseline reset policy | Do not assume session-aware alert semantics |
+| Watch polling | Polls stored watchlist on interval and updates per-symbol forum threads with session-aware band/close comments | Live Discord/forum permissions and vendor payload stability | Do not assume live smoke has already validated the rollout |
 | Watch authorization | Guild-only check is present; explicit admin auth is not | Whether open watchlist mutation is intentional | Do not assume watchlist changes are admin-restricted |
 | Status commands | Return state/default diagnostic rows ephemerally | Intended audience and any future operator-only policy | Do not assume diagnostics are access-controlled |
 | Instrument registry refresh | Has explicit same-day catch-up and writes runtime override file on success | Extent of operational monitoring around refresh | Do not assume other schedulers share the same catch-up behavior |
@@ -1287,7 +1305,7 @@
 # 10. Optional improvement notes
 - The current code would benefit from a separate operator-facing document that explicitly states:
   - which commands are intentionally public vs admin-only
-  - whether watch alerts are meant to be session-aware
+  - what follow/notification expectation operators should set for watch forum threads
   - whether EOD is development-only or supported when enabled
 - The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that distinguishes exact-minute jobs from the registry refresh catch-up path.
 - The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that clearly separates heatmap catch-up behavior from exact-minute news/EOD jobs and the registry refresh catch-up path.

@@ -38,6 +38,7 @@ docker compose down
 - `bot/markets`: capture/cache and market helpers
 - `bot/intel`: provider and registry logic
 - `bot/features`: slash commands and schedulers
+- Watch polling uses `/setwatchforum` plus persistent per-symbol forum threads instead of a shared text alert channel.
 
 ## Tests
 

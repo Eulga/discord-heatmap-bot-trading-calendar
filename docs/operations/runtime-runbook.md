@@ -26,13 +26,16 @@
 
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
-- Configure per-guild routes through the slash commands intended for forum/text routing.
+- Configure per-guild routes through the slash commands intended for forum routing.
 - When features beyond the base heatmap flow are enabled, configure their specific target channels/forums as needed.
 - The bot must be able to use application commands and post/send in the configured Discord resources.
 - Code-confirmed command boundary:
-  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchchannel`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/kheatmap`, `/usheatmap`, and `/watch *` require guild context but are not admin-gated
   - `/health`, `/last-run`, and `/source-status` do not currently apply a visible authorization gate in code
+- Watch-specific operator note:
+  - configure `/setwatchforum` before using `/watch add`
+  - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
 
 ## Logs and State Paths
 - Main mutable state:
@@ -50,7 +53,7 @@
 ## Basic Operator Checks
 - After startup, confirm the bot connected and command sync completed in logs or status surfaces.
 - Confirm the expected slash commands are visible in Discord.
-- Set the required forum/text routes for the guild before expecting posts or alerts.
+- Set the required forum routes for the guild before expecting posts or alerts.
 - Use the status commands to inspect recent job/provider state when debugging.
 - If scheduler behavior looks wrong, also check for duplicate running bot processes and stale local/container state.
 
@@ -59,10 +62,14 @@
   - check bot presence in the guild
   - check application-command permissions
   - allow for global command propagation delay
-- Forum or alert posting fails:
+- Forum posting or watch-thread delivery fails:
   - verify the relevant guild route is configured
   - verify the bot can post/send in the target resource
   - inspect `data/logs/bot.log` and `data/state/state.json`
+- Watch thread behavior looks wrong:
+  - verify `watch_forum_channel_id` exists in `data/state/state.json`
+  - check `commands.watchpoll.symbol_threads_by_guild` and `system.watch_session_alerts`
+  - confirm the bot can create forum threads and send/edit thread comments in the configured watch forum
 - Render or capture problems:
   - retry after cached artifacts expire or are intentionally refreshed
   - verify Playwright/browser setup

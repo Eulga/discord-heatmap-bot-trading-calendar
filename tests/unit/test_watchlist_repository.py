@@ -79,3 +79,79 @@ def test_watchlist_remove_clears_runtime_state():
     assert state["system"]["watch_baselines"]["1"] == {
         "NAS:AAPL": {"price": 214.0, "checked_at": "2026-02-13T09:10:00+09:00"}
     }
+
+
+def test_watch_state_stores_watch_forum_and_symbol_thread_registry():
+    state = {"commands": {}, "guilds": {}}
+
+    repository.set_guild_watch_forum_channel_id(state, 1, 456)
+    repository.set_watch_symbol_thread(
+        state,
+        1,
+        "005930",
+        thread_id=1001,
+        starter_message_id=1002,
+        status="active",
+    )
+
+    assert repository.get_guild_watch_forum_channel_id(state, 1) == 456
+    assert repository.get_watch_symbol_thread(state, 1, "KRX:005930") == {
+        "thread_id": 1001,
+        "starter_message_id": 1002,
+        "status": "active",
+    }
+    assert repository.list_watch_tracked_symbols(state, 1) == ["KRX:005930"]
+
+
+def test_watch_state_stores_reference_snapshot_and_session_alerts_without_seeding_from_legacy_state():
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {
+                "watch_alert_cooldowns": {"KRX:005930:down": "2026-02-13T09:00:00+09:00"},
+                "watch_alert_latches": {"KRX:005930": "down"},
+            }
+        },
+        "system": {
+            "watch_baselines": {
+                "1": {
+                    "KRX:005930": {"price": 70000.0, "checked_at": "2026-02-13T09:00:00+09:00"},
+                }
+            }
+        },
+    }
+
+    repository.set_watch_reference_snapshot(
+        state,
+        1,
+        "KRX:005930",
+        basis="previous_close",
+        reference_price=73100.0,
+        session_date="2026-03-26",
+        checked_at="2026-03-26T09:01:00+09:00",
+    )
+    repository.update_watch_session_alert(
+        state,
+        1,
+        "KRX:005930",
+        active_session_date="2026-03-26",
+        highest_up_band=2,
+        intraday_comment_ids=[2001],
+        close_comment_ids_by_session={"2026-03-25": 1901},
+        updated_at="2026-03-26T10:11:00+09:00",
+    )
+
+    assert repository.get_watch_reference_snapshot(state, 1, "005930") == {
+        "basis": "previous_close",
+        "reference_price": 73100.0,
+        "session_date": "2026-03-26",
+        "checked_at": "2026-03-26T09:01:00+09:00",
+    }
+    assert repository.get_watch_session_alert(state, 1, "005930") == {
+        "active_session_date": "2026-03-26",
+        "highest_up_band": 2,
+        "highest_down_band": 0,
+        "intraday_comment_ids": [2001],
+        "close_comment_ids_by_session": {"2026-03-25": 1901},
+        "updated_at": "2026-03-26T10:11:00+09:00",
+    }

@@ -9,7 +9,9 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
+from bot.features.watch.session import get_watch_market_session
 from bot.intel.instrument_registry import InstrumentRecord, load_registry, normalize_stored_watch_symbol
 
 _DEFAULT_KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
@@ -20,6 +22,7 @@ _DEFAULT_HEADERS = {
 }
 _TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
 _QUOTE_STALE_AFTER = timedelta(minutes=2)
+_KOREA_TZ = ZoneInfo("Asia/Seoul")
 _DOMESTIC_MARKET_DIV_CODES = {
     "KRX": "J",
     "NX": "NX",
@@ -44,6 +47,17 @@ class Quote:
     symbol: str
     price: float
     asof: datetime
+    provider: str = ""
+
+
+@dataclass
+class WatchSnapshot:
+    symbol: str
+    current_price: float
+    previous_close: float
+    session_close_price: float | None
+    asof: datetime
+    session_date: str
     provider: str = ""
 
 
@@ -74,7 +88,9 @@ class _ResolvedSymbol:
 
 
 class MarketDataProvider(Protocol):
-    async def get_quote(self, symbol: str, now: datetime) -> Quote: ...
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot: ...
+
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None: ...
 
 
 class EodSummaryProvider(Protocol):
@@ -88,18 +104,49 @@ class MarketDataProviderError(RuntimeError):
 
 
 class MockMarketDataProvider:
-    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot:
         token = sha1(f"{symbol}|{now.strftime('%Y%m%d%H%M')}".encode("utf-8")).hexdigest()
         seed = int(token[:8], 16)
         base = 10000 + (seed % 90000)
         noise = ((seed >> 8) % 500) / 100
-        return Quote(symbol=symbol.upper(), price=base + noise, asof=now, provider="mock")
+        current_price = base + noise
+        previous_close = max(1.0, current_price * 0.97)
+        session = get_watch_market_session(symbol.upper(), now)
+        session_close_price = None if session.is_regular_session_open else current_price
+        return WatchSnapshot(
+            symbol=symbol.upper(),
+            current_price=current_price,
+            previous_close=previous_close,
+            session_close_price=session_close_price,
+            asof=now,
+            session_date=session.session_date,
+            provider="mock",
+        )
+
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None:
+        return None
+
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        await self.warm_watch_snapshots(symbols, now)
+
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        snapshot = await self.get_watch_snapshot(symbol, now)
+        return Quote(symbol=snapshot.symbol, price=snapshot.current_price, asof=snapshot.asof, provider=snapshot.provider)
 
 
 class ErrorMarketDataProvider:
     def __init__(self, message: str, *, provider_key: str = "market_data_provider") -> None:
         self._message = message
         self.provider_key = provider_key
+
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot:
+        raise MarketDataProviderError(self._message, provider_key=self.provider_key)
+
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None:
+        return None
+
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        await self.warm_watch_snapshots(symbols, now)
 
     async def get_quote(self, symbol: str, now: datetime) -> Quote:
         raise MarketDataProviderError(self._message, provider_key=self.provider_key)
@@ -125,22 +172,27 @@ class KisMarketDataProvider:
         self._token_expires_at: datetime | None = None
         self._token_lock = asyncio.Lock()
         self._poll_cache_key = ""
-        self._quote_cache: dict[str, Quote] = {}
-        self._quote_errors: dict[str, str] = {}
+        self._snapshot_cache: dict[str, WatchSnapshot] = {}
+        self._snapshot_errors: dict[str, str] = {}
 
-    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None:
         self._reset_poll_cache(now)
         pending: dict[str, _ResolvedSymbol] = {}
 
         for symbol in symbols:
             normalized, _warning = normalize_stored_watch_symbol(symbol, registry=load_registry())
             cache_key = normalized or symbol.strip().upper()
-            if not cache_key or cache_key in self._quote_cache or cache_key in self._quote_errors or cache_key in pending:
+            if (
+                not cache_key
+                or cache_key in self._snapshot_cache
+                or cache_key in self._snapshot_errors
+                or cache_key in pending
+            ):
                 continue
             try:
                 resolved = self._resolve_symbol(symbol)
             except RuntimeError as exc:
-                self._quote_errors[cache_key] = str(exc)
+                self._snapshot_errors[cache_key] = str(exc)
                 continue
             pending[resolved.canonical_symbol] = resolved
 
@@ -158,45 +210,52 @@ class KisMarketDataProvider:
             for chunk in _chunk(items, 10):
                 await self._warm_overseas_chunk(chunk, now)
 
-    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot:
         self._reset_poll_cache(now)
         resolved = self._resolve_symbol(symbol)
-        cached = self._quote_cache.get(resolved.canonical_symbol)
+        cached = self._snapshot_cache.get(resolved.canonical_symbol)
         if cached is not None:
             return cached
-        cached_error = self._quote_errors.get(resolved.canonical_symbol)
+        cached_error = self._snapshot_errors.get(resolved.canonical_symbol)
         if cached_error:
             raise MarketDataProviderError(cached_error, provider_key=self.provider_key)
         return await self._fetch_and_store(resolved, now)
 
-    async def _fetch_and_store(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        snapshot = await self.get_watch_snapshot(symbol, now)
+        return Quote(symbol=snapshot.symbol, price=snapshot.current_price, asof=snapshot.asof, provider=snapshot.provider)
+
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        await self.warm_watch_snapshots(symbols, now)
+
+    async def _fetch_and_store(self, resolved: _ResolvedSymbol, now: datetime) -> WatchSnapshot:
         try:
-            quote = await self._fetch_quote(resolved, now)
+            snapshot = await self._fetch_snapshot(resolved, now)
         except RuntimeError as exc:
-            self._quote_errors[resolved.canonical_symbol] = str(exc)
+            self._snapshot_errors[resolved.canonical_symbol] = str(exc)
             raise MarketDataProviderError(str(exc), provider_key=self.provider_key) from exc
-        self._quote_cache[resolved.canonical_symbol] = quote
-        self._quote_errors.pop(resolved.canonical_symbol, None)
-        return quote
+        self._snapshot_cache[resolved.canonical_symbol] = snapshot
+        self._snapshot_errors.pop(resolved.canonical_symbol, None)
+        return snapshot
 
     async def _warm_fetch_and_store(self, resolved: _ResolvedSymbol, now: datetime) -> None:
         try:
-            quote = await self._fetch_quote(resolved, now)
+            snapshot = await self._fetch_snapshot(resolved, now)
         except RuntimeError:
-            # Warm-up is best-effort. Leave the symbol uncached so get_quote()
+            # Warm-up is best-effort. Leave the symbol uncached so get_watch_snapshot()
             # can still retry the single-symbol path in the same poll cycle.
             return
-        self._quote_cache[resolved.canonical_symbol] = quote
-        self._quote_errors.pop(resolved.canonical_symbol, None)
+        self._snapshot_cache[resolved.canonical_symbol] = snapshot
+        self._snapshot_errors.pop(resolved.canonical_symbol, None)
 
-    async def _fetch_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
+    async def _fetch_snapshot(self, resolved: _ResolvedSymbol, now: datetime) -> WatchSnapshot:
         if resolved.market_code == "KRX":
-            return await self._fetch_domestic_quote(resolved, now)
+            return await self._fetch_domestic_snapshot(resolved, now)
         if resolved.market_code in {"NAS", "NYS", "AMS"}:
-            return await self._fetch_overseas_quote(resolved, now)
+            return await self._fetch_overseas_snapshot(resolved, now)
         raise RuntimeError(f"unsupported-market:{resolved.canonical_symbol}")
 
-    async def _fetch_domestic_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
+    async def _fetch_domestic_snapshot(self, resolved: _ResolvedSymbol, now: datetime) -> WatchSnapshot:
         market_div = _DOMESTIC_MARKET_DIV_CODES.get(resolved.kis_exchange_code)
         if market_div is None:
             raise RuntimeError(f"unsupported-market:{resolved.canonical_symbol}")
@@ -216,9 +275,27 @@ class KisMarketDataProvider:
         price = _parse_positive_float(output.get("stck_prpr"))
         if price is None:
             raise RuntimeError(f"not-found:{resolved.canonical_symbol}")
-        return Quote(symbol=resolved.canonical_symbol, price=price, asof=now, provider=self.provider_key)
+        previous_close = _parse_domestic_previous_close(output, current_price=price)
+        if previous_close is None:
+            raise RuntimeError(f"missing-previous-close:{resolved.canonical_symbol}")
+        session = get_watch_market_session(resolved.canonical_symbol, now)
+        session_close_price = _parse_domestic_session_close(output)
+        if session.is_regular_session_open:
+            session_close_price = None
+        asof = _parse_domestic_asof(now, output)
+        snapshot = WatchSnapshot(
+            symbol=resolved.canonical_symbol,
+            current_price=price,
+            previous_close=previous_close,
+            session_close_price=session_close_price,
+            asof=asof,
+            session_date=session.session_date,
+            provider=self.provider_key,
+        )
+        self._ensure_fresh_snapshot(snapshot, now)
+        return snapshot
 
-    async def _fetch_overseas_quote(self, resolved: _ResolvedSymbol, now: datetime) -> Quote:
+    async def _fetch_overseas_snapshot(self, resolved: _ResolvedSymbol, now: datetime) -> WatchSnapshot:
         exchange_codes = (resolved.kis_exchange_code, *_OVERSEAS_EXCHANGE_ALIASES.get(resolved.kis_exchange_code, ()))
         last_error: RuntimeError | None = None
 
@@ -244,9 +321,9 @@ class KisMarketDataProvider:
                 last_error = RuntimeError(f"not-found:{resolved.canonical_symbol}")
                 continue
             try:
-                quote = self._normalize_overseas_quote(output, resolved, now)
-                self._ensure_fresh_quote(quote, now)
-                return quote
+                snapshot = self._normalize_overseas_snapshot(output, resolved, now)
+                self._ensure_fresh_snapshot(snapshot, now)
+                return snapshot
             except RuntimeError as exc:
                 last_error = exc
                 if not str(exc).startswith(f"not-found:{resolved.canonical_symbol}"):
@@ -270,7 +347,7 @@ class KisMarketDataProvider:
                 params=params,
             )
         except RuntimeError as exc:
-            # Batch warm-up is best-effort. Leave symbols uncached so get_quote()
+            # Batch warm-up is best-effort. Leave symbols uncached so get_watch_snapshot()
             # can still fall back to the single-symbol endpoint in the same poll.
             return
 
@@ -294,12 +371,12 @@ class KisMarketDataProvider:
             if row is None:
                 continue
             try:
-                quote = self._normalize_overseas_quote(row, item, now)
-                self._ensure_fresh_quote(quote, now)
+                snapshot = self._normalize_overseas_snapshot(row, item, now)
+                self._ensure_fresh_snapshot(snapshot, now)
             except RuntimeError:
                 continue
-            self._quote_cache[item.canonical_symbol] = quote
-            self._quote_errors.pop(item.canonical_symbol, None)
+            self._snapshot_cache[item.canonical_symbol] = snapshot
+            self._snapshot_errors.pop(item.canonical_symbol, None)
 
     async def _request_kis_json(
         self,
@@ -435,12 +512,32 @@ class KisMarketDataProvider:
             raise RuntimeError(f"not-found:{canonical_symbol}")
         return _resolve_registry_record(record)
 
-    def _normalize_overseas_quote(self, output: dict[str, Any], resolved: _ResolvedSymbol, now: datetime) -> Quote:
+    def _normalize_overseas_snapshot(
+        self,
+        output: dict[str, Any],
+        resolved: _ResolvedSymbol,
+        now: datetime,
+    ) -> WatchSnapshot:
         price = _parse_positive_float(output.get("last"))
         if price is None:
             raise RuntimeError(f"not-found:{resolved.canonical_symbol}")
         asof = _parse_intraday_time(now, output.get("khms"))
-        return Quote(symbol=resolved.canonical_symbol, price=price, asof=asof, provider=self.provider_key)
+        previous_close = _parse_overseas_previous_close(output)
+        if previous_close is None:
+            raise RuntimeError(f"missing-previous-close:{resolved.canonical_symbol}")
+        session = get_watch_market_session(resolved.canonical_symbol, asof)
+        session_close_price = _parse_overseas_session_close(output)
+        if session.is_regular_session_open:
+            session_close_price = None
+        return WatchSnapshot(
+            symbol=resolved.canonical_symbol,
+            current_price=price,
+            previous_close=previous_close,
+            session_close_price=session_close_price,
+            asof=asof,
+            session_date=session.session_date,
+            provider=self.provider_key,
+        )
 
     def _raise_for_payload_error(self, payload: dict[str, Any], *, fallback_symbol: str | None = None) -> None:
         rt_cd = str(payload.get("rt_cd") or "").strip()
@@ -457,20 +554,24 @@ class KisMarketDataProvider:
             raise RuntimeError(f"not-found:{fallback_symbol}")
         raise RuntimeError("kis-unreachable")
 
-    def _ensure_fresh_quote(self, quote: Quote, now: datetime) -> None:
-        asof = quote.asof
+    def _ensure_fresh_snapshot(self, snapshot: WatchSnapshot, now: datetime) -> None:
+        asof = snapshot.asof
         if asof.tzinfo is None:
             asof = asof.replace(tzinfo=now.tzinfo)
-        if now - asof > _QUOTE_STALE_AFTER:
-            raise RuntimeError(f"stale-quote:{quote.symbol}")
+        if now - asof > _QUOTE_STALE_AFTER and not _allows_post_close_stale_snapshot(snapshot, now):
+            raise RuntimeError(f"stale-quote:{snapshot.symbol}")
+        if snapshot.previous_close <= 0:
+            raise RuntimeError(f"missing-previous-close:{snapshot.symbol}")
+        if not snapshot.session_date:
+            raise RuntimeError(f"missing-session-date:{snapshot.symbol}")
 
     def _reset_poll_cache(self, now: datetime) -> None:
         poll_key = now.isoformat()
         if poll_key == self._poll_cache_key:
             return
         self._poll_cache_key = poll_key
-        self._quote_cache = {}
-        self._quote_errors = {}
+        self._snapshot_cache = {}
+        self._snapshot_errors = {}
 
 
 class MassiveSnapshotMarketDataProvider:
@@ -488,10 +589,20 @@ class MassiveSnapshotMarketDataProvider:
         self.base_url = base_url.rstrip("/")
         self.provider_key = "massive_reference"
 
-    async def get_quote(self, symbol: str, now: datetime) -> Quote:
-        return await asyncio.to_thread(self._get_quote_sync, symbol, now)
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None:
+        return None
 
-    def _get_quote_sync(self, symbol: str, now: datetime) -> Quote:
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        await self.warm_watch_snapshots(symbols, now)
+
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot:
+        return await asyncio.to_thread(self._get_watch_snapshot_sync, symbol, now)
+
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        snapshot = await self.get_watch_snapshot(symbol, now)
+        return Quote(symbol=snapshot.symbol, price=snapshot.current_price, asof=snapshot.asof, provider=snapshot.provider)
+
+    def _get_watch_snapshot_sync(self, symbol: str, now: datetime) -> WatchSnapshot:
         registry = load_registry()
         normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
         canonical_symbol = normalized or symbol.strip().upper()
@@ -509,11 +620,26 @@ class MassiveSnapshotMarketDataProvider:
         price = _parse_positive_float(_nested_get(snapshot, "lastTrade", "p"))
         if price is None:
             raise MarketDataProviderError(f"not-found:{canonical_symbol}", provider_key=self.provider_key)
+        previous_close = _parse_positive_float(_nested_get(snapshot, "prevDay", "c"))
+        if previous_close is None:
+            raise MarketDataProviderError(f"missing-previous-close:{canonical_symbol}", provider_key=self.provider_key)
 
         asof = _parse_epoch_datetime(_nested_get(snapshot, "lastTrade", "t")) or now
-        quote = Quote(symbol=canonical_symbol, price=price, asof=asof, provider=self.provider_key)
-        _ensure_quote_fresh(quote, now)
-        return quote
+        session = get_watch_market_session(canonical_symbol, asof)
+        session_close_price = _parse_positive_float(_nested_get(snapshot, "day", "c"))
+        if session.is_regular_session_open:
+            session_close_price = None
+        watch_snapshot = WatchSnapshot(
+            symbol=canonical_symbol,
+            current_price=price,
+            previous_close=previous_close,
+            session_close_price=session_close_price,
+            asof=asof,
+            session_date=session.session_date,
+            provider=self.provider_key,
+        )
+        _ensure_watch_snapshot_fresh(watch_snapshot, now)
+        return watch_snapshot
 
     def _request_json(self, ticker: str, *, fallback_symbol: str) -> dict[str, Any]:
         request = Request(
@@ -570,12 +696,16 @@ class RoutedMarketDataProvider:
         self.primary_provider = primary_provider
         self.us_fallback_provider = us_fallback_provider
 
-    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+    async def warm_watch_snapshots(self, symbols: list[str], now: datetime) -> None:
+        warm_watch_snapshots = getattr(self.primary_provider, "warm_watch_snapshots", None)
+        if callable(warm_watch_snapshots):
+            await warm_watch_snapshots(symbols, now)
+            return
         warm_quotes = getattr(self.primary_provider, "warm_quotes", None)
         if callable(warm_quotes):
             await warm_quotes(symbols, now)
 
-    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+    async def get_watch_snapshot(self, symbol: str, now: datetime) -> WatchSnapshot:
         registry = load_registry()
         normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
         canonical_symbol = normalized or symbol.strip().upper()
@@ -584,13 +714,13 @@ class RoutedMarketDataProvider:
             raise MarketDataProviderError(f"not-found:{canonical_symbol}")
 
         if record.market_code not in {"NAS", "NYS", "AMS"} or self.us_fallback_provider is None:
-            return await self.primary_provider.get_quote(canonical_symbol, now)
+            return await _provider_get_watch_snapshot(self.primary_provider, canonical_symbol, now)
 
         try:
-            return await self.primary_provider.get_quote(canonical_symbol, now)
+            return await _provider_get_watch_snapshot(self.primary_provider, canonical_symbol, now)
         except MarketDataProviderError as primary_exc:
             try:
-                return await self.us_fallback_provider.get_quote(canonical_symbol, now)
+                return await _provider_get_watch_snapshot(self.us_fallback_provider, canonical_symbol, now)
             except MarketDataProviderError as fallback_exc:
                 raise MarketDataProviderError(
                     f"{primary_exc.provider_key}:{primary_exc} | {fallback_exc.provider_key}:{fallback_exc}",
@@ -598,12 +728,38 @@ class RoutedMarketDataProvider:
                 ) from fallback_exc
         except RuntimeError as primary_exc:
             try:
-                return await self.us_fallback_provider.get_quote(canonical_symbol, now)
+                return await _provider_get_watch_snapshot(self.us_fallback_provider, canonical_symbol, now)
             except MarketDataProviderError as fallback_exc:
                 raise MarketDataProviderError(
                     f"kis_quote:{primary_exc} | {fallback_exc.provider_key}:{fallback_exc}",
                     provider_key=fallback_exc.provider_key,
                 ) from fallback_exc
+
+    async def get_quote(self, symbol: str, now: datetime) -> Quote:
+        get_quote = getattr(self.primary_provider, "get_quote", None)
+        registry = load_registry()
+        normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
+        canonical_symbol = normalized or symbol.strip().upper()
+        record = registry.get(canonical_symbol)
+        if callable(get_quote) and (record is None or record.market_code not in {"NAS", "NYS", "AMS"} or self.us_fallback_provider is None):
+            return await get_quote(canonical_symbol, now)
+
+        if record is not None and record.market_code in {"NAS", "NYS", "AMS"} and self.us_fallback_provider is not None:
+            try:
+                if callable(get_quote):
+                    return await get_quote(canonical_symbol, now)
+                snapshot = await _provider_get_watch_snapshot(self.primary_provider, canonical_symbol, now)
+                return Quote(symbol=snapshot.symbol, price=snapshot.current_price, asof=snapshot.asof, provider=snapshot.provider)
+            except Exception:
+                fallback_get_quote = getattr(self.us_fallback_provider, "get_quote", None)
+                if callable(fallback_get_quote):
+                    return await fallback_get_quote(canonical_symbol, now)
+
+        snapshot = await self.get_watch_snapshot(symbol, now)
+        return Quote(symbol=snapshot.symbol, price=snapshot.current_price, asof=snapshot.asof, provider=snapshot.provider)
+
+    async def warm_quotes(self, symbols: list[str], now: datetime) -> None:
+        await self.warm_watch_snapshots(symbols, now)
 
 
 class MockEodSummaryProvider:
@@ -671,6 +827,66 @@ def _parse_positive_float(value: Any) -> float | None:
     return parsed if parsed > 0 else None
 
 
+def _parse_first_positive_float(payload: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        value = _parse_positive_float(payload.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _parse_signed_difference(output: dict[str, Any]) -> float | None:
+    difference = _parse_positive_float(output.get("prdy_vrss"))
+    if difference is None:
+        return None
+    sign = str(output.get("prdy_vrss_sign") or "").strip()
+    if sign in {"4", "5"}:
+        return -difference
+    return difference
+
+
+def _parse_domestic_previous_close(output: dict[str, Any], *, current_price: float) -> float | None:
+    previous_close = _parse_first_positive_float(output, ("stck_sdpr", "stck_prdy_clpr", "bfdy_clpr"))
+    if previous_close is not None:
+        return previous_close
+    signed_difference = _parse_signed_difference(output)
+    if signed_difference is None:
+        return None
+    candidate = current_price - signed_difference
+    return candidate if candidate > 0 else None
+
+
+def _parse_domestic_session_close(output: dict[str, Any]) -> float | None:
+    return _parse_first_positive_float(output, ("stck_clpr", "clpr"))
+
+
+def _parse_domestic_asof(now: datetime, output: dict[str, Any]) -> datetime:
+    date_text = str(output.get("stck_bsop_date") or output.get("bsop_date") or "").strip()
+    time_text = str(output.get("stck_cntg_hour") or output.get("cntg_hour") or "").strip()
+    if len(date_text) == 8 and date_text.isdigit() and len(time_text) == 6 and time_text.isdigit():
+        return datetime(
+            year=int(date_text[0:4]),
+            month=int(date_text[4:6]),
+            day=int(date_text[6:8]),
+            hour=int(time_text[0:2]),
+            minute=int(time_text[2:4]),
+            second=int(time_text[4:6]),
+            tzinfo=_KOREA_TZ,
+        )
+    if len(time_text) == 6 and time_text.isdigit():
+        base = now.astimezone(_KOREA_TZ)
+        return _parse_intraday_time(base, time_text)
+    return now
+
+
+def _parse_overseas_previous_close(output: dict[str, Any]) -> float | None:
+    return _parse_first_positive_float(output, ("base", "pbas", "prev", "pcls"))
+
+
+def _parse_overseas_session_close(output: dict[str, Any]) -> float | None:
+    return _parse_first_positive_float(output, ("clos", "clos1", "curr_day_clpr", "day_clpr"))
+
+
 def _nested_get(payload: dict[str, Any], *keys: str) -> Any:
     current: Any = payload
     for key in keys:
@@ -709,6 +925,57 @@ def _looks_like_rate_limit_error(message: str) -> bool:
 
 def _looks_like_entitlement_error(message: str) -> bool:
     return any(keyword in message for keyword in ("not entitled", "not_authorized", "not authorized", "upgrade your plan"))
+
+
+async def _provider_get_watch_snapshot(provider: Any, symbol: str, now: datetime) -> WatchSnapshot:
+    get_watch_snapshot = getattr(provider, "get_watch_snapshot", None)
+    if callable(get_watch_snapshot):
+        return await get_watch_snapshot(symbol, now)
+    get_quote = getattr(provider, "get_quote", None)
+    if not callable(get_quote):
+        raise MarketDataProviderError("watch-snapshot-unsupported")
+    quote = await get_quote(symbol, now)
+    session = get_watch_market_session(symbol, quote.asof)
+    return WatchSnapshot(
+        symbol=quote.symbol,
+        current_price=quote.price,
+        previous_close=quote.price,
+        session_close_price=None if session.is_regular_session_open else quote.price,
+        asof=quote.asof,
+        session_date=session.session_date,
+        provider=getattr(quote, "provider", "") or getattr(provider, "provider_key", ""),
+    )
+
+
+def _ensure_watch_snapshot_fresh(snapshot: WatchSnapshot, now: datetime) -> None:
+    asof = snapshot.asof
+    if asof.tzinfo is None:
+        asof = asof.replace(tzinfo=now.tzinfo)
+    if now - asof > _QUOTE_STALE_AFTER and not _allows_post_close_stale_snapshot(snapshot, now):
+        raise MarketDataProviderError(
+            f"stale-quote:{snapshot.symbol}",
+            provider_key=snapshot.provider or "market_data_provider",
+        )
+    if snapshot.previous_close <= 0:
+        raise MarketDataProviderError(
+            f"missing-previous-close:{snapshot.symbol}",
+            provider_key=snapshot.provider or "market_data_provider",
+        )
+    if not snapshot.session_date:
+        raise MarketDataProviderError(
+            f"missing-session-date:{snapshot.symbol}",
+            provider_key=snapshot.provider or "market_data_provider",
+        )
+
+
+def _allows_post_close_stale_snapshot(snapshot: WatchSnapshot, now: datetime) -> bool:
+    if snapshot.session_close_price is None:
+        return False
+    try:
+        session = get_watch_market_session(snapshot.symbol, now)
+    except Exception:
+        return False
+    return not session.is_regular_session_open and snapshot.session_date == session.session_date
 
 
 def _ensure_quote_fresh(quote: Quote, now: datetime) -> None:

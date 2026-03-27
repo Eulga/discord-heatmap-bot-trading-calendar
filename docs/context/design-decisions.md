@@ -1,5 +1,35 @@
 # Design Decisions
 
+## 2026-03-27
+- Context: watch poll band label의 fractional threshold mismatch가 같은 PR에서 반복해서 리뷰 finding으로 올라왔고, `0.5%` 같은 설정이 `0%`처럼 보일 수 있는 user-facing 오해까지 확인됐다.
+- Decision: watch band comment label의 `%` 숫자는 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band`를 trailing zero 없이 그대로 표시한다. 즉 label도 trigger 판단과 같은 threshold step을 따라간다.
+- Why:
+1. operator가 보는 label과 실제 trigger 기준이 다르면 alert text 자체가 오해를 만든다.
+2. threshold가 `1.0` 미만일 때 `int(...)` 기반 label은 `0%`처럼 보일 수 있어 의미를 잃는다.
+3. label과 trigger를 같은 step으로 맞추면 반복 리뷰와 문서 drift를 줄일 수 있다.
+- Impact:
+1. `WATCH_ALERT_THRESHOLD_PCT=2.5`면 label은 `+2.5%`, `+5%`처럼 보인다.
+2. `WATCH_ALERT_THRESHOLD_PCT=0.5`면 label은 `+0.5%`, `+1%`처럼 보인다.
+3. trailing signed percent는 계속 실제 `change_pct`를 그대로 보여준다.
+- Status: accepted
+
+## 2026-03-26
+- Context: 사용자가 watch 기능의 목표 동작을 `text alert + first-seen baseline`에서 `forum thread + previous_close basis` 모델로 고정한 뒤, intraday notification을 더 적극적으로 남기되 thread 오염은 장마감 정리로 제어하자고 요청했다.
+- Decision: watch rollout의 목표 모델은 `길드 공유 watchlist + guild-symbol persistent forum thread + Discord thread follow 기반 개인 notification`으로 둔다. 기준가는 `전일 종가(previous_close)`로 고정하고, starter message는 regular session open 중 poll마다 현재 상태를 갱신한다. intraday comment는 전일 종가 대비 `3% band ladder`(`+3,+6,+9...`, `-3,-6,-9...`) 기준으로 생성하되, 한 poll에서 여러 단계를 건너뛰면 최고 신규 band 1건만 남긴다. `세션`은 symbol market의 regular-session trading date, 즉 market-local `당일`을 뜻한다. intraday starter edit와 band detection은 regular session open 동안만 허용한다. regular session close 후 off-hours poll은 마지막 unfinalized session에 대한 close finalization만 시도하고, first eligible poll after close 기준으로 정확히 1회만 완료돼야 한다. intraday comment는 close finalization 시 모두 삭제하고, 대신 `날짜/전일 종가/official regular close price/최종 변동률`을 담은 `마감가 알림` comment 1건을 영구 보존한다. `마감가`는 after-hours current price가 아니라 same-session official regular close price를 사용한다. close finalization은 same-session close comment를 재사용할 수 있어야 하며, `close_comment_ids_by_session` checkpoint와 finalization 완료 마킹을 분리해 partial failure retry 뒤에도 duplicate close summary를 만들지 않아야 한다. 또한 `watch_forum_channel_id`가 없으면 `/watch add`를 명시적으로 거절한다. symbol이 mid-session remove되더라도 해당 session이 unfinalized라면 close finalization은 1회 수행한다.
+- Why:
+1. 종목별 persistent thread는 길드 공유 surface와 개인별 follow UX를 동시에 만족시킨다.
+2. 전일 종가 기준은 기존 first-seen baseline보다 intraday 해석이 더 일관되고, 재시작 시점에 따라 기준가가 흔들리는 문제를 줄인다.
+3. 3% band ladder는 watch 기능의 본래 목적에 맞게 의미 있는 변동을 더 적극적으로 포착한다.
+4. intraday comment를 장마감에 정리하고 close summary만 남기면 notification 빈도와 thread 장기 가독성을 함께 관리할 수 있다.
+5. regular-session gate와 close catch-up contract를 명시하면 pre/post-market drift와 restart ambiguity를 줄일 수 있다.
+6. add 시점 route gating은 thread 없는 orphan watch state를 막는다.
+- Impact:
+1. target model의 authoritative watch route는 `watch_forum_channel_id`다.
+2. 기존 `watch_alert_channel_id`, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 target model의 최종 authoritative state가 아니다.
+3. watch quote adapter는 external `price`를 internal `WatchSnapshot.current_price`로, external `session_close_price`를 internal `WatchSnapshot.session_close_price`로 정규화하고, `previous_close`와 `session_date`를 함께 scheduler에 제공해야 한다.
+4. scheduler는 intraday band history, close finalization, close summary persistence, first-eligible-poll catch-up, partial failure retry reconciliation을 관리해야 한다.
+- Status: accepted
+
 ## 2026-03-24
 - Context: 뉴스 포스트가 explicit news forum 설정 없이도 기본 guild forum으로 생성되어, operator 입장에서 hidden fallback처럼 보이는 문제가 확인됐다.
 - Decision: 뉴스/트렌드 게시 경로는 explicit `news_forum_channel_id`가 있는 길드만 대상으로 본다. `forum_channel_id`는 뉴스 runtime fallback으로 사용하지 않는다. `NEWS_TARGET_FORUM_ID`는 startup에서 `news_forum_channel_id`를 채우는 bootstrap initializer로만 유지한다.

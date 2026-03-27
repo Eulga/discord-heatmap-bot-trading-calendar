@@ -5,13 +5,14 @@ from discord import app_commands
 
 from bot.app.settings import DISCORD_GLOBAL_ADMIN_USER_IDS
 from bot.forum.repository import (
+    get_guild_watch_forum_channel_id,
     load_state,
     save_state,
     set_guild_auto_screenshot_enabled,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
     set_guild_news_forum_channel_id,
-    set_guild_watch_alert_channel_id,
+    set_guild_watch_forum_channel_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,31 +120,35 @@ def register(tree: app_commands.CommandTree, client) -> None:
         logger.info("[command] seteodforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"장마감 요약 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
-    @tree.command(name="setwatchchannel", description="Set watch alert text channel for this server.")
-    async def set_watch_channel_command(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+    @tree.command(name="setwatchforum", description="Set watch forum channel for this server.")
+    async def set_watch_forum_command(interaction: discord.Interaction, forum_channel: discord.ForumChannel) -> None:
         guild = interaction.guild
         if guild is None:
-            logger.warning("[command] setwatchchannel rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            logger.warning("[command] setwatchforum rejected reason=no-guild user=%s", _interaction_user_id(interaction))
             await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
             return
         if not _is_authorized_admin(interaction):
-            logger.warning("[command] setwatchchannel rejected reason=unauthorized guild=%s user=%s", guild.id, _interaction_user_id(interaction))
+            logger.warning("[command] setwatchforum rejected reason=unauthorized guild=%s user=%s", guild.id, _interaction_user_id(interaction))
             await interaction.response.send_message("권한이 없습니다.", ephemeral=True)
             return
-        if channel.guild.id != guild.id:
+        if forum_channel.guild.id != guild.id:
             logger.warning(
-                "[command] setwatchchannel rejected reason=foreign-channel guild=%s user=%s channel=%s",
+                "[command] setwatchforum rejected reason=foreign-channel guild=%s user=%s channel=%s",
                 guild.id,
                 _interaction_user_id(interaction),
-                channel.id,
+                forum_channel.id,
             )
-            await interaction.response.send_message("같은 서버의 텍스트 채널만 설정할 수 있습니다.", ephemeral=True)
+            await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
             return
         state = load_state()
-        set_guild_watch_alert_channel_id(state, guild.id, channel.id)
+        existing = get_guild_watch_forum_channel_id(state, guild.id)
+        if existing == forum_channel.id:
+            await interaction.response.send_message(f"watch 포럼은 이미 <#{forum_channel.id}> 로 설정되어 있습니다.", ephemeral=True)
+            return
+        set_guild_watch_forum_channel_id(state, guild.id, forum_channel.id)
         save_state(state)
-        logger.info("[command] setwatchchannel result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), channel.id)
-        await interaction.response.send_message(f"watch 알림 채널을 <#{channel.id}> 로 설정했습니다.", ephemeral=True)
+        logger.info("[command] setwatchforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
+        await interaction.response.send_message(f"watch 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
     @tree.command(name="autoscreenshot", description="Toggle auto screenshot scheduler for this server.")
     @app_commands.describe(mode="on 또는 off")
