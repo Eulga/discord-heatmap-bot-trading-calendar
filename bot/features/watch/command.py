@@ -3,18 +3,21 @@ import logging
 import discord
 from discord import app_commands
 
+from bot.app.settings import DISCORD_GLOBAL_ADMIN_USER_IDS
 from bot.common.clock import now_kst
 from bot.features.watch.service import render_watch_placeholder
 from bot.features.watch.session import get_watch_market_session
-from bot.features.watch.thread_service import upsert_watch_thread
+from bot.features.watch.thread_service import delete_watch_thread, upsert_watch_thread
 from bot.forum.repository import (
     add_watch_symbol,
+    clear_watch_symbol_runtime_state,
+    delete_watch_symbol,
     get_guild_watch_forum_channel_id,
     get_watch_session_alert,
     get_watch_symbol_thread,
+    get_watch_symbol_status,
     list_watch_symbols,
     load_state,
-    remove_watch_symbol,
     save_state,
     set_watch_symbol_thread_status,
     update_watch_session_alert,
@@ -64,6 +67,23 @@ def _interaction_user_id(interaction: discord.Interaction) -> int | None:
     return getattr(getattr(interaction, "user", None), "id", None)
 
 
+def _is_authorized_admin(interaction: discord.Interaction) -> bool:
+    guild = interaction.guild
+    if guild is None:
+        return False
+    user = getattr(interaction, "user", None)
+    user_id = getattr(user, "id", None)
+    member = user if isinstance(user, discord.Member) else None
+    is_global_admin = isinstance(user_id, int) and user_id in DISCORD_GLOBAL_ADMIN_USER_IDS
+    is_owner = isinstance(user_id, int) and guild.owner_id == user_id
+    is_admin = bool(member and member.guild_permissions.administrator)
+    return is_global_admin or is_owner or is_admin
+
+
+def _watch_status_label(status: str) -> str:
+    return "실시간 감시중" if status == "active" else "감시 중단됨"
+
+
 def _dedupe_results(results: list[RegistrySearchResult]) -> list[RegistrySearchResult]:
     deduped: list[RegistrySearchResult] = []
     seen: set[str] = set()
@@ -110,10 +130,10 @@ def resolve_watch_add_symbol(symbol: str) -> tuple[str | None, str | None]:
     return None, "일치하는 종목을 찾지 못했습니다."
 
 
-def resolve_watch_remove_symbol(symbol: str, *, guild_symbols: list[str]) -> tuple[str | None, str | None]:
+def resolve_tracked_watch_symbol(symbol: str, *, guild_symbols: list[str]) -> tuple[str | None, str | None]:
     raw = symbol.strip().upper()
     if not raw:
-        return None, "제거할 종목을 입력해주세요."
+        return None, "종목을 입력해주세요."
     if raw in guild_symbols:
         return raw, None
 
@@ -162,14 +182,22 @@ async def autocomplete_watch_add_symbol(
     return choices[:25]
 
 
-async def autocomplete_watch_remove_symbol(
+async def autocomplete_tracked_watch_symbol(
     interaction: discord.Interaction,
     current: str,
+    *,
+    active_only: bool | None = None,
 ) -> list[app_commands.Choice[str]]:
     if interaction.guild_id is None:
         return []
     state = load_state()
     guild_symbols = list_watch_symbols(state, interaction.guild_id)
+    if active_only is not None:
+        guild_symbols = [
+            symbol
+            for symbol in guild_symbols
+            if (get_watch_symbol_status(state, interaction.guild_id, symbol) == "active") is active_only
+        ]
     current = current.strip()
     choices: list[app_commands.Choice[str]] = []
 
@@ -195,6 +223,27 @@ async def autocomplete_watch_remove_symbol(
         if len(choices) >= 25:
             break
     return choices[:25]
+
+
+async def autocomplete_active_watch_symbol(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    return await autocomplete_tracked_watch_symbol(interaction, current, active_only=True)
+
+
+async def autocomplete_inactive_watch_symbol(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    return await autocomplete_tracked_watch_symbol(interaction, current, active_only=False)
+
+
+async def autocomplete_any_watch_symbol(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    return await autocomplete_tracked_watch_symbol(interaction, current, active_only=None)
 
 
 def register(tree: app_commands.CommandTree, client) -> None:
@@ -238,15 +287,22 @@ def register(tree: app_commands.CommandTree, client) -> None:
         existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
         added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
         if not added:
+            status = get_watch_symbol_status(state, interaction.guild_id, resolved_symbol)
             logger.warning(
-                "[command] watch.add result=ignored guild=%s user=%s symbol=%s resolved=%s",
+                "[command] watch.add result=ignored guild=%s user=%s symbol=%s resolved=%s detail=already-tracked",
                 interaction.guild_id,
                 _interaction_user_id(interaction),
                 symbol,
                 resolved_symbol,
             )
-            await interaction.response.send_message("이미 등록되었거나 잘못된 종목 코드입니다.", ephemeral=True)
+            message = (
+                "이미 감시 중단된 관심종목입니다. `/watch start`를 사용해주세요."
+                if status == "inactive"
+                else "이미 등록되었거나 잘못된 종목 코드입니다."
+            )
+            await interaction.response.send_message(message, ephemeral=True)
             return
+
         _reset_reactivated_same_session_band_state(state, interaction.guild_id, resolved_symbol, existing_thread)
 
         try:
@@ -286,19 +342,20 @@ def register(tree: app_commands.CommandTree, client) -> None:
 
     watch_add.autocomplete("symbol")(autocomplete_watch_add_symbol)
 
-    @watch.command(name="remove", description="관심 종목 제거")
+    @watch.command(name="start", description="실시간 감시 시작")
     @app_commands.describe(symbol="종목명, 종목 코드, 또는 티커")
-    async def watch_remove(interaction: discord.Interaction, symbol: str) -> None:
+    async def watch_start(interaction: discord.Interaction, symbol: str) -> None:
         if interaction.guild_id is None:
-            logger.warning("[command] watch.remove rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            logger.warning("[command] watch.start rejected reason=no-guild user=%s", _interaction_user_id(interaction))
             await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
+
         state = load_state()
         guild_symbols = list_watch_symbols(state, interaction.guild_id)
-        resolved_symbol, error = resolve_watch_remove_symbol(symbol, guild_symbols=guild_symbols)
+        resolved_symbol, error = resolve_tracked_watch_symbol(symbol, guild_symbols=guild_symbols)
         if resolved_symbol is None:
             logger.warning(
-                "[command] watch.remove result=failed guild=%s user=%s symbol=%s detail=%s",
+                "[command] watch.start result=failed guild=%s user=%s symbol=%s detail=%s",
                 interaction.guild_id,
                 _interaction_user_id(interaction),
                 symbol,
@@ -307,63 +364,258 @@ def register(tree: app_commands.CommandTree, client) -> None:
             await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
             return
 
-        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
-        removed = remove_watch_symbol(state, interaction.guild_id, resolved_symbol)
-        if removed:
-            set_watch_symbol_thread_status(state, interaction.guild_id, resolved_symbol, "inactive")
-            watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
-            if existing_thread is not None and watch_forum_channel_id is not None:
-                try:
-                    handle = await upsert_watch_thread(
-                        client=client,
-                        state=state,
-                        guild_id=interaction.guild_id,
-                        forum_channel_id=watch_forum_channel_id,
-                        symbol=resolved_symbol,
-                        active=False,
-                        starter_text=render_watch_placeholder(resolved_symbol, active=False),
-                        allow_create=False,
-                    )
-                    if handle is None:
-                        logger.info(
-                            "[command] watch.remove starter-update-skipped guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
-                            interaction.guild_id,
-                            _interaction_user_id(interaction),
-                            symbol,
-                            resolved_symbol,
-                        )
-                except Exception as exc:
-                    logger.exception(
-                        "[command] watch.remove starter-update-failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
-                        interaction.guild_id,
-                        _interaction_user_id(interaction),
-                        symbol,
-                        resolved_symbol,
-                        exc,
-                    )
-            save_state(state)
-            logger.info(
-                "[command] watch.remove result=ok guild=%s user=%s symbol=%s resolved=%s",
+        if get_watch_symbol_status(state, interaction.guild_id, resolved_symbol) == "active":
+            logger.warning(
+                "[command] watch.start result=ignored guild=%s user=%s symbol=%s resolved=%s detail=already-active",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
+            await interaction.response.send_message("이미 실시간 감시중인 종목입니다.", ephemeral=True)
+            return
+
+        watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
+        if watch_forum_channel_id is None:
+            logger.warning(
+                "[command] watch.start result=failed guild=%s user=%s symbol=%s resolved=%s detail=watch-forum-missing",
                 interaction.guild_id,
                 _interaction_user_id(interaction),
                 symbol,
                 resolved_symbol,
             )
             await interaction.response.send_message(
-                f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 제거했습니다.",
+                "watch 포럼이 설정되지 않았습니다. 운영자에게 `/setwatchforum` 설정을 요청해주세요.",
                 ephemeral=True,
             )
-        else:
+            return
+
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
+        _reset_reactivated_same_session_band_state(state, interaction.guild_id, resolved_symbol, existing_thread)
+
+        try:
+            await upsert_watch_thread(
+                client=client,
+                state=state,
+                guild_id=interaction.guild_id,
+                forum_channel_id=watch_forum_channel_id,
+                symbol=resolved_symbol,
+                active=True,
+                starter_text=render_watch_placeholder(resolved_symbol, active=True),
+            )
+        except Exception as exc:
+            logger.exception(
+                "[command] watch.start result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+                exc,
+            )
+            await interaction.response.send_message("thread 생성 또는 starter 복구에 실패했습니다.", ephemeral=True)
+            return
+
+        save_state(state)
+        logger.info(
+            "[command] watch.start result=ok guild=%s user=%s symbol=%s resolved=%s",
+            interaction.guild_id,
+            _interaction_user_id(interaction),
+            symbol,
+            resolved_symbol,
+        )
+        await interaction.response.send_message(
+            f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시를 시작했습니다.",
+            ephemeral=True,
+        )
+
+    watch_start.autocomplete("symbol")(autocomplete_inactive_watch_symbol)
+
+    @watch.command(name="stop", description="실시간 감시 중단")
+    @app_commands.describe(symbol="종목명, 종목 코드, 또는 티커")
+    async def watch_stop(interaction: discord.Interaction, symbol: str) -> None:
+        if interaction.guild_id is None:
+            logger.warning("[command] watch.stop rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        state = load_state()
+        guild_symbols = list_watch_symbols(state, interaction.guild_id)
+        resolved_symbol, error = resolve_tracked_watch_symbol(symbol, guild_symbols=guild_symbols)
+        if resolved_symbol is None:
             logger.warning(
-                "[command] watch.remove result=ignored guild=%s user=%s symbol=%s resolved=%s",
+                "[command] watch.stop result=failed guild=%s user=%s symbol=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                error,
+            )
+            await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
+            return
+
+        if get_watch_symbol_status(state, interaction.guild_id, resolved_symbol) == "inactive":
+            logger.warning(
+                "[command] watch.stop result=ignored guild=%s user=%s symbol=%s resolved=%s detail=already-inactive",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+            )
+            await interaction.response.send_message("이미 감시가 중단된 종목입니다.", ephemeral=True)
+            return
+
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
+        has_tracked_thread_handle = isinstance(existing_thread, dict) and isinstance(existing_thread.get("thread_id"), int)
+        has_tracked_thread_handle = has_tracked_thread_handle and isinstance(existing_thread.get("starter_message_id"), int)
+        watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
+        if has_tracked_thread_handle:
+            if watch_forum_channel_id is None:
+                logger.warning(
+                    "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=watch-forum-missing",
+                    interaction.guild_id,
+                    _interaction_user_id(interaction),
+                    symbol,
+                    resolved_symbol,
+                )
+                await interaction.response.send_message(
+                    f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시 중단에 실패했습니다. "
+                    "기존 스레드 상태를 갱신할 수 없습니다. `/setwatchforum` 설정을 확인한 뒤 다시 시도해주세요.",
+                    ephemeral=True,
+                )
+                return
+            try:
+                handle = await upsert_watch_thread(
+                    client=client,
+                    state=state,
+                    guild_id=interaction.guild_id,
+                    forum_channel_id=watch_forum_channel_id,
+                    symbol=resolved_symbol,
+                    active=False,
+                    starter_text=render_watch_placeholder(resolved_symbol, active=False),
+                    allow_create=False,
+                )
+                if handle is None:
+                    logger.warning(
+                        "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
+                        interaction.guild_id,
+                        _interaction_user_id(interaction),
+                        symbol,
+                        resolved_symbol,
+                    )
+                    await interaction.response.send_message(
+                        f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시 중단에 실패했습니다. "
+                        "기존 스레드 상태를 갱신하지 못했습니다. 다시 시도해주세요.",
+                        ephemeral=True,
+                    )
+                    return
+            except Exception as exc:
+                logger.exception(
+                    "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
+                    interaction.guild_id,
+                    _interaction_user_id(interaction),
+                    symbol,
+                    resolved_symbol,
+                    exc,
+                )
+                await interaction.response.send_message(
+                    f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시 중단에 실패했습니다. "
+                    "기존 스레드 상태를 갱신하지 못했습니다. 다시 시도해주세요.",
+                    ephemeral=True,
+                )
+                return
+
+        set_watch_symbol_thread_status(state, interaction.guild_id, resolved_symbol, "inactive")
+        clear_watch_symbol_runtime_state(state, interaction.guild_id, resolved_symbol)
+        save_state(state)
+        logger.info(
+            "[command] watch.stop result=ok guild=%s user=%s symbol=%s resolved=%s",
+            interaction.guild_id,
+            _interaction_user_id(interaction),
+            symbol,
+            resolved_symbol,
+        )
+        await interaction.response.send_message(
+            f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시를 중단했습니다.",
+            ephemeral=True,
+        )
+
+    watch_stop.autocomplete("symbol")(autocomplete_active_watch_symbol)
+
+    @watch.command(name="delete", description="관심 종목 완전 삭제")
+    @app_commands.describe(symbol="종목명, 종목 코드, 또는 티커")
+    async def watch_delete(interaction: discord.Interaction, symbol: str) -> None:
+        if interaction.guild_id is None:
+            logger.warning("[command] watch.delete rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            await interaction.response.send_message("이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        if not _is_authorized_admin(interaction):
+            logger.warning(
+                "[command] watch.delete rejected reason=unauthorized guild=%s user=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+            )
+            await interaction.response.send_message("권한이 없습니다.", ephemeral=True)
+            return
+
+        state = load_state()
+        guild_symbols = sorted(set(list_watch_symbols(state, interaction.guild_id)))
+        resolved_symbol, error = resolve_tracked_watch_symbol(symbol, guild_symbols=guild_symbols)
+        if resolved_symbol is None:
+            logger.warning(
+                "[command] watch.delete result=failed guild=%s user=%s symbol=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                error,
+            )
+            await interaction.response.send_message(error or "등록된 관심종목을 찾지 못했습니다.", ephemeral=True)
+            return
+
+        try:
+            thread_delete_result = await delete_watch_thread(
+                client=client,
+                state=state,
+                guild_id=interaction.guild_id,
+                symbol=resolved_symbol,
+            )
+        except Exception as exc:
+            logger.exception(
+                "[command] watch.delete result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
+                interaction.guild_id,
+                _interaction_user_id(interaction),
+                symbol,
+                resolved_symbol,
+                exc,
+            )
+            await interaction.response.send_message("thread 삭제에 실패했습니다.", ephemeral=True)
+            return
+
+        deleted = delete_watch_symbol(state, interaction.guild_id, resolved_symbol)
+        if not deleted:
+            logger.warning(
+                "[command] watch.delete result=ignored guild=%s user=%s symbol=%s resolved=%s",
                 interaction.guild_id,
                 _interaction_user_id(interaction),
                 symbol,
                 resolved_symbol,
             )
             await interaction.response.send_message("등록되지 않은 종목입니다.", ephemeral=True)
+            return
 
-    watch_remove.autocomplete("symbol")(autocomplete_watch_remove_symbol)
+        save_state(state)
+        logger.info(
+            "[command] watch.delete result=ok guild=%s user=%s symbol=%s resolved=%s thread=%s",
+            interaction.guild_id,
+            _interaction_user_id(interaction),
+            symbol,
+            resolved_symbol,
+            thread_delete_result,
+        )
+        await interaction.response.send_message(
+            f"관심종목 `{format_watch_symbol(resolved_symbol)}` 를 완전히 삭제했습니다.",
+            ephemeral=True,
+        )
+
+    watch_delete.autocomplete("symbol")(autocomplete_any_watch_symbol)
 
     @watch.command(name="list", description="관심 종목 목록 조회")
     async def watch_list(interaction: discord.Interaction) -> None:
@@ -381,7 +633,10 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message("등록된 관심종목이 없습니다.", ephemeral=True)
             return
-        lines = [f"- {format_watch_symbol(symbol)}" for symbol in symbols]
+        lines = [
+            f"- {format_watch_symbol(symbol)} | {_watch_status_label(get_watch_symbol_status(state, interaction.guild_id, symbol))}"
+            for symbol in symbols
+        ]
         logger.info(
             "[command] watch.list result=ok guild=%s user=%s count=%s",
             interaction.guild_id,

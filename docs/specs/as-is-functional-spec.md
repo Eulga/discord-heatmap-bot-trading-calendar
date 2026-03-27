@@ -47,7 +47,7 @@
 | F-03 | Daily forum upsert and content-message sync | Implemented | called by heatmap/news/eod flows | thread reuse or creation, starter message edit, optional follow-up content sync | Confirmed |
 | F-04 | Auto screenshot scheduler | Implemented | background scheduler | scheduled Korea/US heatmap execution, skip metadata, logs | Confirmed |
 | F-05 | Admin route configuration and autoscreenshot toggle commands | Implemented | slash command | per-guild route state updates and auto-scheduler enable flag | Confirmed |
-| F-06 | Watchlist management (`/watch add`, `/watch remove`, `/watch list`) | Implemented | slash command | per-guild watchlist state update or read | Confirmed |
+| F-06 | Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`) | Implemented | slash command | per-guild watchlist state update/read plus watch status/thread lifecycle control | Confirmed |
 | F-07 | Status and diagnostic commands (`/health`, `/last-run`, `/source-status`) | Implemented | slash command | ephemeral text status summaries | Confirmed |
 | F-08 | Scheduled news briefing posting | Implemented | intel scheduler exact-minute check | domestic/global daily forum threads and job/provider status updates | Confirmed |
 | F-09 | Scheduled trend briefing posting | Implemented | nested inside news scheduler | trend summary thread with starter + region content messages | Confirmed |
@@ -394,7 +394,7 @@
 - `bot/features/admin/command.py`
 - `bot/forum/repository.py`
 
-## Feature: Watchlist management (`/watch add`, `/watch remove`, `/watch list`)
+## Feature: Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`)
 
 ### 4.1 Purpose
 - Maintain a per-guild shared watchlist of canonical market symbols backed by the local instrument registry.
@@ -402,9 +402,11 @@
 ### 4.2 Trigger
 - Slash commands:
   - `/watch add`
-  - `/watch remove`
+  - `/watch start`
+  - `/watch stop`
+  - `/watch delete`
   - `/watch list`
-- Slash-command autocomplete for add/remove symbol inputs
+- Slash-command autocomplete for add/start/stop/delete symbol inputs
 
 ### 4.3 Inputs
 - User inputs:
@@ -423,21 +425,22 @@
    - local registry search
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
-3. `/watch remove` resolves against the current guild watchlist, including canonical and legacy representations.
+3. `/watch start`, `/watch stop`, `/watch delete` resolve against the current guild watchlist, including canonical and legacy representations.
 4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with an active placeholder starter for the newly added symbol.
-5. Re-adding an inactive symbol during the same open market session resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
-6. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
-7. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
-8. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
-9. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
+5. Duplicate `/watch add` is a no-op; if the symbol is tracked but `inactive`, the command points the user to `/watch start` instead of reactivating inline.
+6. `/watch start` only applies to inactive tracked symbols. It reuses or recreates the symbol thread with an active placeholder, and same-session reactivation resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
+7. `/watch stop` does not remove the symbol from the guild watchlist. Instead it clears watch cooldown, latch, and baseline runtime state, records thread status as `inactive`, and attempts an update-only inactive placeholder starter write when a tracked thread exists.
+8. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch stop` does not create a new inactive thread. When a tracked thread/starter exists, stop state is committed only after the inactive placeholder update succeeds; otherwise the command fails and keeps the symbol active.
+9. `/watch delete` is admin-gated. It deletes the tracked Discord thread when possible, then removes the symbol from the watchlist, thread registry, reference snapshots, and session alerts.
 10. Stored thread/starter recreation is only allowed for authoritative `discord.NotFound`; transient `discord.Forbidden` and generic `discord.HTTPException` bubble to the caller instead of creating a duplicate thread.
-11. `/watch list` formats the current symbols using registry display names.
-12. Autocomplete queries the local registry and returns up to 25 choices.
+11. `/watch list` formats all tracked symbols using registry display names plus per-symbol watch status labels.
+12. Autocomplete queries the local registry for add and the tracked guild watchlist for start/stop/delete, returning up to 25 choices.
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
 - Updated `guilds.{guild_id}.watchlist`
-- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and starter message when add/remove touches a tracked thread
+- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and starter message when add/start/stop/delete touches a tracked thread
+- Updated `system.watch_reference_snapshots.{guild_id}.{symbol}` and `system.watch_session_alerts.{guild_id}.{symbol}` when delete clears tracked state
 - Autocomplete choices for symbol search
 
 ### 4.6 Persistence / state interaction
@@ -447,6 +450,8 @@
 - Reads/writes `guilds.{guild_id}.watch_alert_cooldowns`
 - Reads/writes `guilds.{guild_id}.watch_alert_latches`
 - Reads/writes `system.watch_baselines.{guild_id}`
+- Reads/writes `system.watch_reference_snapshots.{guild_id}`
+- Reads/writes `system.watch_session_alerts.{guild_id}`
 - Reads the local instrument registry
 
 ### 4.7 Error / edge handling (As-Is)
@@ -454,8 +459,10 @@
 - Ambiguous symbol resolution returns candidate text rather than auto-selecting.
 - `/watch add` is rejected when `watch_forum_channel_id` is missing.
 - Duplicate add returns an ignored/already-registered message.
-- Remove on a missing symbol returns an error message.
-- This module does not perform an admin/owner permission check.
+- `/watch start` on an already-active symbol and `/watch stop` on an already-inactive symbol return ignored messages.
+- `/watch delete` rejects unauthorized users.
+- Start/stop/delete on a missing symbol return an error message.
+- This module does not perform an admin/owner permission check for add/start/stop/list, but `/watch delete` does enforce owner/admin/global-admin authorization.
 
 ### 4.8 Operational constraints
 - The watchlist is stored per guild, not per user.
@@ -1250,9 +1257,9 @@
   - Current operational risk: configuration can succeed even if later posting will fail.
   - Confidence: Confirmed
 - Gap ID: G-05
-  - Gap: watch add/remove/list commands do not visibly enforce owner/admin/global-admin authorization.
-  - Observed evidence: `bot/features/watch/command.py`
-  - Current operational risk: any guild member with command access can mutate the shared guild watchlist.
+- Gap: watch add/start/stop/list commands do not visibly enforce owner/admin/global-admin authorization.
+- Observed evidence: `bot/features/watch/command.py`
+  - Current operational risk: any guild member with command access can add, start, stop, or inspect the shared guild watchlist; only destructive delete is currently restricted.
   - Confidence: Confirmed
 - Gap ID: G-06
   - Gap: status commands do not visibly enforce operator-only access.

@@ -58,11 +58,11 @@ def starter_status(*, highest_up_band: int, highest_down_band: int, active: bool
 
 
 def render_watch_placeholder(symbol: str, *, active: bool) -> str:
-    lines = [format_watch_symbol(symbol)]
+    lines = [format_watch_symbol(symbol), f"상태: {'실시간 감시중' if active else '감시 중단됨'}"]
     if active:
         lines.append("현재가 조회 전")
     else:
-        lines.append("감시가 중지되었습니다")
+        lines.append("실시간 감시가 중단되었습니다")
     return "\n".join(lines)
 
 
@@ -101,6 +101,7 @@ def render_watch_starter(
     return "\n".join(
         [
             format_watch_symbol(symbol),
+            "상태: 실시간 감시중",
             f"전일 종가: {format_watch_price(symbol, reference_price)}",
             f"현재가: {format_watch_price(symbol, current_price)}",
             f"변동률: {change_pct:+.2f}%",

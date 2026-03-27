@@ -45,13 +45,15 @@ def test_watch_rendering_uses_user_facing_copy():
     )
     inactive_placeholder = service.render_watch_placeholder("KRX:005930", active=False)
 
+    assert "상태: 실시간 감시중" in starter
     assert "전일 종가: ₩100.00" in starter
     assert "현재가: ₩107.10" in starter
     assert "기준 세션" not in starter
     assert "당일 alert status" not in starter
     assert "당일 최고 상승 band" not in starter
     assert comment == "삼성전자 (KRX:005930) +6% 이상 상승 : +7.10% · 2026-03-26 10:00:00"
-    assert inactive_placeholder.endswith("감시가 중지되었습니다")
+    assert "상태: 감시 중단됨" in inactive_placeholder
+    assert inactive_placeholder.endswith("실시간 감시가 중단되었습니다")
 
 
 def test_watch_rendering_preserves_fractional_band_threshold_text(monkeypatch):

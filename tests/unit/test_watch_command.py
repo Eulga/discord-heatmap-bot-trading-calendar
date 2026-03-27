@@ -1,4 +1,4 @@
-from bot.features.watch.command import resolve_watch_add_symbol, resolve_watch_remove_symbol
+from bot.features.watch.command import resolve_tracked_watch_symbol, resolve_watch_add_symbol
 
 
 def test_resolve_watch_add_symbol_supports_korean_name():
@@ -51,8 +51,8 @@ def test_resolve_watch_add_symbol_rejects_ambiguous_query():
     assert "여러 후보" in error
 
 
-def test_resolve_watch_remove_symbol_supports_name_match():
-    resolved, error = resolve_watch_remove_symbol("삼성전자", guild_symbols=["KRX:005930"])
+def test_resolve_tracked_watch_symbol_supports_name_match():
+    resolved, error = resolve_tracked_watch_symbol("삼성전자", guild_symbols=["KRX:005930"])
 
     assert error is None
     assert resolved == "KRX:005930"

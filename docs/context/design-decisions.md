@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-03-27
+- Context: 내부 검토에서 기존 `/watch remove`가 "watchlist에서 제거"와 "실시간 감시 중단"을 동시에 의미해 UX와 state 해석이 모호하다는 문제가 드러났고, 사용자가 command policy를 재정의했다.
+- Decision: watch command surface는 `add/start/stop/delete/list`로 분리한다. `/watch add`는 신규 symbol만 추가하고, `/watch start`는 stopped symbol의 실시간 감시를 다시 켠다. `/watch stop`은 symbol을 guild watchlist에 남긴 채 status만 `inactive`로 바꾸고 starter에도 상태를 드러낸다. `/watch delete`는 admin-gated destructive command로 두고, watchlist/state/thread를 함께 제거한다.
+- Why:
+1. "관심종목으로 보관"과 "현재 실시간 감시중"은 다른 상태라서 하나의 remove 명령으로 합치면 사용자와 scheduler 모두 해석이 모호해진다.
+2. stopped symbol을 watchlist에 남겨야 이후 재시작, close finalization, 목록 표시가 일관된다.
+3. destructive delete는 일반 stop보다 위험하므로 권한을 분리하는 편이 안전하다.
+- Impact:
+1. watchlist membership만으로 active 여부를 판단할 수 없고, `commands.watchpoll.symbol_threads_by_guild.*.status`를 함께 봐야 한다.
+2. scheduler는 active symbol만 장중 poll 대상으로 보고, inactive symbol은 unfinalized session 정리 대상으로만 남긴다.
+3. `/watch list`는 symbol별 status를 함께 보여준다.
+- Status: accepted
+
+## 2026-03-27
 - Context: watch poll band label의 fractional threshold mismatch가 같은 PR에서 반복해서 리뷰 finding으로 올라왔고, `0.5%` 같은 설정이 `0%`처럼 보일 수 있는 user-facing 오해까지 확인됐다.
 - Decision: watch band comment label의 `%` 숫자는 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band`를 trailing zero 없이 그대로 표시한다. 즉 label도 trigger 판단과 같은 threshold step을 따라간다.
 - Why:

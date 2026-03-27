@@ -1,6 +1,44 @@
 # Development Log
 
 ## 2026-03-27
+- Context: PR #17 Codex 리뷰에서 legacy `/watch remove`가 남긴 inactive metadata를 `/watch add`로 다시 등록할 때 same-session band checkpoint reset이 빠졌다는 P1이 보고됐다.
+- Change:
+1. `bot/features/watch/command.py`에서 `/watch add`도 기존 inactive thread metadata가 남아 있는 경우 `_reset_reactivated_same_session_band_state(...)`를 호출하도록 보강했다.
+2. `tests/integration/test_watch_forum_flow.py`에 watchlist는 비어 있지만 inactive thread/session-alert metadata가 남은 legacy 재등록 경로 회귀 테스트를 추가했다.
+3. `docs/specs/integration-test-cases.md`의 watch forum flow inventory와 `WF-18` 케이스를 현재 collect 결과에 맞게 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: 서브에이전트 변경 리뷰에서 `/watch stop`이 starter 비활성화 실패 후에도 inactive state를 저장해 사용자 화면이 stale active 상태로 남을 수 있다는 P2가 보고됐다.
+- Change:
+1. `bot/features/watch/command.py`에서 tracked thread가 있는 `/watch stop`은 inactive starter update가 성공한 뒤에만 state를 `inactive`로 저장하도록 순서를 바꿨다.
+2. 같은 경로에서 starter update가 실패하거나 stale handle이라 update-only가 불가능하면 command는 실패 응답을 반환하고 기존 active state와 runtime state를 유지하도록 조정했다.
+3. `tests/integration/test_watch_forum_flow.py`에 stop 실패 시 active state와 cooldown이 보존되는 회귀 테스트를 추가했다.
+4. `docs/specs/watch-poll-functional-spec.md`, `docs/specs/as-is-functional-spec.md`, `docs/specs/integration-test-cases.md`를 새 stop commit 조건과 테스트 inventory에 맞게 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: 사용자가 watch command 정책을 `add/start/stop/delete` 모델로 재정의했고, `add`는 신규 추가만 유지하고 재활성화는 별도 `start`로 분리하라고 요청했다.
+- Change:
+1. `bot/features/watch/command.py`에서 `/watch start`, `/watch stop`, `/watch delete`를 추가하고 기존 `remove` 의미를 `stop`으로 재구성했다. `/watch add`는 신규 추가만 허용하고 inactive duplicate는 `/watch start` 안내로 바꿨다.
+2. 같은 파일에서 `/watch stop`은 watchlist를 유지한 채 runtime state만 정리하고 inactive placeholder update를 update-only로 시도하게 했으며, `/watch delete`는 admin/owner/global-admin만 실행 가능하게 제한했다.
+3. `bot/forum/repository.py`, `bot/app/types.py`, `bot/features/watch/thread_service.py`를 갱신해 inactive status-only entry, active-symbol filter, full watch-state delete, Discord thread delete helper를 추가했다.
+4. `bot/features/watch/service.py`는 starter/placeholder에 `상태: 실시간 감시중` / `상태: 감시 중단됨` 줄을 명시하도록 바꿨다.
+5. `bot/features/intel_scheduler.py`는 active symbol만 장중 poll 대상으로 보고, stopped symbol은 unfinalized session close finalization 대상일 때만 계속 추적하도록 바꿨다.
+6. `tests/unit/test_watch_command.py`, `tests/unit/test_watchlist_repository.py`, `tests/unit/test_watch_cooldown.py`, `tests/integration/test_watch_forum_flow.py`, `tests/integration/test_watch_poll_forum_scheduler.py`를 새 command/status 계약에 맞게 갱신하고 `start/stop/delete/list` 회귀를 추가했다.
+7. `docs/context/CURRENT_STATE.md`, `docs/context/design-decisions.md`, `docs/specs/as-is-functional-spec.md`, `docs/specs/watch-poll-functional-spec.md`, `docs/specs/integration-test-cases.md`를 현재 구현 truth 기준으로 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
 - Context: PR #16 재리뷰 후속으로 watch forum-thread remove/re-add 흐름과 legacy hard-cut 문서 정리를 사용자 요청에 따라 마무리했다.
 - Change:
 1. `bot/features/watch/command.py`에서 `/watch add`가 기존 inactive thread를 복구할 때도 active placeholder starter를 명시적으로 다시 쓰도록 바꿨다.

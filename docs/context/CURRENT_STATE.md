@@ -28,13 +28,15 @@
 - `watch_poll` is now code-confirmed as a session-aware forum-thread flow:
   - route source of truth is `watch_forum_channel_id`
   - `/setwatchforum` configures the route
-  - `/watch add` creates a persistent symbol thread for newly added watch symbols
-  - regular session polls edit the starter and append `3% band` comments
-  - off-hours polls only attempt close finalization
+  - `/watch add` only adds a new tracked symbol and creates its persistent thread
+  - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
+  - regular session polls update starter/comment state for active symbols only
+  - off-hours polls only attempt close finalization, including stopped symbols that still have an unfinalized session
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
-  - manual heatmap commands and watch commands require guild context but are not admin-gated
+  - manual heatmap commands plus `/watch add`, `/watch start`, `/watch stop`, `/watch list` require guild context but are not admin-gated
+  - `/watch delete` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - status commands do not currently apply a visible authorization gate
 - The deep current behavior, visible ambiguities, and observed implementation gaps are documented in `../specs/as-is-functional-spec.md`.
 - Current QA prioritization is documented separately in `../reports/qa-issue-review-2026-03-24.md`; treat that file as a review artifact, not as a runtime spec.
@@ -52,6 +54,7 @@
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
 - The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`, so watch forum migration is still an active rollout concern.
+- Stopped watch symbols stay in the shared guild watchlist by design, so operator interpretation should use symbol status rather than raw watchlist membership alone.
 - Severity and implementation priority for these concerns are tracked separately in `../reports/qa-issue-review-2026-03-24.md`.
 
 ## Do Not Assume

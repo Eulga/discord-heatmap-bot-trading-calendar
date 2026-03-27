@@ -54,6 +54,7 @@ class FakeThread:
         self.name = "old-title"
         self.parent = None
         self.parent_id = parent_id
+        self.deleted = False
         self._starter_message = starter_message
         self._missing_starter = missing_starter
         self._fetch_error = fetch_error
@@ -72,6 +73,9 @@ class FakeThread:
 
     async def edit(self, *, name: str):
         self.name = name
+
+    async def delete(self):
+        self.deleted = True
 
     async def send(self, content: str):
         message_id = max(self._messages) + 1
@@ -100,7 +104,12 @@ class FakeForumChannel:
             self._created_thread.parent_id = self.id
 
     def get_thread(self, thread_id: int):
-        if self._existing_thread and self._existing_thread.id == thread_id and self._existing_thread.parent_id == self.id:
+        if (
+            self._existing_thread
+            and not self._existing_thread.deleted
+            and self._existing_thread.id == thread_id
+            and self._existing_thread.parent_id == self.id
+        ):
             return self._existing_thread
         return None
 
@@ -395,20 +404,14 @@ async def test_watch_add_uses_active_placeholder_when_upserting_thread(monkeypat
     add_command = next(command for command in group.commands if command.name == "add")
 
     state = {
-        "commands": {
-            "watchpoll": {
-                "daily_posts_by_guild": {},
-                "last_images": {},
-                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
-            }
-        },
+        "commands": {"watchpoll": {"daily_posts_by_guild": {}, "last_images": {}, "symbol_threads_by_guild": {"1": {}}}},
         "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": []}},
     }
     calls: list[tuple[str, bool, str | None]] = []
 
     async def fake_upsert_watch_thread(**kwargs):
         calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text")))
-        return SimpleNamespace(action="updated")
+        return SimpleNamespace(action="created")
 
     monkeypatch.setattr(watch_command, "load_state", lambda: state)
     monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
@@ -422,7 +425,7 @@ async def test_watch_add_uses_active_placeholder_when_upserting_thread(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_watch_add_resets_same_session_band_checkpoints_for_reactivated_symbol(monkeypatch):
+async def test_watch_add_resets_same_session_band_checkpoints_for_legacy_inactive_symbol(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)
     group = _command_by_name(tree, "watch")
@@ -464,6 +467,7 @@ async def test_watch_add_resets_same_session_band_checkpoints_for_reactivated_sy
     await add_command.callback(interaction, "005930")
 
     alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
     assert alert_entry["highest_up_band"] == 0
     assert alert_entry["highest_down_band"] == 0
     assert alert_entry["intraday_comment_ids"] == [3002]
@@ -471,11 +475,127 @@ async def test_watch_add_resets_same_session_band_checkpoints_for_reactivated_sy
 
 
 @pytest.mark.asyncio
-async def test_watch_remove_marks_thread_inactive_and_updates_placeholder(monkeypatch):
+async def test_watch_add_rejects_inactive_symbol_and_points_to_start(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)
     group = _command_by_name(tree, "watch")
-    remove_command = next(command for command in group.commands if command.name == "remove")
+    add_command = next(command for command in group.commands if command.name == "add")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+    calls: list[str] = []
+
+    async def fake_upsert_watch_thread(**kwargs):
+        calls.append(kwargs["symbol"])
+        return SimpleNamespace(action="updated")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await add_command.callback(interaction, "005930")
+
+    assert interaction.response.messages[-1][0] == "이미 감시 중단된 관심종목입니다. `/watch start`를 사용해주세요."
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_watch_start_uses_active_placeholder_when_upserting_thread(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    start_command = next(command for command in group.commands if command.name == "start")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+    calls: list[tuple[str, bool, str | None]] = []
+
+    async def fake_upsert_watch_thread(**kwargs):
+        calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text")))
+        return SimpleNamespace(action="updated")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await start_command.callback(interaction, "005930")
+
+    assert calls == [("KRX:005930", True, watch_command.render_watch_placeholder("KRX:005930", active=True))]
+
+
+@pytest.mark.asyncio
+async def test_watch_start_resets_same_session_band_checkpoints_for_reactivated_symbol(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    start_command = next(command for command in group.commands if command.name == "start")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+        "system": {
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-26",
+                        "highest_up_band": 2,
+                        "highest_down_band": 1,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {"2026-03-25": 1901},
+                    }
+                }
+            }
+        },
+    }
+
+    async def fake_upsert_watch_thread(**kwargs):
+        return SimpleNamespace(action="updated")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+    monkeypatch.setattr(watch_command, "now_kst", lambda: datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await start_command.callback(interaction, "005930")
+
+    alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert alert_entry["highest_up_band"] == 0
+    assert alert_entry["highest_down_band"] == 0
+    assert alert_entry["intraday_comment_ids"] == [3002]
+    assert alert_entry["close_comment_ids_by_session"] == {"2026-03-25": 1901}
+
+
+@pytest.mark.asyncio
+async def test_watch_stop_marks_thread_inactive_and_updates_placeholder(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    stop_command = next(command for command in group.commands if command.name == "stop")
 
     state = {
         "commands": {
@@ -498,19 +618,19 @@ async def test_watch_remove_marks_thread_inactive_and_updates_placeholder(monkey
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
-    await remove_command.callback(interaction, "005930")
+    await stop_command.callback(interaction, "005930")
 
-    assert state["guilds"]["1"]["watchlist"] == []
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
     assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["status"] == "inactive"
     assert calls == [("KRX:005930", False, watch_command.render_watch_placeholder("KRX:005930", active=False), False)]
 
 
 @pytest.mark.asyncio
-async def test_watch_remove_does_not_create_thread_when_no_registry_entry_exists(monkeypatch):
+async def test_watch_stop_without_registry_entry_records_inactive_status_without_thread_create(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)
     group = _command_by_name(tree, "watch")
-    remove_command = next(command for command in group.commands if command.name == "remove")
+    stop_command = next(command for command in group.commands if command.name == "stop")
 
     state = {
         "commands": {"watchpoll": {"daily_posts_by_guild": {}, "last_images": {}, "symbol_threads_by_guild": {"1": {}}}},
@@ -527,7 +647,168 @@ async def test_watch_remove_does_not_create_thread_when_no_registry_entry_exists
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
-    await remove_command.callback(interaction, "005930")
+    await stop_command.callback(interaction, "005930")
 
-    assert state["guilds"]["1"]["watchlist"] == []
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"] == {"status": "inactive"}
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_watch_stop_keeps_active_state_when_starter_update_fails(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    stop_command = next(command for command in group.commands if command.name == "stop")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {
+            "1": {
+                "watch_forum_channel_id": 456,
+                "watchlist": ["KRX:005930"],
+                "watch_alert_cooldowns": {"KRX:005930:up": "2026-03-27T10:00:00+09:00"},
+            }
+        },
+    }
+
+    async def fake_upsert_watch_thread(**kwargs):
+        raise RuntimeError("discord-edit-failed")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await stop_command.callback(interaction, "005930")
+
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["status"] == "active"
+    assert state["guilds"]["1"]["watch_alert_cooldowns"] == {"KRX:005930:up": "2026-03-27T10:00:00+09:00"}
+    assert (
+        interaction.response.messages[-1][0]
+        == "관심종목 `삼성전자 (KRX:005930)` 의 실시간 감시 중단에 실패했습니다. 기존 스레드 상태를 갱신하지 못했습니다. 다시 시도해주세요."
+    )
+
+
+@pytest.mark.asyncio
+async def test_watch_delete_requires_admin(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    delete_command = next(command for command in group.commands if command.name == "delete")
+
+    state = {"commands": {}, "guilds": {"1": {"watchlist": ["KRX:005930"]}}}
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10, guild_owner_id=99)
+    await delete_command.callback(interaction, "005930")
+
+    assert interaction.response.messages[-1][0] == "권한이 없습니다."
+
+
+@pytest.mark.asyncio
+async def test_watch_delete_removes_watch_state_and_thread(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    delete_command = next(command for command in group.commands if command.name == "delete")
+
+    starter = FakeMessage(3001, "starter")
+    thread = FakeThread(2001, starter, parent_id=456)
+    forum = FakeForumChannel(456, 1, existing_thread=thread)
+    client = FakeClient({456: forum, 2001: thread})
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {
+            "1": {
+                "watch_forum_channel_id": 456,
+                "watchlist": ["KRX:005930"],
+                "watch_alert_cooldowns": {"KRX:005930:up": "2026-03-27T10:00:00+09:00"},
+            }
+        },
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "KRX:005930": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-03-27",
+                        "checked_at": "2026-03-27T10:00:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-27",
+                        "highest_up_band": 1,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {},
+                    }
+                }
+            },
+        },
+    }
+
+    async def fake_delete_watch_thread(**kwargs):
+        thread.deleted = True
+        return "deleted"
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "delete_watch_thread", fake_delete_watch_thread)
+    monkeypatch.setattr(watch_command, "DISCORD_GLOBAL_ADMIN_USER_IDS", set())
+
+    interaction = FakeInteraction(guild_id=1, user_id=99, guild_owner_id=99)
+    await delete_command.callback(interaction, "005930")
+
+    assert thread.deleted is True
+    assert state["guilds"]["1"]["watchlist"] == []
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"] == {}
+    assert state["system"]["watch_reference_snapshots"]["1"] == {}
+    assert state["system"]["watch_session_alerts"]["1"] == {}
+    assert interaction.response.messages[-1][0] == "관심종목 `삼성전자 (KRX:005930)` 를 완전히 삭제했습니다."
+
+
+@pytest.mark.asyncio
+async def test_watch_list_shows_active_and_inactive_status(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    list_command = next(command for command in group.commands if command.name == "list")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "symbol_threads_by_guild": {
+                    "1": {
+                        "KRX:005930": {"status": "active"},
+                        "NAS:AAPL": {"status": "inactive"},
+                    }
+                }
+            }
+        },
+        "guilds": {"1": {"watchlist": ["KRX:005930", "NAS:AAPL"]}},
+    }
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await list_command.callback(interaction)
+
+    text = interaction.response.messages[-1][0]
+    assert "삼성전자 (KRX:005930) | 실시간 감시중" in text
+    assert "Apple Inc. (NAS:AAPL) | 감시 중단됨" in text

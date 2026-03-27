@@ -18,8 +18,8 @@ class DailyPostEntry(TypedDict):
 
 
 class WatchThreadEntry(TypedDict):
-    thread_id: int
-    starter_message_id: int
+    thread_id: NotRequired[int]
+    starter_message_id: NotRequired[int]
     status: str
 
 

@@ -127,3 +127,34 @@ async def upsert_watch_thread(
         status="active" if active else "inactive",
     )
     return WatchThreadHandle(thread=thread, starter_message=starter_message, action="created")
+
+
+async def delete_watch_thread(
+    client: discord.Client,
+    state: AppState,
+    *,
+    guild_id: int,
+    symbol: str,
+) -> str:
+    existing = get_watch_symbol_thread(state, guild_id, symbol)
+    if not isinstance(existing, dict):
+        return "missing"
+
+    thread_id = existing.get("thread_id")
+    if not isinstance(thread_id, int):
+        return "missing"
+
+    try:
+        thread = client.get_channel(thread_id)
+        if thread is None:
+            thread = await client.fetch_channel(thread_id)
+        if not isinstance(thread, discord.Thread):
+            return "missing"
+        thread_guild = getattr(thread, "guild", None)
+        if getattr(thread_guild, "id", None) != guild_id:
+            return "missing"
+        await thread.delete()
+    except discord.NotFound:
+        return "missing"
+
+    return "deleted"
