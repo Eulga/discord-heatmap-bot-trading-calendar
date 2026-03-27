@@ -67,6 +67,23 @@ def _previous_session_date(calendar, date_text: str) -> str:
     return previous.date().isoformat()
 
 
+def is_adjacent_watch_session_date(symbol: str, *, previous_session_date: str, next_session_date: str) -> bool:
+    previous = previous_session_date.strip()
+    following = next_session_date.strip()
+    if not previous or not following or previous >= following:
+        return False
+
+    market_mic, _timezone, _open_hour, _open_minute, _close_hour, _close_minute = _market_config(symbol)
+    calendar = _calendar_for_mic(market_mic)
+    try:
+        previous_session = calendar.date_to_session(previous, direction="none")
+        following_session = calendar.date_to_session(following, direction="none")
+    except Exception:
+        return False
+    expected_previous = calendar.previous_session(following_session).date().isoformat()
+    return expected_previous == previous_session.date().isoformat()
+
+
 def get_watch_market_session(symbol: str, now: datetime) -> WatchMarketSession:
     market_mic, timezone, open_hour, open_minute, close_hour, close_minute = _market_config(symbol)
     calendar = _calendar_for_mic(market_mic)

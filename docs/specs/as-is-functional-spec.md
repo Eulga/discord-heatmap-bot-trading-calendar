@@ -425,12 +425,13 @@
    - ambiguous search returns an error with candidate lines
 3. `/watch remove` resolves against the current guild watchlist, including canonical and legacy representations.
 4. Successful `/watch add` requires `watch_forum_channel_id`, updates the guild watchlist in state, saves immediately, and create-or-recovers the persistent symbol thread with an active placeholder starter.
-5. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
-6. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
-7. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
-8. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
-9. `/watch list` formats the current symbols using registry display names.
-10. Autocomplete queries the local registry and returns up to 25 choices.
+5. Re-adding an inactive symbol during the same open market session resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
+6. Successful `/watch remove` updates the guild watchlist in state, saves immediately, and clears watch cooldown, latch, and baseline runtime state for that symbol.
+7. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
+8. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
+9. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
+10. `/watch list` formats the current symbols using registry display names.
+11. Autocomplete queries the local registry and returns up to 25 choices.
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
@@ -770,17 +771,21 @@
 2. Target symbols are the union of active watchlist entries and inactive symbols that still have an unfinalized session in `system.watch_session_alerts`.
 3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
 4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set across pending guilds.
-5. For each guild and symbol, `_run_watch_poll()` resolves or recreates the persistent symbol thread, then calls `quote_provider.get_watch_snapshot()`.
-6. During market regular-session hours:
+5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
+6. For each guild and symbol, `_run_watch_poll()` resolves or recreates the persistent symbol thread, then calls `quote_provider.get_watch_snapshot()`.
+7. During market regular-session hours:
    - the starter message is updated from the latest snapshot
    - `previous_close` becomes the reference basis for percent-change rendering
+   - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
    - the session state resets when `session_date` changes
    - at most one highest newly crossed `3%` band comment is created per poll
    - the rendered band label truncates `WATCH_ALERT_THRESHOLD_PCT` to an integer before multiplying by the band, while the trailing signed percent still uses the exact `change_pct`
-7. Outside regular-session hours:
+8. Outside regular-session hours:
    - starter and intraday updates are skipped
    - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
-8. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
+   - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
+   - KRX post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
+9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs
 - Starter message edits and thread comments in per-symbol watch forum threads

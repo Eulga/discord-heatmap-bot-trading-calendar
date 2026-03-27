@@ -8,9 +8,14 @@
 3. `bot/app/settings.py`, `bot/app/types.py`, `bot/forum/repository.py`, `tests/unit/test_bot_client.py`에서 더 이상 쓰지 않는 `WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id` 경로와 `WATCH_ALERT_COOLDOWN_MINUTES` settings surface를 제거했다.
 4. `tests/integration/test_watch_forum_flow.py`에 stale thread handle일 때 recreate를 막는 회귀 테스트와 `/watch remove`의 `allow_create=False` 전달 검증을 추가했다.
 5. `.env.example`, `docs/operations/config-reference.md`, `docs/specs/watch-poll-functional-spec.md`, `docs/specs/as-is-functional-spec.md`를 current code 기준으로 갱신해 watch route hard cut과 band comment 정수 label 의도를 명시했다.
-6. reviewer follow-up으로 `docs/specs/integration-test-cases.md`의 suite overview를 현재 collect 결과(`non-live 71`, `live 2`)에 맞추고, stale했던 watch text-alert 섹션을 `test_watch_forum_flow.py` / `test_watch_poll_forum_scheduler.py` 기준의 현행 forum-thread coverage로 교체했다.
+6. reviewer follow-up으로 `bot/features/intel_scheduler.py`의 close-price fallback을 adjacent next trading session으로 제한하고, `bot/features/watch/command.py`에서 same-session re-add 시 highest band checkpoint를 reset하도록 보강했다.
+7. `tests/integration/test_watch_poll_forum_scheduler.py`, `tests/integration/test_watch_forum_flow.py`, `tests/unit/test_watch_cooldown.py`에 multi-session gap carry-forward와 same-session reactivation edge case 회귀를 추가했다.
+8. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해 scheduler-wide abort를 막고, `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 stale snapshot 허용 조건을 추가했다.
+9. `tests/integration/test_watch_poll_forum_scheduler.py`, `tests/unit/test_market_provider.py`에 malformed symbol isolation과 post-close domestic stale snapshot 허용 회귀를 추가했다.
+10. `docs/specs/integration-test-cases.md`의 suite overview를 현재 collect 결과(`non-live 74`, `live 2`)에 맞추고, stale했던 watch text-alert 섹션을 `test_watch_forum_flow.py` / `test_watch_poll_forum_scheduler.py` 기준의 현행 forum-thread coverage로 교체했다.
 - Verification:
-1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
 - Status: done
 
 ## 2026-03-27

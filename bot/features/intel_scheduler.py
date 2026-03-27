@@ -53,7 +53,7 @@ from bot.features.watch.service import (
     render_close_comment,
     render_watch_starter,
 )
-from bot.features.watch.session import get_watch_market_session
+from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
     get_daily_posts_for_guild,
@@ -746,10 +746,18 @@ def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], l
     return active_symbols, targets
 
 
-def _resolve_watch_close_price(snapshot: WatchSnapshot, target_session_date: str) -> float | None:
+def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> float | None:
     if snapshot.session_date == target_session_date and snapshot.session_close_price is not None:
         return snapshot.session_close_price
-    if snapshot.session_date > target_session_date and snapshot.previous_close > 0:
+    if (
+        snapshot.session_date > target_session_date
+        and snapshot.previous_close > 0
+        and is_adjacent_watch_session_date(
+            symbol,
+            previous_session_date=target_session_date,
+            next_session_date=snapshot.session_date,
+        )
+    ):
         return snapshot.previous_close
     return None
 
@@ -792,7 +800,7 @@ async def _finalize_watch_session(
     if reference_price <= 0 or not target_session_date:
         return False
 
-    close_price = _resolve_watch_close_price(snapshot, target_session_date)
+    close_price = _resolve_watch_close_price(symbol, snapshot, target_session_date)
     if close_price is None:
         return False
 
@@ -900,7 +908,16 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             continue
         pending_guilds.append((guild_id, forum_channel_id, set(active_symbols), target_symbols))
         for symbol in target_symbols:
-            market_session = get_watch_market_session(symbol, now)
+            try:
+                market_session = get_watch_market_session(symbol, now)
+            except Exception as exc:
+                logger.debug(
+                    "[intel] watch warm skipped invalid symbol guild=%s symbol=%s detail=%s",
+                    guild_id,
+                    symbol,
+                    exc,
+                )
+                continue
             if market_session.is_regular_session_open or _has_unfinalized_watch_session(get_watch_session_alert(state, guild_id, symbol)):
                 warm_symbols.add(symbol)
 
@@ -913,7 +930,17 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
 
     for guild_id, forum_channel_id, active_symbols, symbols in pending_guilds:
         for symbol in symbols:
-            market_session = get_watch_market_session(symbol, now)
+            try:
+                market_session = get_watch_market_session(symbol, now)
+            except Exception as exc:
+                logger.warning(
+                    "[intel] watch symbol skipped guild=%s symbol=%s detail=%s",
+                    guild_id,
+                    symbol,
+                    exc,
+                )
+                snapshot_failures += 1
+                continue
             alert_entry = get_watch_session_alert(state, guild_id, symbol)
             needs_finalization = _has_unfinalized_watch_session(alert_entry)
             if not market_session.is_regular_session_open and not needs_finalization:

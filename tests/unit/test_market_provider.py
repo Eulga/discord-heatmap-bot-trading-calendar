@@ -109,6 +109,38 @@ async def test_kis_provider_marks_domestic_snapshot_stale_when_provider_time_is_
 
 
 @pytest.mark.asyncio
+async def test_kis_provider_allows_post_close_domestic_snapshot_with_last_trade_time(monkeypatch):
+    now = datetime(2026, 3, 24, 8, 55, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("KRX:005930", market_code="KRX", ticker_or_code="005930", kis_exchange_code="KRX")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        return {
+            "rt_cd": "0",
+            "output": {
+                "stck_prpr": "73100",
+                "stck_sdpr": "70900",
+                "stck_clpr": "73100",
+                "stck_bsop_date": "20260323",
+                "stck_cntg_hour": "153000",
+            },
+        }
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    snapshot = await provider.get_watch_snapshot("KRX:005930", now)
+
+    assert snapshot.symbol == "KRX:005930"
+    assert snapshot.session_date == "2026-03-23"
+    assert snapshot.session_close_price == 73100.0
+
+
+@pytest.mark.asyncio
 async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
     now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
     provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")

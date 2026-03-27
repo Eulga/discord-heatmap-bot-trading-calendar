@@ -452,6 +452,117 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
 
 
 @pytest.mark.asyncio
+async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    thread = FakeThread(2001, starter, parent_id=456)
+    intraday = FakeMessage(3002, "band-1")
+    thread.add_message(intraday)
+    forum._threads[thread.id] = thread
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "KRX:005930": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-03-24",
+                        "checked_at": "2026-03-24T15:30:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-24",
+                        "highest_up_band": 1,
+                        "highest_down_band": 0,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {},
+                    }
+                }
+            },
+        },
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            return market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=98.4,
+                previous_close=98.0,
+                session_close_price=None,
+                asof=now,
+                session_date="2026-03-27",
+                provider="kis_quote",
+            )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
+
+    assert intraday.deleted is False
+    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-24"
+    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-24"
+    assert thread.sent_contents == []
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "comment_failures=1" in run["detail"]
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_invalid_symbol_does_not_abort_other_symbols(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    warm_calls: list[list[str]] = []
+    snapshot_calls: list[str] = []
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["BAD:123", "KRX:005930"]}},
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            warm_calls.append(list(symbols))
+
+        async def get_watch_snapshot(self, symbol, now):
+            snapshot_calls.append(symbol)
+            return _open_snapshot(now, 104.0)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    now = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=now)
+
+    assert warm_calls == [["KRX:005930"]]
+    assert snapshot_calls == ["KRX:005930"]
+    thread = next(iter(forum._threads.values()))
+    assert "현재가: ₩104.00" in thread.starter_message.content
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "snapshot_failures=1" in run["detail"]
+    assert "updated_threads=1" in run["detail"]
+
+
+@pytest.mark.asyncio
 async def test_watch_poll_skips_when_only_missing_watch_forum_routes_exist(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"watchlist": ["KRX:005930"]}}}
     called = {"count": 0}

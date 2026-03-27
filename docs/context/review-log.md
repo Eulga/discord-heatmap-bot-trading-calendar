@@ -9,6 +9,10 @@
 4. current docs에는 band comment label이 `int(WATCH_ALERT_THRESHOLD_PCT) * band`를 사용한다는 설명이 없어, non-integer threshold 운영 의도를 읽어낼 수 없었다.
 5. 후속 reviewer는 `/watch remove`가 stale registry entry를 가진 경우에도 `upsert_watch_thread()` fallback recreate 때문에 새 inactive thread를 만들 수 있다고 지적했다.
 6. 전체 reviewer는 `docs/specs/integration-test-cases.md`가 이번 브랜치의 실제 non-live integration coverage와 watch forum-thread 회귀 파일을 반영하지 못한다고 지적했다.
+7. 최신 Codex review는 carry-forward finalization이 여러 trading session gap 뒤의 newer snapshot에도 `previous_close` fallback을 허용해 잘못된 close price로 old session을 finalize할 수 있다고 지적했다.
+8. 같은 review는 same-session remove/re-add 뒤 기존 `highest_up_band/highest_down_band`가 남아 early band alert가 누락될 수 있다고 지적했다.
+9. 같은 review는 malformed persisted symbol 하나가 `get_watch_market_session()` 예외로 전체 `watch_poll` cycle을 중단시킬 수 있다고 지적했다.
+10. 같은 review는 KRX post-close snapshot이 `stck_cntg_hour` 기반 stale-quote 판정 때문에 close finalization까지 가지 못할 수 있다고 지적했다.
 - Resolution:
 1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
 2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
@@ -16,8 +20,13 @@
 4. current behavior spec에 band comment label의 정수 절단 의도를 명시했다.
 5. `upsert_watch_thread()`에 `allow_create` 제어를 추가하고 `/watch remove`는 update-only로 호출해, stale registry entry가 있어도 새 inactive thread를 만들지 않도록 막았다.
 6. `docs/specs/integration-test-cases.md`의 suite summary, totals, watch coverage 섹션을 현재 collect 결과와 watch forum-thread 테스트 파일 기준으로 갱신했다.
+7. `bot/features/intel_scheduler.py`의 close-price fallback을 adjacent next trading session으로 제한해 multi-session outage 뒤 잘못된 close finalization을 막았다.
+8. `bot/features/watch/command.py`에서 same-session re-add 시 highest band checkpoint를 reset하도록 보강했고, 관련 integration/unit regression을 추가했다.
+9. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해, bad symbol 하나가 같은 cycle의 다른 guild-symbol 처리까지 막지 않도록 수정했다.
+10. `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 snapshot은 `session_close_price`와 current off-hours `session_date`가 맞으면 stale-quote로 reject하지 않도록 완화했다.
 - Verification:
-1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
 - Status: done
 
 ## 2026-03-24

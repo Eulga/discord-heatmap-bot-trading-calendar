@@ -3,17 +3,21 @@ import logging
 import discord
 from discord import app_commands
 
+from bot.common.clock import now_kst
 from bot.features.watch.service import render_watch_placeholder
+from bot.features.watch.session import get_watch_market_session
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
     add_watch_symbol,
     get_guild_watch_forum_channel_id,
+    get_watch_session_alert,
     get_watch_symbol_thread,
     list_watch_symbols,
     load_state,
     remove_watch_symbol,
     save_state,
     set_watch_symbol_thread_status,
+    update_watch_session_alert,
 )
 from bot.intel.instrument_registry import (
     RegistrySearchResult,
@@ -27,6 +31,33 @@ from bot.intel.instrument_registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _reset_reactivated_same_session_band_state(state, guild_id: int, symbol: str, existing_thread) -> None:
+    if not isinstance(existing_thread, dict):
+        return
+    if str(existing_thread.get("status") or "") != "inactive":
+        return
+
+    now = now_kst()
+    market_session = get_watch_market_session(symbol, now)
+    if not market_session.is_regular_session_open:
+        return
+
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    active_session_date = str(alert_entry.get("active_session_date") or "")
+    last_finalized_session_date = str(alert_entry.get("last_finalized_session_date") or "")
+    if active_session_date != market_session.session_date or active_session_date == last_finalized_session_date:
+        return
+
+    update_watch_session_alert(
+        state,
+        guild_id,
+        symbol,
+        highest_up_band=0,
+        highest_down_band=0,
+        updated_at=now.isoformat(),
+    )
 
 
 def _interaction_user_id(interaction: discord.Interaction) -> int | None:
@@ -204,6 +235,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             return
 
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
         added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
         if not added:
             logger.warning(
@@ -215,6 +247,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message("이미 등록되었거나 잘못된 종목 코드입니다.", ephemeral=True)
             return
+        _reset_reactivated_same_session_band_state(state, interaction.guild_id, resolved_symbol, existing_thread)
 
         try:
             await upsert_watch_thread(

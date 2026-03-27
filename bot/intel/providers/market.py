@@ -558,7 +558,7 @@ class KisMarketDataProvider:
         asof = snapshot.asof
         if asof.tzinfo is None:
             asof = asof.replace(tzinfo=now.tzinfo)
-        if now - asof > _QUOTE_STALE_AFTER:
+        if now - asof > _QUOTE_STALE_AFTER and not _allows_post_close_stale_snapshot(snapshot, now):
             raise RuntimeError(f"stale-quote:{snapshot.symbol}")
         if snapshot.previous_close <= 0:
             raise RuntimeError(f"missing-previous-close:{snapshot.symbol}")
@@ -951,7 +951,7 @@ def _ensure_watch_snapshot_fresh(snapshot: WatchSnapshot, now: datetime) -> None
     asof = snapshot.asof
     if asof.tzinfo is None:
         asof = asof.replace(tzinfo=now.tzinfo)
-    if now - asof > _QUOTE_STALE_AFTER:
+    if now - asof > _QUOTE_STALE_AFTER and not _allows_post_close_stale_snapshot(snapshot, now):
         raise MarketDataProviderError(
             f"stale-quote:{snapshot.symbol}",
             provider_key=snapshot.provider or "market_data_provider",
@@ -966,6 +966,20 @@ def _ensure_watch_snapshot_fresh(snapshot: WatchSnapshot, now: datetime) -> None
             f"missing-session-date:{snapshot.symbol}",
             provider_key=snapshot.provider or "market_data_provider",
         )
+
+
+def _allows_post_close_stale_snapshot(snapshot: WatchSnapshot, now: datetime) -> bool:
+    if snapshot.session_close_price is None:
+        return False
+    try:
+        session = get_watch_market_session(snapshot.symbol, now)
+    except Exception:
+        return False
+    return (
+        session.market_code == "KRX"
+        and not session.is_regular_session_open
+        and snapshot.session_date == session.session_date
+    )
 
 
 def _ensure_quote_fresh(quote: Quote, now: datetime) -> None:

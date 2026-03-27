@@ -2,7 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from bot.features.watch import service
-from bot.features.watch.session import get_watch_market_session
+from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -94,3 +94,16 @@ def test_watch_market_session_identifies_us_regular_session_and_after_close():
     assert closed_session.is_regular_session_open is False
     assert closed_session.is_after_regular_close is True
     assert closed_session.session_date == "2026-03-26"
+
+
+def test_watch_session_adjacency_uses_trading_calendar():
+    assert is_adjacent_watch_session_date(
+        "KRX:005930",
+        previous_session_date="2026-03-26",
+        next_session_date="2026-03-27",
+    ) is True
+    assert is_adjacent_watch_session_date(
+        "KRX:005930",
+        previous_session_date="2026-03-24",
+        next_session_date="2026-03-27",
+    ) is False

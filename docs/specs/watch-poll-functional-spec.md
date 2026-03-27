@@ -132,6 +132,7 @@
 - watchlist에 symbol을 추가하고, 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create or recover 한다.
 - 기존 symbol thread가 현재 configured watch forum에 속하지 않으면 재사용하지 않고 새 forum 아래에서 다시 만든다.
 - starter 내용은 create/recover 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
+- 기존 inactive symbol을 같은 regular session 안에 다시 add하면 `highest_up_band` / `highest_down_band` checkpoint는 reset되어 early band alert를 다시 시작할 수 있다.
 
 ### `/watch remove`
 - active watchlist에서만 제거한다.
@@ -161,11 +162,14 @@
 ### Warm-up
 - provider가 `warm_watch_snapshots()`를 구현하면 target symbol의 unique canonical set에 대해 poll cycle당 1회 호출한다.
 - warm-up 실패는 로그만 남기고 poll 전체를 중단시키지 않는다.
+- malformed/unsupported persisted symbol은 warm-up에서 건너뛰고, 개별 symbol 처리 단계에서 `snapshot_failures`로 집계된다.
 
 ### Open-session update
 1. scheduler가 snapshot을 조회한다.
 2. `previous_close`와 `session_date`가 같지 않으면 provider failure로 본다.
 3. 이전 session이 아직 finalization되지 않은 상태에서 더 늦은 `session_date` snapshot이 오면, current session starter로 넘어가기 전에 prior session close finalization을 먼저 시도한다.
+   - `snapshot.previous_close` fallback으로 close를 확정하는 경우는 새 snapshot이 target session의 바로 다음 trading session일 때만 허용한다.
+   - 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 old session은 그대로 unfinalized로 남는다.
 4. session이 바뀌면 `watch_reference_snapshots`를 새 `previous_close/session_date`로 교체한다.
 5. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
 6. starter message는 아래 정보를 포함해 매 성공 poll마다 edit된다.
@@ -188,6 +192,7 @@
 ### Off-hours close finalization
 1. unfinalized session이 있는 symbol만 대상이다.
 2. `session_close_price`가 아직 없으면 session은 그대로 unfinalized로 남는다.
+   - KRX는 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, `stck_cntg_hour` 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
 3. finalization 순서:
    - intraday comment delete
    - same-session close comment reuse or create
