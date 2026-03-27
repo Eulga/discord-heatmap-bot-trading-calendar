@@ -87,3 +87,22 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
     assert guild["news_forum_channel_id"] == 202
     assert guild["eod_forum_channel_id"] == 203
     assert saves["count"] == 0
+
+
+def test_warn_legacy_watch_route_migration_needed_logs_missing_watch_forum(caplog, monkeypatch):
+    state = {
+        "commands": {},
+        "guilds": {
+            "1": {"watch_alert_channel_id": 460011902043553792},
+            "2": {"watch_alert_channel_id": 123, "watch_forum_channel_id": 456},
+        },
+    }
+
+    monkeypatch.setattr(bot_client, "load_state", lambda: state)
+
+    with caplog.at_level("WARNING"):
+        bot_client._warn_legacy_watch_route_migration_needed()
+
+    assert "guild=1 legacy_watch_alert_channel_id=460011902043553792" in caplog.text
+    assert "/setwatchforum-required" in caplog.text
+    assert "guild=2" not in caplog.text

@@ -20,6 +20,7 @@
 15. `bot/features/watch/thread_service.py`에서 기존 watch thread/starter resolve는 `discord.NotFound`일 때만 recreate fallback으로 넘기고, `Forbidden`/`HTTPException`은 bubble되게 바꿔 transient Discord 오류가 duplicate thread를 만들지 않도록 했다.
 16. `bot/features/watch/service.py`는 band label `%`를 `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` 기준의 trimmed decimal로 렌더링하도록 바꿔, fractional threshold와 sub-1% threshold도 실제 trigger와 같은 문구로 보이게 했다.
 17. `tests/integration/test_watch_forum_flow.py`, `tests/unit/test_watch_cooldown.py`와 current-truth docs를 갱신해 transient thread fetch failure non-recreate와 fractional band label rendering을 회귀로 고정했다.
+18. `bot/app/bot_client.py`는 startup 시 legacy `watch_alert_channel_id`만 남은 guild를 감지하면 `/setwatchforum` migration 경고를 남기도록 보강했고, `tests/unit/test_bot_client.py` 및 handoff/current-state docs에 현재 로컬 state의 watch migration 필요를 기록했다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_market_provider.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`

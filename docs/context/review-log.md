@@ -18,6 +18,7 @@
 13. 같은 review는 fractional threshold에서 band label이 정수 절단되어 보이는 점을 다시 지적했다.
 14. 후속 Codex review는 `bot/features/watch/thread_service.py`가 `discord.Forbidden` / `discord.HTTPException`도 missing resource처럼 취급해 transient fetch failure 뒤 duplicate watch thread를 만들 수 있다고 지적했다.
 15. 같은 review는 band label이 fractional threshold와 sub-1% threshold를 정확히 드러내지 못해 operator-facing text가 실제 trigger 기준과 어긋난다고 다시 지적했다.
+16. 전체 PR 서브에이전트 리뷰는 hard cut 이후 checked-in local state와 active handoff가 여전히 legacy `watch_alert_channel_id` migration 필요를 명시하지 않아, deploy 시 watch routing loss를 숨길 수 있다고 지적했다.
 - Resolution:
 1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
 2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
@@ -34,6 +35,7 @@
 13. `bot/intel/providers/market.py`의 post-close stale snapshot 허용을 market-agnostic off-hours close snapshot으로 넓혀, US close finalization도 stale-quote에 막히지 않도록 수정했다.
 14. `bot/features/watch/thread_service.py`는 authoritative `discord.NotFound`만 recreate 신호로 사용하고, `discord.Forbidden` / `discord.HTTPException`은 호출자 쪽 failure로 surface되게 바꿔 transient Discord 오류 시 duplicate thread 생성을 막았다.
 15. `bot/features/watch/service.py`는 band label `%`를 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` 기준의 trimmed decimal로 렌더링하게 바꿔, fractional threshold와 sub-1% threshold에서도 alert text가 실제 trigger와 일치하도록 수정했다.
+16. `bot/app/bot_client.py` startup에 legacy watch route migration warning을 추가하고, `CURRENT_STATE.md`와 `session-handoff.md`에 현재 로컬 state 기준 `/setwatchforum` 필요를 명시해 hard cut rollout risk를 숨기지 않도록 했다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_market_provider.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`

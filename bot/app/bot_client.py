@@ -99,6 +99,26 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
         save_state(state)
 
 
+def _warn_legacy_watch_route_migration_needed() -> None:
+    state = load_state()
+    guilds = state.get("guilds", {})
+    if not isinstance(guilds, dict):
+        return
+
+    for guild_id, guild_cfg in guilds.items():
+        if not isinstance(guild_cfg, dict):
+            continue
+        watch_forum_channel_id = guild_cfg.get("watch_forum_channel_id")
+        legacy_watch_channel_id = guild_cfg.get("watch_alert_channel_id")
+        if isinstance(watch_forum_channel_id, int) or not isinstance(legacy_watch_channel_id, int):
+            continue
+        logger.warning(
+            "[startup] watch route migration required guild=%s legacy_watch_alert_channel_id=%s detail=/setwatchforum-required",
+            guild_id,
+            legacy_watch_channel_id,
+        )
+
+
 class BotApp:
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -134,6 +154,7 @@ class BotApp:
                     record_command_sync("ok", f"{len(synced_commands)} commands synced")
                     self._synced = True
             await _bootstrap_guild_channel_routes_from_env(self.client)
+            _warn_legacy_watch_route_migration_needed()
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 logger.info("Auto screenshot scheduler started.")
