@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-03-27
+- Context: PR #17 Codex 리뷰에서 legacy `/watch remove`가 남긴 inactive metadata를 `/watch add`로 다시 등록할 때 same-session band checkpoint reset이 빠졌다는 P1이 보고됐다.
+- Change:
+1. `bot/features/watch/command.py`에서 `/watch add`도 기존 inactive thread metadata가 남아 있는 경우 `_reset_reactivated_same_session_band_state(...)`를 호출하도록 보강했다.
+2. `tests/integration/test_watch_forum_flow.py`에 watchlist는 비어 있지만 inactive thread/session-alert metadata가 남은 legacy 재등록 경로 회귀 테스트를 추가했다.
+3. `docs/specs/integration-test-cases.md`의 watch forum flow inventory와 `WF-18` 케이스를 현재 collect 결과에 맞게 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
 - Context: 서브에이전트 변경 리뷰에서 `/watch stop`이 starter 비활성화 실패 후에도 inactive state를 저장해 사용자 화면이 stale active 상태로 남을 수 있다는 P2가 보고됐다.
 - Change:
 1. `bot/features/watch/command.py`에서 tracked thread가 있는 `/watch stop`은 inactive starter update가 성공한 뒤에만 state를 `inactive`로 저장하도록 순서를 바꿨다.

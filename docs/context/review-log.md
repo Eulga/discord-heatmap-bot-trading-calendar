@@ -1,6 +1,18 @@
 # Review Log
 
 ## 2026-03-27
+- Context: PR #17 Codex 리뷰에서 새 watch lifecycle command surface에 대한 legacy data 재등록 경로를 재점검했다.
+- Finding:
+1. 구 `/watch remove`가 watchlist에서는 symbol을 지웠지만 inactive thread/session-alert metadata를 남긴 길드에서는, `/watch add`가 same-session band checkpoint를 reset하지 않아 재등록 직후 intraday band alert가 누락될 수 있었다.
+- Resolution:
+1. `/watch add`가 성공적으로 watchlist에 symbol을 다시 넣은 뒤에도 기존 inactive thread metadata가 있으면 `_reset_reactivated_same_session_band_state(...)`를 호출하도록 수정했다.
+2. legacy inactive metadata + empty watchlist 조합을 재현하는 통합 테스트를 추가하고, integration inventory 문서를 `WF-18`까지 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
 - Context: 서브에이전트 재리뷰에서 새 `add/start/stop/delete` watch command 모델에 대한 후속 점검이 진행됐다.
 - Finding:
 1. `/watch stop`가 tracked thread starter 비활성화에 실패해도 inactive state를 먼저 저장하면, 사용자 화면의 starter는 active처럼 남은 채 scheduler도 다시 고쳐주지 못한다.

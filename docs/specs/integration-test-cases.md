@@ -19,7 +19,7 @@
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 83건만 실행된다.
+- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 84건만 실행된다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법
@@ -45,11 +45,11 @@
 | Auto scheduler | `tests/integration/test_auto_scheduler_logic.py` | 10 | 아니오 | 포함 | 거래일 판정, 중복 실행 방지, state overwrite |
 | Forum upsert / runner | `tests/integration/test_forum_upsert_flow.py` | 9 | 아니오 | 포함 | 기존 thread 수정, content message sync, partial failure body/state |
 | Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 35 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
-| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 17 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
+| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 18 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
 | Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 12 | 아니오 | 포함 | active-only starter update, stop-after-close finalization, missing forum/provider failure |
 | Live capture | `tests/integration/test_capture_korea_live.py`, `tests/integration/test_capture_us_live.py` | 2 | 예 | 제외 | 외부 사이트 렌더, 파일 생성, flaky 네트워크 |
 
-- 기본 문서 범위 합계: 83건
+- 기본 문서 범위 합계: 84건
 - live 문서 범위 합계: 2건
 - 참고: 최초 계획안의 `NB-01~NB-13`, `EO-01~EO-07` 분할은 현재 소스 테스트 수와 1건씩 어긋난다.
 - 이 문서의 exact file/count inventory는 위 표와 collect 결과를 source of truth로 삼고, 상세 계약은 기능별 핵심 회귀를 대표하는 케이스 중심으로 정리한다.
@@ -725,6 +725,18 @@
 - 기대 상태 저장 변화: thread status는 `active`로 유지되고, cooldown 같은 runtime state도 지워지지 않는다.
 - 기대 status/detail/log: 응답은 `기존 스레드 상태를 갱신하지 못했습니다`를 포함한다.
 - 회귀 방지 포인트: stop 실패 뒤 scheduler는 더 이상 inactive starter를 고쳐주지 않는데도 사용자 화면에는 계속 active starter가 남는 상태-UI 불일치를 막는다.
+
+### WF-18 `/watch add`는 legacy inactive metadata를 재사용해도 same-session band checkpoint를 reset
+- 테스트 ID: `WF-18`
+- 기능/보호 계약: watchlist에는 symbol이 없지만 inactive thread/session-alert metadata가 남아 있는 legacy 상태에서 `/watch add`로 다시 등록하면, 같은 세션의 stale highest band checkpoint를 0으로 초기화해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_watch_add_resets_same_session_band_checkpoints_for_legacy_inactive_symbol`
+- 사전 상태: guild `1`은 `watch_forum_channel_id=456`, 빈 watchlist, `inactive` symbol thread entry, 그리고 same-session `highest_up_band=2`, `highest_down_band=1`이 저장된 session alert state를 가진다.
+- 입력/트리거: 장중 KST 시각에서 `/watch add 005930`.
+- mock/stub 전제: `upsert_watch_thread()`는 active starter update 성공만 반환하고, 현재 시각은 해당 session regular open으로 고정한다.
+- 기대 동작: command는 symbol을 watchlist에 다시 추가하고 thread upsert를 계속 수행한다.
+- 기대 상태 저장 변화: `highest_up_band`와 `highest_down_band`는 0으로 reset되고, `intraday_comment_ids`와 `close_comment_ids_by_session` 같은 나머지 session alert state는 보존된다.
+- 기대 status/detail/log: duplicate add 경고 없이 정상 add 흐름으로 처리된다.
+- 회귀 방지 포인트: 구 `/watch remove`가 남긴 legacy inactive metadata 때문에 재등록 직후 첫 intraday band alert가 누락되는 문제를 막는다.
 
 ## Watch Poll Forum Scheduler
 

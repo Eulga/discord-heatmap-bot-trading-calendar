@@ -425,6 +425,56 @@ async def test_watch_add_uses_active_placeholder_when_upserting_thread(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_watch_add_resets_same_session_band_checkpoints_for_legacy_inactive_symbol(monkeypatch):
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    add_command = next(command for command in group.commands if command.name == "add")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "inactive"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": []}},
+        "system": {
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-26",
+                        "highest_up_band": 2,
+                        "highest_down_band": 1,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {"2026-03-25": 1901},
+                    }
+                }
+            }
+        },
+    }
+
+    async def fake_upsert_watch_thread(**kwargs):
+        return SimpleNamespace(action="updated")
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+    monkeypatch.setattr(watch_command, "now_kst", lambda: datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await add_command.callback(interaction, "005930")
+
+    alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert state["guilds"]["1"]["watchlist"] == ["KRX:005930"]
+    assert alert_entry["highest_up_band"] == 0
+    assert alert_entry["highest_down_band"] == 0
+    assert alert_entry["intraday_comment_ids"] == [3002]
+    assert alert_entry["close_comment_ids_by_session"] == {"2026-03-25": 1901}
+
+
+@pytest.mark.asyncio
 async def test_watch_add_rejects_inactive_symbol_and_points_to_start(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)

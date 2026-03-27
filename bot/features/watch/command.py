@@ -284,6 +284,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             return
 
+        existing_thread = get_watch_symbol_thread(state, interaction.guild_id, resolved_symbol)
         added = add_watch_symbol(state, interaction.guild_id, resolved_symbol)
         if not added:
             status = get_watch_symbol_status(state, interaction.guild_id, resolved_symbol)
@@ -301,6 +302,8 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message(message, ephemeral=True)
             return
+
+        _reset_reactivated_same_session_band_state(state, interaction.guild_id, resolved_symbol, existing_thread)
 
         try:
             await upsert_watch_thread(
