@@ -19,7 +19,7 @@
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 74건만 실행된다.
+- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 76건만 실행된다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법
@@ -45,11 +45,11 @@
 | Auto scheduler | `tests/integration/test_auto_scheduler_logic.py` | 10 | 아니오 | 포함 | 거래일 판정, 중복 실행 방지, state overwrite |
 | Forum upsert / runner | `tests/integration/test_forum_upsert_flow.py` | 9 | 아니오 | 포함 | 기존 thread 수정, content message sync, partial failure body/state |
 | Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 35 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
-| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 10 | 아니오 | 포함 | thread reuse/recreate, forum route gating, remove non-creating contract |
-| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 10 | 아니오 | 포함 | starter/comment update, close finalization, missing forum/provider failure |
+| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 11 | 아니오 | 포함 | thread reuse/recreate, transient fetch failure isolation, forum route gating, remove non-creating contract |
+| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 11 | 아니오 | 포함 | starter/comment update, close finalization, missing forum/provider failure |
 | Live capture | `tests/integration/test_capture_korea_live.py`, `tests/integration/test_capture_us_live.py` | 2 | 예 | 제외 | 외부 사이트 렌더, 파일 생성, flaky 네트워크 |
 
-- 기본 문서 범위 합계: 74건
+- 기본 문서 범위 합계: 76건
 - live 문서 범위 합계: 2건
 - 참고: 최초 계획안의 `NB-01~NB-13`, `EO-01~EO-07` 분할은 현재 소스 테스트 수와 1건씩 어긋난다.
 - 이 문서의 exact file/count inventory는 위 표와 collect 결과를 source of truth로 삼고, 상세 계약은 기능별 핵심 회귀를 대표하는 케이스 중심으로 정리한다.
@@ -642,6 +642,18 @@
 - 기대 status/detail/log: thread service 호출 횟수는 0이다.
 - 회귀 방지 포인트: pre-forum legacy state를 제거하는 것만으로 새 inactive forum thread가 생기는 문제를 막는다.
 
+### WF-11 transient Discord fetch 오류는 duplicate thread recreate로 이어지지 않음
+- 테스트 ID: `WF-11`
+- 기능/보호 계약: 기존 thread/starter resolve 중 `Forbidden` 같은 transient Discord fetch 오류가 나면 `upsert_watch_thread()`는 새 thread를 만들지 말고 그대로 실패를 surface해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_forum_flow.py::test_upsert_watch_thread_does_not_recreate_on_transient_fetch_error`
+- 사전 상태: registry는 thread `2001` / starter `3001`을 가리키고, 기존 thread는 현재 forum의 child다.
+- 입력/트리거: 같은 symbol에 대해 `upsert_watch_thread()`를 다시 호출한다.
+- mock/stub 전제: starter fetch는 `FakeForbidden`을 던지고, forum은 필요하면 새 thread `2002`를 만들 수 있다.
+- 기대 동작: 함수는 transient fetch 오류를 그대로 raise한다.
+- 기대 상태 저장 변화: registry thread ID는 `2001`을 유지한다.
+- 기대 status/detail/log: forum `create_thread()` 호출 횟수는 0이다.
+- 회귀 방지 포인트: 일시적인 Discord API/권한 오류가 symbol thread를 조용히 fork해 duplicate thread를 만드는 문제를 막는다.
+
 ## Watch Poll Forum Scheduler
 
 ### WP-01 장중 poll은 starter를 갱신하고 최고 신규 band comment 1건만 남김
@@ -763,6 +775,18 @@
 - 기대 상태 저장 변화: valid symbol의 starter는 최신 snapshot으로 갱신된다.
 - 기대 status/detail/log: `watch_poll.status="failed"`이며 detail에 `snapshot_failures=1`, `updated_threads=1`이 포함된다.
 - 회귀 방지 포인트: persisted state의 bad symbol 하나 때문에 해당 cycle의 나머지 guild-symbol 처리까지 모두 누락되는 scheduler-wide outage를 막는다.
+
+### WP-11 예상 밖 market session 계산 오류는 per-symbol failure로 숨기지 않음
+- 테스트 ID: `WP-11`
+- 기능/보호 계약: unsupported symbol guard는 예상된 malformed-symbol 경로만 격리하고, 정상 symbol에서 발생한 unexpected market-session 계산 오류는 그대로 re-raise해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_re_raises_unexpected_market_session_failure`
+- 사전 상태: guild `1`은 watch forum과 active watchlist `["KRX:005930"]`를 가진다.
+- 입력/트리거: `get_watch_market_session()`이 정상 symbol `KRX:005930`에 대해 `RuntimeError("calendar-broken")`을 던진다.
+- mock/stub 전제: provider warm-up은 성공하고 Discord forum도 정상이다.
+- 기대 동작: `_run_watch_poll()`은 예외를 그대로 re-raise한다.
+- 기대 상태 저장 변화: 해당 tick을 `snapshot_failures`로 삼켜 저장하지 않는다.
+- 기대 status/detail/log: caller는 `calendar-broken` 예외를 직접 본다.
+- 회귀 방지 포인트: 실제 session/calendar 결함이 malformed-symbol noise에 묻혀 scheduler 진단이 어려워지는 문제를 막는다.
 
 ## 현재 누락된 고위험 케이스
 

@@ -16,6 +16,14 @@ class FakeNotFound(Exception):
     pass
 
 
+class FakeForbidden(Exception):
+    pass
+
+
+class FakeHTTPException(Exception):
+    pass
+
+
 class FakeMessage:
     def __init__(self, message_id: int, content: str = ""):
         self.id = message_id
@@ -39,6 +47,7 @@ class FakeThread:
         guild_id: int = 1,
         parent_id: int | None = None,
         missing_starter: bool = False,
+        fetch_error: type[Exception] | None = None,
     ):
         self.id = thread_id
         self.guild = SimpleNamespace(id=guild_id)
@@ -47,10 +56,13 @@ class FakeThread:
         self.parent_id = parent_id
         self._starter_message = starter_message
         self._missing_starter = missing_starter
+        self._fetch_error = fetch_error
         self._messages: dict[int, FakeMessage] = {starter_message.id: starter_message}
         self.sent_contents: list[str] = []
 
     async def fetch_message(self, message_id: int):
+        if self._fetch_error is not None and message_id == self._starter_message.id:
+            raise self._fetch_error()
         if self._missing_starter and message_id == self._starter_message.id:
             raise FakeNotFound()
         message = self._messages.get(message_id)
@@ -291,6 +303,44 @@ async def test_upsert_watch_thread_does_not_recreate_when_creation_disallowed(mo
     )
 
     assert recreated is None
+    assert channel.create_calls == []
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["thread_id"] == 2001
+
+
+@pytest.mark.asyncio
+async def test_upsert_watch_thread_does_not_recreate_on_transient_fetch_error(monkeypatch):
+    monkeypatch.setattr(thread_service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(thread_service.discord, "Thread", FakeThread)
+    monkeypatch.setattr(thread_service.discord, "NotFound", FakeNotFound)
+    monkeypatch.setattr(thread_service.discord, "Forbidden", FakeForbidden)
+    monkeypatch.setattr(thread_service.discord, "HTTPException", FakeHTTPException)
+
+    existing_thread = FakeThread(2001, FakeMessage(3001, "old"), fetch_error=FakeForbidden)
+    new_thread = FakeThread(2002, FakeMessage(3002, "fresh"))
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {},
+    }
+    channel = FakeForumChannel(456, 1, existing_thread=existing_thread, created_thread=new_thread)
+    client = FakeClient({456: channel, 2001: existing_thread, 2002: new_thread})
+
+    with pytest.raises(FakeForbidden):
+        await thread_service.upsert_watch_thread(
+            client,
+            state,
+            guild_id=1,
+            forum_channel_id=456,
+            symbol="KRX:005930",
+            active=True,
+            starter_text="starter-v2",
+        )
+
     assert channel.create_calls == []
     assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["thread_id"] == 2001
 

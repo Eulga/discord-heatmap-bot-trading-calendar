@@ -133,6 +133,7 @@
 - 새 symbol이 watchlist에 추가되면 같은 guild-symbol logical key에 대한 thread/starter를 즉시 create 한다.
 - starter 내용은 최초 create 시 active placeholder로 강제되고, 첫 성공 poll 뒤부터 현재 snapshot summary로 바뀐다.
 - 기존 inactive symbol을 같은 regular session 안에 다시 add하면 `highest_up_band` / `highest_down_band` checkpoint는 reset되어 early band alert를 다시 시작할 수 있다.
+- 기존 thread/starter recreate는 authoritative `NotFound`일 때만 허용되고, `Forbidden` 또는 generic `HTTPException`은 transient/thread failure로 surface된다.
 
 ### `/watch remove`
 - active watchlist에서만 제거한다.
@@ -184,8 +185,8 @@
    - `-3`, `-6`, `-9` ...
 9. 한 poll에서 여러 band를 건너뛰어도 intraday comment는 최고 신규 band 1건만 남긴다.
    - format: `{symbol} +3% 이상 상승 : +3.80% · {timestamp}`
-   - label의 `%` 숫자는 의도적으로 `int(WATCH_ALERT_THRESHOLD_PCT) * band`로 계산되고, 뒤의 signed percent는 실제 `change_pct` 그대로 표시된다.
-   - 즉 threshold가 `2.5`여도 label은 `+2%`, `+4%`처럼 보일 수 있으며, 실제 trigger 판정은 float threshold를 계속 사용한다.
+   - label의 `%` 숫자는 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band`를 trailing zero 없이 표시하고, 뒤의 signed percent는 실제 `change_pct` 그대로 표시된다.
+   - 즉 threshold가 `2.5`면 label은 `+2.5%`, `+5%`처럼 보이고, threshold가 `0.5`면 `+0.5%`, `+1%`처럼 보인다.
    - down case도 같은 형식으로 `-3% 이상 하락`을 사용한다.
 10. 같은 session 안에서는 한번 도달한 band를 내리지 않는다.
 11. 반대 방향 ladder는 독립적으로 진행되어 `both-active`가 될 수 있다.

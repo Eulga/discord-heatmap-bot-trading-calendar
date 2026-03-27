@@ -16,7 +16,10 @@
 11. malformed symbol guard가 예상 밖의 session 계산 버그까지 삼키지 않도록 `unsupported-market:*` runtime error만 per-symbol failure로 격리하고, 그 외 오류는 그대로 surface되게 좁혔다.
 12. `docs/context/CURRENT_STATE.md`, `docs/specs/as-is-functional-spec.md`, `docs/specs/watch-poll-functional-spec.md`의 `/watch add` 표현을 현재 코드 기준으로 정리해, duplicate add는 no-op이고 stale thread repair command가 아니라는 점을 명시했다.
 13. `bot/intel/providers/market.py`에서 post-close stale snapshot 허용 범위를 off-hours session close snapshot 전체로 넓혀, 미국장 close finalization도 stale-quote에 막히지 않게 했다.
-14. `tests/unit/test_market_provider.py`에 post-close US snapshot stale 허용 회귀를 추가했고, threshold label 정수 절단 의도는 `docs/context/design-decisions.md`까지 승격해 current-truth spec과 함께 명시했다.
+14. `tests/unit/test_market_provider.py`에 post-close US snapshot stale 허용 회귀를 추가했다.
+15. `bot/features/watch/thread_service.py`에서 기존 watch thread/starter resolve는 `discord.NotFound`일 때만 recreate fallback으로 넘기고, `Forbidden`/`HTTPException`은 bubble되게 바꿔 transient Discord 오류가 duplicate thread를 만들지 않도록 했다.
+16. `bot/features/watch/service.py`는 band label `%`를 `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` 기준의 trimmed decimal로 렌더링하도록 바꿔, fractional threshold와 sub-1% threshold도 실제 trigger와 같은 문구로 보이게 했다.
+17. `tests/integration/test_watch_forum_flow.py`, `tests/unit/test_watch_cooldown.py`와 current-truth docs를 갱신해 transient thread fetch failure non-recreate와 fractional band label rendering을 회귀로 고정했다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_market_provider.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`

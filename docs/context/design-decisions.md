@@ -1,16 +1,16 @@
 # Design Decisions
 
 ## 2026-03-27
-- Context: watch poll band label이 fractional threshold를 쓰더라도 정수 `%` 문구로 보이는 것이 다시 리뷰 finding으로 올라왔고, 사용자는 이 표현을 의도된 운영 규칙으로 유지하길 원했다.
-- Decision: watch band comment label의 `%` 숫자는 계속 `int(WATCH_ALERT_THRESHOLD_PCT) * band`를 사용한다. fractional threshold를 써도 label은 정수 step으로 보일 수 있으며, 실제 trigger 판단은 float threshold와 exact `change_pct`를 그대로 사용한다.
+- Context: watch poll band label의 fractional threshold mismatch가 같은 PR에서 반복해서 리뷰 finding으로 올라왔고, `0.5%` 같은 설정이 `0%`처럼 보일 수 있는 user-facing 오해까지 확인됐다.
+- Decision: watch band comment label의 `%` 숫자는 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band`를 trailing zero 없이 그대로 표시한다. 즉 label도 trigger 판단과 같은 threshold step을 따라간다.
 - Why:
-1. band label은 사용자에게 “대략 몇 % 구간대냐”를 짧게 보여주는 역할이고, 실제 세부 수치는 뒤에 붙는 exact signed percent가 이미 제공한다.
-2. 기존 운영 의도는 label을 간결하게 유지하는 것이며, threshold float를 그대로 label에 노출하는 것은 현재 UX 목표가 아니다.
-3. 이 동작을 설계 결정으로 명시해 두면, 이후 전체 리뷰에서 intentional behavior를 반복해서 결함으로 해석하는 일을 줄일 수 있다.
+1. operator가 보는 label과 실제 trigger 기준이 다르면 alert text 자체가 오해를 만든다.
+2. threshold가 `1.0` 미만일 때 `int(...)` 기반 label은 `0%`처럼 보일 수 있어 의미를 잃는다.
+3. label과 trigger를 같은 step으로 맞추면 반복 리뷰와 문서 drift를 줄일 수 있다.
 - Impact:
-1. `WATCH_ALERT_THRESHOLD_PCT=2.5` 같은 설정에서도 label은 `+2%`, `+4%`처럼 보일 수 있다.
-2. 실제 alert trigger와 trailing signed percent는 계속 fractional threshold 기준을 따른다.
-3. current-truth spec과 functional spec은 이 의도를 같은 표현으로 설명해야 한다.
+1. `WATCH_ALERT_THRESHOLD_PCT=2.5`면 label은 `+2.5%`, `+5%`처럼 보인다.
+2. `WATCH_ALERT_THRESHOLD_PCT=0.5`면 label은 `+0.5%`, `+1%`처럼 보인다.
+3. trailing signed percent는 계속 실제 `change_pct`를 그대로 보여준다.
 - Status: accepted
 
 ## 2026-03-26

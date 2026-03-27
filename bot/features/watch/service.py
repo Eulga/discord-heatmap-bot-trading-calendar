@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from datetime import datetime
 
 from bot.app.settings import WATCH_ALERT_THRESHOLD_PCT
@@ -80,6 +81,15 @@ def format_watch_price(symbol: str, price: float) -> str:
     return f"{currency}{price:,.2f}" if currency else f"{price:,.2f}"
 
 
+def _format_band_threshold_pct(band: int) -> str:
+    threshold = max(Decimal("0.1"), Decimal(str(WATCH_ALERT_THRESHOLD_PCT)))
+    threshold_pct = threshold * band
+    text = format(threshold_pct.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 def render_watch_starter(
     symbol: str,
     *,
@@ -100,7 +110,7 @@ def render_watch_starter(
 
 
 def render_band_comment(symbol: str, *, direction: str, band: int, change_pct: float, updated_at: datetime) -> str:
-    threshold_pct = int(WATCH_ALERT_THRESHOLD_PCT) * band
+    threshold_pct = _format_band_threshold_pct(band)
     band_label = f"+{threshold_pct}%" if direction == "up" else f"-{threshold_pct}%"
     direction_label = "상승" if direction == "up" else "하락"
     return f"{format_watch_symbol(symbol)} {band_label} 이상 {direction_label} : {change_pct:+.2f}% · {timestamp_text(updated_at)}"

@@ -430,8 +430,9 @@
 7. If a tracked symbol thread already exists, `/watch remove` marks the registry entry inactive.
 8. If the stored thread/starter can still be resolved in the current watch forum, `/watch remove` also updates the starter to an inactive placeholder.
 9. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch remove` does not create a new inactive thread.
-10. `/watch list` formats the current symbols using registry display names.
-11. Autocomplete queries the local registry and returns up to 25 choices.
+10. Stored thread/starter recreation is only allowed for authoritative `discord.NotFound`; transient `discord.Forbidden` and generic `discord.HTTPException` bubble to the caller instead of creating a duplicate thread.
+11. `/watch list` formats the current symbols using registry display names.
+12. Autocomplete queries the local registry and returns up to 25 choices.
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
@@ -779,13 +780,13 @@
    - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
    - the session state resets when `session_date` changes
    - at most one highest newly crossed `3%` band comment is created per poll
-   - the rendered band label truncates `WATCH_ALERT_THRESHOLD_PCT` to an integer before multiplying by the band, while the trailing signed percent still uses the exact `change_pct`
+   - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
 8. Outside regular-session hours:
    - starter and intraday updates are skipped
    - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
-   - band-label `%` text intentionally truncates `WATCH_ALERT_THRESHOLD_PCT` to an integer multiple even when the configured threshold is fractional; the trailing signed percent remains the exact `change_pct`
+   - band-label `%` text follows the same effective-threshold rule even when the configured threshold is fractional or below `1.0`; the trailing signed percent remains the exact `change_pct`
 9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs

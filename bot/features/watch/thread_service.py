@@ -62,7 +62,7 @@ async def _resolve_existing_thread(
         if parent_id != forum_channel.id:
             return None
         starter_message = await thread.fetch_message(starter_message_id)
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+    except discord.NotFound:
         return None
     return thread, starter_message
 

@@ -54,6 +54,30 @@ def test_watch_rendering_uses_user_facing_copy():
     assert inactive_placeholder.endswith("감시가 중지되었습니다")
 
 
+def test_watch_rendering_preserves_fractional_band_threshold_text(monkeypatch):
+    updated_at = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
+
+    monkeypatch.setattr(service, "WATCH_ALERT_THRESHOLD_PCT", 2.5)
+    up_comment = service.render_band_comment(
+        "KRX:005930",
+        direction="up",
+        band=2,
+        change_pct=5.1,
+        updated_at=updated_at,
+    )
+    assert up_comment == "삼성전자 (KRX:005930) +5% 이상 상승 : +5.10% · 2026-03-26 10:00:00"
+
+    monkeypatch.setattr(service, "WATCH_ALERT_THRESHOLD_PCT", 0.5)
+    down_comment = service.render_band_comment(
+        "KRX:005930",
+        direction="down",
+        band=1,
+        change_pct=-0.7,
+        updated_at=updated_at,
+    )
+    assert down_comment == "삼성전자 (KRX:005930) -0.5% 이상 하락 : -0.70% · 2026-03-26 10:00:00"
+
+
 def test_watch_rendering_uses_dollar_symbol_for_us_products():
     starter = service.render_watch_starter(
         "NAS:AAPL",
