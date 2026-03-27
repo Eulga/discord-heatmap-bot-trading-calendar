@@ -746,6 +746,11 @@ def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], l
     return active_symbols, targets
 
 
+def _is_invalid_watch_symbol_error(exc: RuntimeError) -> bool:
+    message = str(exc)
+    return message.startswith("unsupported-market:")
+
+
 def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> float | None:
     if snapshot.session_date == target_session_date and snapshot.session_close_price is not None:
         return snapshot.session_close_price
@@ -910,7 +915,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         for symbol in target_symbols:
             try:
                 market_session = get_watch_market_session(symbol, now)
-            except Exception as exc:
+            except RuntimeError as exc:
+                if not _is_invalid_watch_symbol_error(exc):
+                    raise
                 logger.debug(
                     "[intel] watch warm skipped invalid symbol guild=%s symbol=%s detail=%s",
                     guild_id,
@@ -932,7 +939,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         for symbol in symbols:
             try:
                 market_session = get_watch_market_session(symbol, now)
-            except Exception as exc:
+            except RuntimeError as exc:
+                if not _is_invalid_watch_symbol_error(exc):
+                    raise
                 logger.warning(
                     "[intel] watch symbol skipped guild=%s symbol=%s detail=%s",
                     guild_id,

@@ -563,6 +563,35 @@ async def test_watch_poll_invalid_symbol_does_not_abort_other_symbols(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_watch_poll_re_raises_unexpected_market_session_failure(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    state = {
+        "commands": {},
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+    original_get_watch_market_session = intel_scheduler.get_watch_market_session
+
+    def broken_get_watch_market_session(symbol, now):
+        if symbol == "KRX:005930":
+            raise RuntimeError("calendar-broken")
+        return original_get_watch_market_session(symbol, now)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+    monkeypatch.setattr(intel_scheduler, "get_watch_market_session", broken_get_watch_market_session)
+
+    with pytest.raises(RuntimeError, match="calendar-broken"):
+        await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+
+@pytest.mark.asyncio
 async def test_watch_poll_skips_when_only_missing_watch_forum_routes_exist(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"watchlist": ["KRX:005930"]}}}
     called = {"count": 0}

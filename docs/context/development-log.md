@@ -13,6 +13,7 @@
 8. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해 scheduler-wide abort를 막고, `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 stale snapshot 허용 조건을 추가했다.
 9. `tests/integration/test_watch_poll_forum_scheduler.py`, `tests/unit/test_market_provider.py`에 malformed symbol isolation과 post-close domestic stale snapshot 허용 회귀를 추가했다.
 10. `docs/specs/integration-test-cases.md`의 suite overview를 현재 collect 결과(`non-live 74`, `live 2`)에 맞추고, stale했던 watch text-alert 섹션을 `test_watch_forum_flow.py` / `test_watch_poll_forum_scheduler.py` 기준의 현행 forum-thread coverage로 교체했다.
+11. malformed symbol guard가 예상 밖의 session 계산 버그까지 삼키지 않도록 `unsupported-market:*` runtime error만 per-symbol failure로 격리하고, 그 외 오류는 그대로 surface되게 좁혔다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`

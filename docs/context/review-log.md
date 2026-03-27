@@ -24,6 +24,7 @@
 8. `bot/features/watch/command.py`에서 same-session re-add 시 highest band checkpoint를 reset하도록 보강했고, 관련 integration/unit regression을 추가했다.
 9. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해, bad symbol 하나가 같은 cycle의 다른 guild-symbol 처리까지 막지 않도록 수정했다.
 10. `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 snapshot은 `session_close_price`와 current off-hours `session_date`가 맞으면 stale-quote로 reject하지 않도록 완화했다.
+11. malformed symbol isolation 가드는 broad `Exception` 대신 `unsupported-market:*` runtime error만 잡도록 좁혀, 예상 못 한 session 계산 결함이 `snapshot_failures`로 묻히지 않게 수정했다.
 - Verification:
 1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
 2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
