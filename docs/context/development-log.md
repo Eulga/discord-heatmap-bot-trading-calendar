@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-03-30
+- Context: 사용자가 `ship-develop` 스킬이 PR 생성 후 Codex 리뷰 완료를 기다리지 말고, 리뷰 요청만 던진 뒤 바로 멈추는 기본 흐름으로 바꾸길 요청했다.
+- Change:
+1. `.agents/skills/ship-develop/scripts/ship_develop.py`에서 `--codex-review`와 함께 `--wait-codex-seconds`가 없거나 `0`이면 `@codex review`를 올린 직후 `done=pending reason=codex-review-requested`로 종료하도록 바꿨다.
+2. `.agents/skills/ship-develop/SKILL.md`의 Quick Start, preferred command, outcome 해석, iterative workflow를 새 two-pass 기본 흐름에 맞게 갱신했다.
+3. `.agents/skills/ship-develop/agents/openai.yaml`의 설명 문구를 초기 pass는 Codex review를 요청만 하고 기다리지 않는다는 방향으로 조정했다.
+- Verification:
+1. `.\.venv\Scripts\python -m py_compile .agents/skills/ship-develop/scripts/ship_develop.py`
+2. inline mock 검증으로 `--codex-review` + `--wait-codex-seconds 0` 경로가 `codex-review-requested`로 즉시 종료되고 review polling helper를 호출하지 않는 것을 확인했다.
+3. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/ship-develop`
+- Status: done
+
 ## 2026-03-27
 - Context: PR #17 Codex 리뷰에서 legacy `/watch remove`가 남긴 inactive metadata를 `/watch add`로 다시 등록할 때 same-session band checkpoint reset이 빠졌다는 P1이 보고됐다.
 - Change:
