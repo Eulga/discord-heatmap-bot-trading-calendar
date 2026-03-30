@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-03-30
+- Context: 사용자가 `external-intel-provider-rollout` 스킬을 유지하되 신규 기능 설계 도구가 아니라, 이미 합의된 provider rollout을 실행할 때 쓰는 체크리스트로 축소 정렬해 달라고 요청했다.
+- Change:
+1. `.agents/skills/external-intel-provider-rollout/SKILL.md`를 재작성해 이 스킬이 planning 도구가 아니라 execution checklist라는 전제를 명시했다.
+2. 같은 문서에서 뉴스 scope를 `news_briefing + trend_briefing`으로 바로잡고, watch rollout 기준을 현재 runtime의 `WatchSnapshot`, `get_watch_snapshot(...)`, optional `warm_watch_snapshots(...)`, `session_date`, `session_close_price` 계약에 맞게 갱신했다.
+3. 문서 업데이트 지침에 `docs/operations/config-reference.md`와 `docs/operations/runtime-runbook.md`를 포함시키고, EOD는 runtime wiring이 아직 `MockEodSummaryProvider()` 기반이라는 점을 repo-specific note로 보강했다.
+4. `.agents/skills/external-intel-provider-rollout/agents/openai.yaml`의 표시명과 기본 프롬프트를 plan-first, execution-second 의미로 축소 조정했다.
+- Verification:
+1. `.\.venv\Scripts\python C:\Users\kin50\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/external-intel-provider-rollout`
+2. diff review로 스킬 본문이 `NewsAnalysis`, `trend_briefing`, `WatchSnapshot`, `get_watch_snapshot(...)`, `warm_watch_snapshots(...)`, canonical ops docs, current mock EOD wiring을 모두 반영하는지 확인했다.
+- Status: done
+
+## 2026-03-30
 - Context: 사용자가 `ship-develop` 스킬이 PR 생성 후 Codex 리뷰 완료를 기다리지 말고, 리뷰 요청만 던진 뒤 바로 멈추는 기본 흐름으로 바꾸길 요청했다.
 - Change:
 1. `.agents/skills/ship-develop/scripts/ship_develop.py`에서 `--codex-review`와 함께 `--wait-codex-seconds`가 없거나 `0`이면 `@codex review`를 올린 직후 `done=pending reason=codex-review-requested`로 종료하도록 바꿨다.
