@@ -1,6 +1,20 @@
 # Development Log
 
 ## 2026-04-03
+- Context: PR #19 Codex review가 `/watch stop` stale-thread 경로에서 symbol이 계속 active로 남는 P1을 지적했고, 사용자가 수정 후 서브에이전트 전체 리뷰까지 요청했다.
+- Change:
+1. `bot/features/watch/command.py`에서 `/watch stop`의 `upsert_watch_thread(..., allow_create=False)` 결과가 `None`일 때 더 이상 조기 실패하지 않도록 바꿨다.
+2. 같은 경로는 stale thread를 `degraded` 상태로 기록만 하고, 이후 `set_watch_symbol_thread_status(..., "inactive")`, `clear_watch_symbol_runtime_state(...)`, `save_state(...)`까지 계속 진행하게 수정했다.
+3. stale thread로 starter placeholder를 갱신하지 못한 경우에는 성공 응답에 그 사실만 덧붙이고, polling 중단 자체는 성공으로 처리하게 바꿨다.
+4. `tests/integration/test_watch_forum_flow.py`에 stale tracked thread handle에서도 symbol status가 `inactive`로 내려가고 runtime cooldown이 정리되는 회귀 테스트를 추가했다.
+5. 변경 후 서브에이전트 리뷰를 병행해 현재 local diff 대 `origin/master` 기준 추가 actionable issue가 없는지 재점검했다.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_command.py -q -x --tb=line -p no:cacheprovider`
+3. explorer subagent review 결과: current local diff versus `origin/master`에서 추가 actionable issue 없음
+- Status: done
+
+## 2026-04-03
 - Context: 사용자가 `ship-develop` 스킬 호출 뒤에 bare branch 인자를 붙이면 target base branch로 해석되게 해 달라고 요청했다.
 - Change:
 1. `.agents/skills/ship-develop/SKILL.md`에 invocation argument 규칙을 추가해, 기본 base는 `develop`이고 `[$ship-develop](...) master` 같은 호출은 `--base master`로 해석하도록 명시했다.

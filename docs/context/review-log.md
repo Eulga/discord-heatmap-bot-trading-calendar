@@ -1,5 +1,19 @@
 # Review Log
 
+## 2026-04-03
+- Context: PR #19의 Codex review와 후속 서브에이전트 전체 리뷰를 기준으로 watch stop stale-thread 경로를 재점검했다.
+- Finding:
+1. `/watch stop`는 tracked thread starter를 update-only로 비활성화하는 경로에서 `upsert_watch_thread(..., allow_create=False)`가 `None`을 반환하면 조기 `return`해, symbol status를 `inactive`로 내리지 못했다.
+2. 이 상태에서는 stale/deleted forum thread가 남아 있는 symbol이 계속 active로 유지돼 `watch_poll` alert가 이어지고, 동일한 `/watch stop` 재시도도 같은 stale handle에 막혀 회복이 어려웠다.
+- Resolution:
+1. stale thread handle은 hard failure가 아니라 degraded stop으로 처리하고, starter placeholder를 갱신하지 못해도 symbol status와 runtime state는 정상적으로 비활성화되게 수정했다.
+2. stale tracked thread에서도 inactive status 저장과 runtime cooldown 정리를 보장하는 integration regression을 추가했다.
+3. 수정 후 서브에이전트가 current local diff 전체를 다시 리뷰했고 추가 actionable issue는 없었다.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_command.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
 ## 2026-03-27
 - Context: PR #17 Codex 리뷰에서 새 watch lifecycle command surface에 대한 legacy data 재등록 경로를 재점검했다.
 - Finding:

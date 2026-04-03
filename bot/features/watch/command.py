@@ -467,6 +467,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
         has_tracked_thread_handle = isinstance(existing_thread, dict) and isinstance(existing_thread.get("thread_id"), int)
         has_tracked_thread_handle = has_tracked_thread_handle and isinstance(existing_thread.get("starter_message_id"), int)
         watch_forum_channel_id = get_guild_watch_forum_channel_id(state, interaction.guild_id)
+        stale_thread_handle = False
         if has_tracked_thread_handle:
             if watch_forum_channel_id is None:
                 logger.warning(
@@ -494,19 +495,14 @@ def register(tree: app_commands.CommandTree, client) -> None:
                     allow_create=False,
                 )
                 if handle is None:
+                    stale_thread_handle = True
                     logger.warning(
-                        "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
+                        "[command] watch.stop result=degraded guild=%s user=%s symbol=%s resolved=%s detail=stale-thread",
                         interaction.guild_id,
                         _interaction_user_id(interaction),
                         symbol,
                         resolved_symbol,
                     )
-                    await interaction.response.send_message(
-                        f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시 중단에 실패했습니다. "
-                        "기존 스레드 상태를 갱신하지 못했습니다. 다시 시도해주세요.",
-                        ephemeral=True,
-                    )
-                    return
             except Exception as exc:
                 logger.exception(
                     "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
@@ -533,10 +529,17 @@ def register(tree: app_commands.CommandTree, client) -> None:
             symbol,
             resolved_symbol,
         )
-        await interaction.response.send_message(
-            f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시를 중단했습니다.",
-            ephemeral=True,
-        )
+        if stale_thread_handle:
+            await interaction.response.send_message(
+                f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시를 중단했습니다. "
+                "저장된 스레드를 찾지 못해 기존 스레드 안내 문구는 갱신하지 못했습니다.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"관심종목 `{format_watch_symbol(resolved_symbol)}` 의 실시간 감시를 중단했습니다.",
+                ephemeral=True,
+            )
 
     watch_stop.autocomplete("symbol")(autocomplete_active_watch_symbol)
 
