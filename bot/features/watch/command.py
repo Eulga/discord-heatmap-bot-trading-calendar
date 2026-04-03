@@ -105,17 +105,24 @@ def resolve_watch_add_symbol(symbol: str) -> tuple[str | None, str | None]:
     if not raw:
         return None, "종목명, 종목 코드, 또는 티커를 입력해주세요."
 
+    registry = load_registry()
+
     canonical = normalize_canonical_symbol(raw)
     if canonical is not None:
-        return canonical, None
+        if registry.get(canonical) is not None:
+            return canonical, None
+        return None, "일치하는 종목을 찾지 못했습니다."
 
     normalized, warning = normalize_stored_watch_symbol(raw)
-    if normalized.startswith("KRX:") and warning == "legacy-krx-code":
-        return normalized, None
-    if is_canonical_symbol(normalized) and warning == "legacy-us-ticker":
-        return normalized, None
+    if (
+        is_canonical_symbol(normalized)
+        and warning in {"legacy-krx-code", "legacy-us-ticker"}
+    ):
+        if registry.get(normalized) is not None:
+            return normalized, None
+        return None, "일치하는 종목을 찾지 못했습니다."
 
-    results = _dedupe_results(load_registry().search(raw, limit=10))
+    results = _dedupe_results(registry.search(raw, limit=10))
     if len(results) == 1:
         return results[0].record.canonical_symbol, None
     exact_results = [result for result in results if result.score >= 900]

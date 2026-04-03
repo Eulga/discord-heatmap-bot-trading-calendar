@@ -1,6 +1,7 @@
 # Session Handoff
 
-- Active carry-forward as of 2026-03-27:
+- Active carry-forward as of 2026-04-03:
+  - PR #19의 후속 Codex review finding 2건은 로컬에서 수정됐다. `/watch add`는 이제 registry에 없는 canonical/legacy fast-path symbol을 거절하고, news/EOD scheduler는 exact-minute-only가 아니라 same-day catch-up으로 한 번 실행된다. 관련 targeted regression은 `tests/unit/test_watch_command.py`와 `tests/integration/test_intel_scheduler_logic.py`에서 통과했다.
   - PR #19 Codex review의 `/watch stop` stale-thread P1은 로컬에서 수정됐다. 이제 update-only starter refresh가 `None`을 반환해도 symbol status는 `inactive`로 내려가고 runtime state도 정리된다. 관련 regression은 `tests/integration/test_watch_forum_flow.py`에 추가됐다.
   - `ship-develop` skill은 이제 trailing bare branch argument를 target base branch로 해석한다. 예: `[$ship-develop](/Users/jaeik/Documents/discord-heatmap-bot-trading-calendar/.agents/skills/ship-develop/SKILL.md) master` -> current branch를 `master`로 ship -> script는 `--base master`로 실행한다. 인자가 없으면 기본값은 계속 `develop`이다.
   - local state의 guild `1470388757617446924`는 `forum_channel_id`만 있고 `news_forum_channel_id`가 없다. explicit-route-only 뉴스 정책 배포 후에도 이 길드에서 뉴스/트렌드 게시를 계속 원하면 `/setnewsforum` 또는 startup `NEWS_TARGET_FORUM_ID` bootstrap으로 `news_forum_channel_id`를 채워야 한다.

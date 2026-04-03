@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-04-03
+- Context: PR #19 Codex review reported two new P1 items: `/watch add` accepted nonexistent canonical symbols, and news/EOD daily schedulers still missed runs after late start.
+- Change:
+1. `bot/features/watch/command.py` now loads the instrument registry inside `resolve_watch_add_symbol(...)` and refuses canonical or legacy fast-path symbols unless the registry actually contains them.
+2. This closes the `NAS:ZZZZZZ` class of false-success `/watch add` input before it can reach persisted watch state and noisy `watch_poll` failures.
+3. `bot/features/intel_scheduler.py` now uses `_should_run_daily_job(...)` for daily news and EOD jobs, so they trigger once per day when `now >= scheduled time` instead of only on exact-minute equality.
+4. `tests/unit/test_watch_command.py` adds a regression for unknown canonical symbols, and `tests/integration/test_intel_scheduler_logic.py` adds helper coverage for late-start catch-up plus a scheduler-loop regression that keeps instrument registry refresh at one same-day success run.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/unit/test_watch_command.py tests/integration/test_intel_scheduler_logic.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
+## 2026-04-03
 - Context: PR #19 Codex review가 `/watch stop` stale-thread 경로에서 symbol이 계속 active로 남는 P1을 지적했고, 사용자가 수정 후 서브에이전트 전체 리뷰까지 요청했다.
 - Change:
 1. `bot/features/watch/command.py`에서 `/watch stop`의 `upsert_watch_thread(..., allow_create=False)` 결과가 `None`일 때 더 이상 조기 실패하지 않도록 바꿨다.

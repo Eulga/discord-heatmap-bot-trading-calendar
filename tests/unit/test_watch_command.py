@@ -51,6 +51,13 @@ def test_resolve_watch_add_symbol_rejects_ambiguous_query():
     assert "여러 후보" in error
 
 
+def test_resolve_watch_add_symbol_rejects_unknown_canonical_symbol():
+    resolved, error = resolve_watch_add_symbol("NAS:ZZZZZZ")
+
+    assert resolved is None
+    assert error == "일치하는 종목을 찾지 못했습니다."
+
+
 def test_resolve_tracked_watch_symbol_supports_name_match():
     resolved, error = resolve_tracked_watch_symbol("삼성전자", guild_symbols=["KRX:005930"])
 

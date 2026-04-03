@@ -272,6 +272,19 @@ def _should_start_instrument_registry_refresh(
     return True
 
 
+def _should_run_daily_job(
+    state: dict,
+    now: datetime,
+    *,
+    job_key: str,
+    scheduled_hour: int,
+    scheduled_minute: int,
+) -> bool:
+    if now.hour < scheduled_hour or (now.hour == scheduled_hour and now.minute < scheduled_minute):
+        return False
+    return _job_status_on_date(state, job_key, date_key(now)) is None
+
+
 def _refresh_instrument_registry_sync() -> dict[str, int | str]:
     previous_registry = load_registry()
     previous_symbols = {record.canonical_symbol for record in previous_registry.records}
@@ -1164,8 +1177,8 @@ async def intel_scheduler(client: discord.Client) -> None:
                         detail=_format_instrument_registry_refresh_detail(summary),
                     )
                 registry_refresh_task = None
+            state = load_state()
             if INSTRUMENT_REGISTRY_REFRESH_ENABLED:
-                state = load_state()
                 if registry_refresh_task is None and _should_start_instrument_registry_refresh(
                     state,
                     now,
@@ -1174,9 +1187,21 @@ async def intel_scheduler(client: discord.Client) -> None:
                 ):
                     logger.info("[intel] instrument_registry_refresh status=started scheduled_for=%02d:%02d", registry_h, registry_m)
                     registry_refresh_task = asyncio.create_task(_refresh_instrument_registry())
-            if NEWS_BRIEFING_ENABLED and now.hour == news_h and now.minute == news_m:
+            if NEWS_BRIEFING_ENABLED and _should_run_daily_job(
+                state,
+                now,
+                job_key="news_briefing",
+                scheduled_hour=news_h,
+                scheduled_minute=news_m,
+            ):
                 await _run_news_job(client, now)
-            if EOD_SUMMARY_ENABLED and now.hour == eod_h and now.minute == eod_m:
+            if EOD_SUMMARY_ENABLED and _should_run_daily_job(
+                state,
+                now,
+                job_key="eod_summary",
+                scheduled_hour=eod_h,
+                scheduled_minute=eod_m,
+            ):
                 await _run_eod_job(client, now)
 
             if WATCH_POLL_ENABLED:

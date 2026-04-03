@@ -50,7 +50,7 @@
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
 - State writes are not visibly serialized across commands, schedulers, and startup paths.
-- Heatmap auto scheduling now has same-day catch-up after its fixed time, but news/EOD daily schedulers are still exact-minute-only and can miss a run after late start or event-loop delay.
+- Heatmap, news, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
 - The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`, so watch forum migration is still an active rollout concern.
@@ -65,7 +65,7 @@
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
 
 ## Last Verified
-- This summary was assembled on 2026-03-27 from:
+- This summary was last updated on 2026-04-03 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`

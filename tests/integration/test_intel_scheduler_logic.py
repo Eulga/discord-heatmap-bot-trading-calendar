@@ -1,4 +1,5 @@
 import asyncio
+import copy
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -1234,6 +1235,50 @@ def test_should_start_instrument_registry_refresh_does_not_retry_same_minute_or_
     assert should_run_missing_key_later is False
 
 
+def test_should_run_daily_job_catches_up_after_late_start():
+    should_run = intel_scheduler._should_run_daily_job(
+        {"system": {"job_last_runs": {}}},
+        datetime(2026, 2, 13, 7, 31, tzinfo=KST),
+        job_key="news_briefing",
+        scheduled_hour=7,
+        scheduled_minute=30,
+    )
+
+    assert should_run is True
+
+
+def test_should_run_daily_job_skips_before_time_and_after_same_day_attempt():
+    state = {
+        "system": {
+            "job_last_runs": {
+                "news_briefing": {
+                    "status": "ok",
+                    "detail": "posted=1",
+                    "run_at": "2026-02-13T07:31:05+09:00",
+                }
+            }
+        }
+    }
+
+    should_run_before_time = intel_scheduler._should_run_daily_job(
+        {"system": {"job_last_runs": {}}},
+        datetime(2026, 2, 13, 7, 29, tzinfo=KST),
+        job_key="news_briefing",
+        scheduled_hour=7,
+        scheduled_minute=30,
+    )
+    should_run_after_attempt = intel_scheduler._should_run_daily_job(
+        state,
+        datetime(2026, 2, 13, 7, 45, tzinfo=KST),
+        job_key="news_briefing",
+        scheduled_hour=7,
+        scheduled_minute=30,
+    )
+
+    assert should_run_before_time is False
+    assert should_run_after_attempt is False
+
+
 @pytest.mark.asyncio
 async def test_intel_scheduler_runs_registry_refresh_once_at_configured_time(monkeypatch):
     state = {"commands": {}, "guilds": {}}
@@ -1266,6 +1311,119 @@ async def test_intel_scheduler_runs_registry_refresh_once_at_configured_time(mon
         await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
 
     assert refresh_calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_does_not_restart_registry_refresh_after_same_day_success(monkeypatch):
+    persisted_state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    refresh_calls = {"count": 0}
+    now = datetime(2026, 2, 13, 6, 20, tzinfo=KST)
+    original_sleep = intel_scheduler.asyncio.sleep
+    sleep_calls = {"count": 0}
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_refresh():
+        refresh_calls["count"] += 1
+        return {"source": "runtime", "loaded": 1, "added": 0, "removed": 0}
+
+    def fake_load_state():
+        return copy.deepcopy(persisted_state)
+
+    def fake_save_state(state):
+        persisted_state.clear()
+        persisted_state.update(copy.deepcopy(state))
+
+    async def stop_sleep(_seconds):
+        sleep_calls["count"] += 1
+        await original_sleep(0)
+        if sleep_calls["count"] >= 2:
+            raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20")
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    monkeypatch.setattr("bot.common.clock.now_kst", lambda: now)
+    monkeypatch.setattr(intel_scheduler, "load_state", fake_load_state)
+    monkeypatch.setattr(intel_scheduler, "save_state", fake_save_state)
+    monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert refresh_calls["count"] == 1
+    assert persisted_state["system"]["job_last_runs"]["instrument_registry_refresh"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_catches_up_news_job_after_late_start(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    news_calls: list[datetime] = []
+    now = datetime(2026, 2, 13, 7, 31, tzinfo=KST)
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_news_job(_client, run_now):
+        news_calls.append(run_now)
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_TIME", "07:30")
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "_run_news_job", fake_news_job)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert news_calls == [now]
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_catches_up_eod_job_after_late_start(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    eod_calls: list[datetime] = []
+    now = datetime(2026, 2, 13, 16, 21, tzinfo=KST)
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_eod_job(_client, run_now):
+        eod_calls.append(run_now)
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_TIME", "16:20")
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "_run_eod_job", fake_eod_job)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert eod_calls == [now]
 
 
 @pytest.mark.asyncio

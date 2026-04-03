@@ -372,6 +372,18 @@
 - 기대 status/detail/log: `news_briefing.status="failed"`, detail에 `posted=1 failed=1`. 같은 조건에서 `trend_briefing.status="skipped"`다.
 - 회귀 방지 포인트: 일부 길드 delivery failure가 `ok`로 숨겨져 운영자가 실패 길드를 놓치는 문제를 막는다.
 
+### NB-13 늦게 시작해도 같은 날짜 뉴스 브리핑을 한 번 catch-up 실행
+- 테스트 ID: `NB-13`
+- 기능/보호 계약: bot이 configured minute 뒤에 기동돼도 같은 날짜의 news/trend briefing을 통째로 놓치지 않아야 한다.
+- 원본 테스트 함수명: `tests/integration/test_intel_scheduler_logic.py::test_intel_scheduler_catches_up_news_job_after_late_start`
+- 사전 상태: `NEWS_BRIEFING_ENABLED=true`, configured time은 `07:30`, 해당 날짜 `system.job_last_runs.news_briefing`은 비어 있다.
+- 입력/트리거: scheduler start 시각이 `2026-02-13 07:31 KST`다.
+- mock/stub 전제: `_run_news_job()`는 호출 시각만 기록하고 loop는 1회 뒤 중단된다.
+- 기대 동작: scheduler는 exact-minute equality가 아니어도 `_run_news_job()`를 1회 호출한다.
+- 기대 상태 저장 변화: same-day first run 기회를 놓치지 않는 scheduler gate가 유지된다.
+- 기대 status/detail/log: 호출 인자로 `2026-02-13 07:31 KST`가 전달된다.
+- 회귀 방지 포인트: normal restart나 짧은 loop stall 뒤 하루치 뉴스/트렌드가 조용히 누락되는 문제를 막는다.
+
 ## Trend Briefing
 
 ### TR-01 trend thread는 starter + 2개 content message 구조로 게시
@@ -519,6 +531,18 @@
 - 기대 상태 저장 변화: `guilds.1.last_auto_runs.eodsummary="2026-02-13"`만 기록된다.
 - 기대 status/detail/log: `eod_summary.status="failed"`, detail에 `posted=1 failed=1`과 `forum_resolution_failures=1`이 포함된다.
 - 회귀 방지 포인트: 일부 길드 장애가 전체 job 중단이나 false `ok`로 왜곡되는 문제를 막는다.
+
+### EO-09 늦게 시작해도 같은 날짜 EOD를 한 번 catch-up 실행
+- 테스트 ID: `EO-09`
+- 기능/보호 계약: bot이 configured minute 뒤에 기동돼도 같은 날짜 EOD summary를 통째로 놓치지 않아야 한다.
+- 원본 테스트 함수명: `tests/integration/test_intel_scheduler_logic.py::test_intel_scheduler_catches_up_eod_job_after_late_start`
+- 사전 상태: `EOD_SUMMARY_ENABLED=true`, configured time은 `16:20`, 해당 날짜 `system.job_last_runs.eod_summary`는 비어 있다.
+- 입력/트리거: scheduler start 시각이 `2026-02-13 16:21 KST`다.
+- mock/stub 전제: `_run_eod_job()`는 호출 시각만 기록하고 loop는 1회 뒤 중단된다.
+- 기대 동작: scheduler는 exact-minute equality가 아니어도 `_run_eod_job()`를 1회 호출한다.
+- 기대 상태 저장 변화: same-day first run 기회를 놓치지 않는 scheduler gate가 유지된다.
+- 기대 status/detail/log: 호출 인자로 `2026-02-13 16:21 KST`가 전달된다.
+- 회귀 방지 포인트: 정상 재기동 또는 짧은 loop stall 뒤 당일 EOD briefing이 조용히 누락되는 문제를 막는다.
 
 ## Watch Forum Flow
 

@@ -1,6 +1,20 @@
 # Review Log
 
 ## 2026-04-03
+- Context: PR #19의 후속 Codex review가 scheduler catch-up과 `/watch add` canonical symbol validation을 다시 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`의 news/EOD scheduler gate는 exact-minute equality만 사용해, 봇이 configured minute 뒤에 기동되거나 event loop가 그 minute를 놓치면 해당 일자의 run을 조용히 건너뛸 수 있었다.
+2. `bot/features/watch/command.py`의 `/watch add`는 syntactically valid canonical symbol이면 registry 존재 여부를 확인하지 않고 바로 성공 처리해, 실제로는 quote provider가 resolve할 수 없는 symbol을 watchlist에 저장할 수 있었다.
+- Resolution:
+1. news/EOD는 `now >= scheduled time` 기반의 daily catch-up helper를 사용하고, same-day `job_last_runs`가 있으면 재실행하지 않도록 수정했다.
+2. `/watch add`는 canonical/legacy fast-path도 instrument registry 존재 검증을 통과해야만 성공하게 수정했다.
+3. 관련 regression을 `tests/integration/test_intel_scheduler_logic.py`와 `tests/unit/test_watch_command.py`에 추가했고, instrument registry refresh가 same-day success 뒤 재시작되지 않는 scheduler loop도 함께 고정 검증했다.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/unit/test_watch_command.py tests/integration/test_intel_scheduler_logic.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
+## 2026-04-03
 - Context: PR #19의 Codex review와 후속 서브에이전트 전체 리뷰를 기준으로 watch stop stale-thread 경로를 재점검했다.
 - Finding:
 1. `/watch stop`는 tracked thread starter를 update-only로 비활성화하는 경로에서 `upsert_watch_thread(..., allow_create=False)`가 `None`을 반환하면 조기 `return`해, symbol status를 `inactive`로 내리지 못했다.
