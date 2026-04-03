@@ -1,5 +1,16 @@
 # Development Log
 
+## 2026-04-03
+- Context: 사용자가 `ship-develop` 스킬 호출 뒤에 bare branch 인자를 붙이면 target base branch로 해석되게 해 달라고 요청했다.
+- Change:
+1. `.agents/skills/ship-develop/SKILL.md`에 invocation argument 규칙을 추가해, 기본 base는 `develop`이고 `[$ship-develop](...) master` 같은 호출은 `--base master`로 해석하도록 명시했다.
+2. 같은 문서의 Quick Start, preferred command, repo note, done 조건을 chosen base branch 기준으로 일반화했다.
+3. `.agents/skills/ship-develop/agents/openai.yaml`의 display name과 default prompt도 trailing branch argument를 base override로 읽는 규칙에 맞게 갱신했다.
+- Verification:
+1. diff review로 `SKILL.md`와 `agents/openai.yaml`이 모두 `default=develop`, `trailing branch argument overrides base`, `$ship-develop master -> --base master` 규칙을 일관되게 설명하는지 확인했다.
+2. 이번 변경은 skill instruction/documentation update라 별도 테스트는 실행하지 않았다.
+- Status: done
+
 ## 2026-03-30
 - Context: 사용자가 `external-intel-provider-rollout` 스킬을 유지하되 신규 기능 설계 도구가 아니라, 이미 합의된 provider rollout을 실행할 때 쓰는 체크리스트로 축소 정렬해 달라고 요청했다.
 - Change:
