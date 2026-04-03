@@ -9,20 +9,17 @@ from bot.app.settings import (
     DEFAULT_FORUM_CHANNEL_ID,
     EOD_TARGET_FORUM_ID,
     NEWS_TARGET_FORUM_ID,
-    WATCH_ALERT_CHANNEL_ID,
 )
 from bot.common.logging import setup_logging
 from bot.forum.repository import (
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
     get_guild_news_forum_channel_id,
-    get_guild_watch_alert_channel_id,
     load_state,
     save_state,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
     set_guild_news_forum_channel_id,
-    set_guild_watch_alert_channel_id,
 )
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
@@ -70,13 +67,6 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
             get_guild_eod_forum_channel_id,
             set_guild_eod_forum_channel_id,
         ),
-        (
-            WATCH_ALERT_CHANNEL_ID,
-            "WATCH_ALERT_CHANNEL_ID",
-            discord.TextChannel,
-            get_guild_watch_alert_channel_id,
-            set_guild_watch_alert_channel_id,
-        ),
     ]
 
     for channel_id, env_name, expected_type, getter, setter in specs:
@@ -107,6 +97,26 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
 
     if changed:
         save_state(state)
+
+
+def _warn_legacy_watch_route_migration_needed() -> None:
+    state = load_state()
+    guilds = state.get("guilds", {})
+    if not isinstance(guilds, dict):
+        return
+
+    for guild_id, guild_cfg in guilds.items():
+        if not isinstance(guild_cfg, dict):
+            continue
+        watch_forum_channel_id = guild_cfg.get("watch_forum_channel_id")
+        legacy_watch_channel_id = guild_cfg.get("watch_alert_channel_id")
+        if isinstance(watch_forum_channel_id, int) or not isinstance(legacy_watch_channel_id, int):
+            continue
+        logger.warning(
+            "[startup] watch route migration required guild=%s legacy_watch_alert_channel_id=%s detail=/setwatchforum-required",
+            guild_id,
+            legacy_watch_channel_id,
+        )
 
 
 class BotApp:
@@ -144,6 +154,7 @@ class BotApp:
                     record_command_sync("ok", f"{len(synced_commands)} commands synced")
                     self._synced = True
             await _bootstrap_guild_channel_routes_from_env(self.client)
+            _warn_legacy_watch_route_migration_needed()
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 logger.info("Auto screenshot scheduler started.")

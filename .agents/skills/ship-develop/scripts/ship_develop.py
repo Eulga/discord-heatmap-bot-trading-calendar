@@ -425,10 +425,18 @@ def main() -> int:
         head_oid = str(details.get("headRefOid") or "")
         request = post_codex_review_request(repo, pr_number)
         requested_at = str(request.get("created_at") or "")
-        codex_summary = (
-            wait_for_codex_review(repo, pr_number, requested_at, head_oid, args.wait_codex_seconds, args.interval_seconds)
-            if args.wait_codex_seconds > 0
-            else summarize_codex_review(repo, pr_number, requested_at, head_oid)
+        if args.wait_codex_seconds <= 0:
+            print(f"codex_review=status=requested findings=0 url={details['url']}")
+            print(f"done=pending reason=codex-review-requested url={details['url']}")
+            return 10
+
+        codex_summary = wait_for_codex_review(
+            repo,
+            pr_number,
+            requested_at,
+            head_oid,
+            args.wait_codex_seconds,
+            args.interval_seconds,
         )
         print(
             "codex_review="

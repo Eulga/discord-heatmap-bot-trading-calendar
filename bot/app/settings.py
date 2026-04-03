@@ -54,7 +54,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN is not set. Copy .env.example to .env and set the token.")
 
-# Optional fallback forum channel if a guild-specific mapping is not configured.
+# Optional bootstrap forum channel copied into matching guild state at startup.
 _default_forum_channel_id = os.getenv("DEFAULT_FORUM_CHANNEL_ID", "").strip()
 DEFAULT_FORUM_CHANNEL_ID = int(_default_forum_channel_id) if _default_forum_channel_id.isdigit() else None
 CACHE_TTL_SECONDS = 3600
@@ -150,11 +150,9 @@ EOD_SUMMARY_TIME = os.getenv("EOD_SUMMARY_TIME", "16:20").strip() or "16:20"
 WATCH_POLL_ENABLED = _env_bool("WATCH_POLL_ENABLED", True)
 WATCH_POLL_INTERVAL_SECONDS = _env_int("WATCH_POLL_INTERVAL_SECONDS", 60)
 WATCH_ALERT_THRESHOLD_PCT = _env_float("WATCH_ALERT_THRESHOLD_PCT", 3.0)
-WATCH_ALERT_COOLDOWN_MINUTES = _env_int("WATCH_ALERT_COOLDOWN_MINUTES", 10)
 INSTRUMENT_REGISTRY_REFRESH_ENABLED = _env_bool("INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
 INSTRUMENT_REGISTRY_REFRESH_TIME = os.getenv("INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20").strip() or "06:20"
 
 ADMIN_STATUS_CHANNEL_ID = _env_channel_id("ADMIN_STATUS_CHANNEL_ID")
 NEWS_TARGET_FORUM_ID = _env_channel_id("NEWS_TARGET_FORUM_ID")
 EOD_TARGET_FORUM_ID = _env_channel_id("EOD_TARGET_FORUM_ID")
-WATCH_ALERT_CHANNEL_ID = _env_channel_id("WATCH_ALERT_CHANNEL_ID")

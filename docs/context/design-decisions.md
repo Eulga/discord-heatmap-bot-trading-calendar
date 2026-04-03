@@ -1,5 +1,74 @@
 # Design Decisions
 
+## 2026-03-27
+- Context: 내부 검토에서 기존 `/watch remove`가 "watchlist에서 제거"와 "실시간 감시 중단"을 동시에 의미해 UX와 state 해석이 모호하다는 문제가 드러났고, 사용자가 command policy를 재정의했다.
+- Decision: watch command surface는 `add/start/stop/delete/list`로 분리한다. `/watch add`는 신규 symbol만 추가하고, `/watch start`는 stopped symbol의 실시간 감시를 다시 켠다. `/watch stop`은 symbol을 guild watchlist에 남긴 채 status만 `inactive`로 바꾸고 starter에도 상태를 드러낸다. `/watch delete`는 admin-gated destructive command로 두고, watchlist/state/thread를 함께 제거한다.
+- Why:
+1. "관심종목으로 보관"과 "현재 실시간 감시중"은 다른 상태라서 하나의 remove 명령으로 합치면 사용자와 scheduler 모두 해석이 모호해진다.
+2. stopped symbol을 watchlist에 남겨야 이후 재시작, close finalization, 목록 표시가 일관된다.
+3. destructive delete는 일반 stop보다 위험하므로 권한을 분리하는 편이 안전하다.
+- Impact:
+1. watchlist membership만으로 active 여부를 판단할 수 없고, `commands.watchpoll.symbol_threads_by_guild.*.status`를 함께 봐야 한다.
+2. scheduler는 active symbol만 장중 poll 대상으로 보고, inactive symbol은 unfinalized session 정리 대상으로만 남긴다.
+3. `/watch list`는 symbol별 status를 함께 보여준다.
+- Status: accepted
+
+## 2026-03-27
+- Context: watch poll band label의 fractional threshold mismatch가 같은 PR에서 반복해서 리뷰 finding으로 올라왔고, `0.5%` 같은 설정이 `0%`처럼 보일 수 있는 user-facing 오해까지 확인됐다.
+- Decision: watch band comment label의 `%` 숫자는 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band`를 trailing zero 없이 그대로 표시한다. 즉 label도 trigger 판단과 같은 threshold step을 따라간다.
+- Why:
+1. operator가 보는 label과 실제 trigger 기준이 다르면 alert text 자체가 오해를 만든다.
+2. threshold가 `1.0` 미만일 때 `int(...)` 기반 label은 `0%`처럼 보일 수 있어 의미를 잃는다.
+3. label과 trigger를 같은 step으로 맞추면 반복 리뷰와 문서 drift를 줄일 수 있다.
+- Impact:
+1. `WATCH_ALERT_THRESHOLD_PCT=2.5`면 label은 `+2.5%`, `+5%`처럼 보인다.
+2. `WATCH_ALERT_THRESHOLD_PCT=0.5`면 label은 `+0.5%`, `+1%`처럼 보인다.
+3. trailing signed percent는 계속 실제 `change_pct`를 그대로 보여준다.
+- Status: accepted
+
+## 2026-03-26
+- Context: 사용자가 watch 기능의 목표 동작을 `text alert + first-seen baseline`에서 `forum thread + previous_close basis` 모델로 고정한 뒤, intraday notification을 더 적극적으로 남기되 thread 오염은 장마감 정리로 제어하자고 요청했다.
+- Decision: watch rollout의 목표 모델은 `길드 공유 watchlist + guild-symbol persistent forum thread + Discord thread follow 기반 개인 notification`으로 둔다. 기준가는 `전일 종가(previous_close)`로 고정하고, starter message는 regular session open 중 poll마다 현재 상태를 갱신한다. intraday comment는 전일 종가 대비 `3% band ladder`(`+3,+6,+9...`, `-3,-6,-9...`) 기준으로 생성하되, 한 poll에서 여러 단계를 건너뛰면 최고 신규 band 1건만 남긴다. `세션`은 symbol market의 regular-session trading date, 즉 market-local `당일`을 뜻한다. intraday starter edit와 band detection은 regular session open 동안만 허용한다. regular session close 후 off-hours poll은 마지막 unfinalized session에 대한 close finalization만 시도하고, first eligible poll after close 기준으로 정확히 1회만 완료돼야 한다. intraday comment는 close finalization 시 모두 삭제하고, 대신 `날짜/전일 종가/official regular close price/최종 변동률`을 담은 `마감가 알림` comment 1건을 영구 보존한다. `마감가`는 after-hours current price가 아니라 same-session official regular close price를 사용한다. close finalization은 same-session close comment를 재사용할 수 있어야 하며, `close_comment_ids_by_session` checkpoint와 finalization 완료 마킹을 분리해 partial failure retry 뒤에도 duplicate close summary를 만들지 않아야 한다. 또한 `watch_forum_channel_id`가 없으면 `/watch add`를 명시적으로 거절한다. symbol이 mid-session remove되더라도 해당 session이 unfinalized라면 close finalization은 1회 수행한다.
+- Why:
+1. 종목별 persistent thread는 길드 공유 surface와 개인별 follow UX를 동시에 만족시킨다.
+2. 전일 종가 기준은 기존 first-seen baseline보다 intraday 해석이 더 일관되고, 재시작 시점에 따라 기준가가 흔들리는 문제를 줄인다.
+3. 3% band ladder는 watch 기능의 본래 목적에 맞게 의미 있는 변동을 더 적극적으로 포착한다.
+4. intraday comment를 장마감에 정리하고 close summary만 남기면 notification 빈도와 thread 장기 가독성을 함께 관리할 수 있다.
+5. regular-session gate와 close catch-up contract를 명시하면 pre/post-market drift와 restart ambiguity를 줄일 수 있다.
+6. add 시점 route gating은 thread 없는 orphan watch state를 막는다.
+- Impact:
+1. target model의 authoritative watch route는 `watch_forum_channel_id`다.
+2. 기존 `watch_alert_channel_id`, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`는 target model의 최종 authoritative state가 아니다.
+3. watch quote adapter는 external `price`를 internal `WatchSnapshot.current_price`로, external `session_close_price`를 internal `WatchSnapshot.session_close_price`로 정규화하고, `previous_close`와 `session_date`를 함께 scheduler에 제공해야 한다.
+4. scheduler는 intraday band history, close finalization, close summary persistence, first-eligible-poll catch-up, partial failure retry reconciliation을 관리해야 한다.
+- Status: accepted
+
+## 2026-03-24
+- Context: 뉴스 포스트가 explicit news forum 설정 없이도 기본 guild forum으로 생성되어, operator 입장에서 hidden fallback처럼 보이는 문제가 확인됐다.
+- Decision: 뉴스/트렌드 게시 경로는 explicit `news_forum_channel_id`가 있는 길드만 대상으로 본다. `forum_channel_id`는 뉴스 runtime fallback으로 사용하지 않는다. `NEWS_TARGET_FORUM_ID`는 startup에서 `news_forum_channel_id`를 채우는 bootstrap initializer로만 유지한다.
+- Why:
+1. operator는 news-specific forum을 따로 설정하지 않았으면 뉴스가 게시되지 않는다고 기대하는 편이 자연스럽다.
+2. `forum_channel_id` fallback은 cross-posting과 hidden routing을 만들고, 현재 state만 보고도 “왜 게시됐는지”를 혼동하게 한다.
+3. startup bootstrap과 runtime fallback을 분리하면 env default는 유지하면서도 실제 게시 허용 조건은 더 예측 가능해진다.
+- Impact:
+1. `news_forum_channel_id`가 없는 길드는 `forum_channel_id`만 있어도 뉴스/트렌드 자동 게시 대상이 아니다.
+2. `/setnewsforum`으로 explicit route를 넣거나 startup bootstrap이 `news_forum_channel_id`를 채운 경우에만 뉴스/트렌드 게시가 가능하다.
+3. heatmap, EOD, watch routing 정책은 이번 결정 범위에 포함되지 않는다.
+- Status: accepted
+
+## 2026-03-23
+- Context: 사용자가 `watch_poll`에서 같은 방향으로 이미 한 번 보낸 변동 알림이 10분 cooldown 뒤 다시 오는 것은 원치 않는다고 보고했다.
+- Decision: watch 알림은 `cooldown only`가 아니라 `same-direction latch + cooldown` 조합으로 운영한다. 즉 같은 심볼이 같은 방향 임계치 밖에 계속 머무르면 첫 알림만 보내고, 임계치 안으로 한 번 복귀해야 같은 방향 알림을 다시 허용한다.
+- Why:
+1. 기존 cooldown-only 구조는 연속 하락/상승 구간에서 사용자가 이미 알고 있는 상태를 주기적으로 다시 알려 불필요한 중복 알림을 만든다.
+2. 반면 latch만 두고 cooldown을 없애면 threshold 근처에서 안팎으로 출렁일 때 짧은 간격 재알림이 생길 수 있다.
+3. `same-direction latch + cooldown`이면 `연속 추세 중복`과 `threshold chatter`를 동시에 줄이면서, 반대 방향 전환은 그대로 포착할 수 있다.
+- Impact:
+1. guild state에 `watch_alert_latches`가 추가된다.
+2. 같은 방향 재알림은 price가 baseline 대비 threshold 안으로 되돌아와 latch가 해제될 때까지 억제된다.
+3. 반대 방향 신호는 기존처럼 별도 cooldown key를 사용하므로 계속 알림 가능하다.
+- Status: accepted
+
 ## 2026-03-23
 - Context: 사용자가 앞으로의 최우선 운영 규칙으로 env와 state의 역할을 더 명확히 나누고, 이후 코드리뷰도 이 기준으로 거절할 것은 거절하자고 요청했다.
 - Decision: 이 저장소의 설정 원칙은 `민감정보는 env`, `mutable 운영 라우팅은 state`로 고정한다. channel/forum/watch routing 값은 state를 source of truth로 두고, env의 channel/forum IDs는 bootstrap, 개발 초기값, 테스트 기본값으로만 허용한다.

@@ -58,7 +58,7 @@ async def test_kis_provider_requests_domestic_quote_for_krx_symbol(monkeypatch):
 
     async def fake_request_kis_json(**kwargs):
         calls.append(kwargs)
-        return {"rt_cd": "0", "output": {"stck_prpr": "73100"}}
+        return {"rt_cd": "0", "output": {"stck_prpr": "73100", "stck_sdpr": "70900"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -81,6 +81,82 @@ async def test_kis_provider_requests_domestic_quote_for_krx_symbol(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_kis_provider_marks_domestic_snapshot_stale_when_provider_time_is_old(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("KRX:005930", market_code="KRX", ticker_or_code="005930", kis_exchange_code="KRX")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        return {
+            "rt_cd": "0",
+            "output": {
+                "stck_prpr": "73100",
+                "stck_sdpr": "70900",
+                "stck_bsop_date": "20260323",
+                "stck_cntg_hour": "095500",
+            },
+        }
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    with pytest.raises(market_provider.MarketDataProviderError, match="stale-quote:KRX:005930"):
+        await provider.get_watch_snapshot("KRX:005930", now)
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_allows_post_close_domestic_snapshot_with_last_trade_time(monkeypatch):
+    now = datetime(2026, 3, 24, 8, 55, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("KRX:005930", market_code="KRX", ticker_or_code="005930", kis_exchange_code="KRX")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        return {
+            "rt_cd": "0",
+            "output": {
+                "stck_prpr": "73100",
+                "stck_sdpr": "70900",
+                "stck_clpr": "73100",
+                "stck_bsop_date": "20260323",
+                "stck_cntg_hour": "153000",
+            },
+        }
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    snapshot = await provider.get_watch_snapshot("KRX:005930", now)
+
+    assert snapshot.symbol == "KRX:005930"
+    assert snapshot.session_date == "2026-03-23"
+    assert snapshot.session_close_price == 73100.0
+
+
+@pytest.mark.asyncio
+async def test_watch_snapshot_fresh_allows_post_close_us_snapshot(monkeypatch):
+    now = datetime(2026, 3, 24, 9, 10, tzinfo=KST)
+    snapshot = market_provider.WatchSnapshot(
+        symbol="NAS:AAPL",
+        current_price=214.37,
+        previous_close=208.52,
+        session_close_price=214.37,
+        asof=datetime(2026, 3, 24, 9, 0, tzinfo=KST),
+        session_date="2026-03-23",
+        provider="massive_reference",
+    )
+
+    market_provider._ensure_watch_snapshot_fresh(snapshot, now)
+
+
+@pytest.mark.asyncio
 async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
     now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
     provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
@@ -94,7 +170,7 @@ async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
 
     async def fake_request_kis_json(**kwargs):
         calls.append(kwargs)
-        return {"rt_cd": "0", "output": {"last": "214.37"}}
+        return {"rt_cd": "0", "output": {"last": "214.37", "base": "208.52"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -114,6 +190,81 @@ async def test_kis_provider_requests_overseas_quote_for_us_symbol(monkeypatch):
             "fallback_symbol": "NAS:AAPL",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_retries_nys_symbol_on_ams_when_primary_exchange_returns_empty_quote(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[dict] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NYS:UCO", market_code="NYS", ticker_or_code="UCO", kis_exchange_code="NYS")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs)
+        if kwargs["params"]["EXCD"] == "NYS":
+            return {"rt_cd": "0", "output": {"last": ""}}
+        return {"rt_cd": "0", "output": {"last": "40.10", "base": "41.00"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    quote = await provider.get_quote("NYS:UCO", now)
+
+    assert quote.symbol == "NYS:UCO"
+    assert quote.price == 40.10
+    assert calls == [
+        {
+            "path": "/uapi/overseas-price/v1/quotations/price",
+            "tr_id": "HHDFS00000300",
+            "params": {
+                "AUTH": "",
+                "EXCD": "NYS",
+                "SYMB": "UCO",
+            },
+            "fallback_symbol": "NYS:UCO",
+        },
+        {
+            "path": "/uapi/overseas-price/v1/quotations/price",
+            "tr_id": "HHDFS00000300",
+            "params": {
+                "AUTH": "",
+                "EXCD": "AMS",
+                "SYMB": "UCO",
+            },
+            "fallback_symbol": "NYS:UCO",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_kis_provider_retries_nys_symbol_on_ams_when_primary_exchange_returns_not_found(monkeypatch):
+    now = datetime(2026, 3, 23, 10, 0, tzinfo=KST)
+    provider = market_provider.KisMarketDataProvider(app_key="key", app_secret="secret")
+    calls: list[dict] = []
+
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(_record("NYS:UCO", market_code="NYS", ticker_or_code="UCO", kis_exchange_code="NYS")),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs)
+        if kwargs["params"]["EXCD"] == "NYS":
+            raise RuntimeError("not-found:NYS:UCO")
+        return {"rt_cd": "0", "output": {"last": "40.10", "base": "41.00"}}
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    quote = await provider.get_quote("NYS:UCO", now)
+
+    assert quote.symbol == "NYS:UCO"
+    assert quote.price == 40.10
+    assert [call["params"]["EXCD"] for call in calls] == ["NYS", "AMS"]
 
 
 @pytest.mark.asyncio
@@ -168,7 +319,7 @@ async def test_kis_provider_refreshes_and_retries_after_auth_failure(monkeypatch
         request_tokens.append(token_header)
         if len(request_tokens) == 1:
             raise RuntimeError("kis-auth-failed")
-        return {"rt_cd": "0", "output": {"last": "214.37"}}
+        return {"rt_cd": "0", "output": {"last": "214.37", "base": "208.52"}}
 
     monkeypatch.setattr(provider, "_issue_access_token_sync", fake_issue_access_token_sync)
     monkeypatch.setattr(provider, "_request_json_sync", fake_request_json_sync)
@@ -202,11 +353,12 @@ async def test_kis_provider_falls_back_to_single_quote_after_stale_batch_quote(m
                         "excd": "NAS",
                         "symb": "AAPL",
                         "last": "214.37",
+                        "base": "208.52",
                         "khms": "095500",
                     }
                 ],
             }
-        return {"rt_cd": "0", "output": {"last": "214.37", "khms": "100000"}}
+        return {"rt_cd": "0", "output": {"last": "214.37", "base": "208.52", "khms": "100000"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -241,6 +393,7 @@ async def test_kis_provider_warm_quotes_dedupes_duplicate_symbols(monkeypatch):
                     "excd": "NAS",
                     "symb": "AAPL",
                     "last": "214.37",
+                    "base": "208.52",
                     "khms": "100000",
                 }
             ],
@@ -274,7 +427,7 @@ async def test_kis_provider_falls_back_to_single_quote_after_batch_warm_failure(
         calls.append((path, kwargs["tr_id"]))
         if path.endswith("/multprice"):
             raise RuntimeError("kis-unreachable")
-        return {"rt_cd": "0", "output": {"last": "214.37", "khms": "100000"}}
+        return {"rt_cd": "0", "output": {"last": "214.37", "base": "208.52", "khms": "100000"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -305,7 +458,7 @@ async def test_kis_provider_falls_back_to_single_quote_after_batch_row_omission(
         calls.append((path, kwargs["tr_id"]))
         if path.endswith("/multprice"):
             return {"rt_cd": "0", "output2": []}
-        return {"rt_cd": "0", "output": {"last": "214.37", "khms": "100000"}}
+        return {"rt_cd": "0", "output": {"last": "214.37", "base": "208.52", "khms": "100000"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -335,7 +488,7 @@ async def test_kis_provider_falls_back_to_single_quote_after_domestic_warm_failu
         calls.append(kwargs["path"])
         if len(calls) == 1:
             raise RuntimeError("kis-unreachable")
-        return {"rt_cd": "0", "output": {"stck_prpr": "73100"}}
+        return {"rt_cd": "0", "output": {"stck_prpr": "73100", "stck_sdpr": "70900"}}
 
     monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
 
@@ -468,7 +621,8 @@ async def test_massive_provider_uses_live_trade_price_for_us_symbol(monkeypatch)
                 "lastTrade": {
                     "p": "214.37",
                     "t": str(int(now.timestamp() * 1_000_000_000)),
-                }
+                },
+                "prevDay": {"c": "208.52"},
             },
         }
 

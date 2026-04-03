@@ -46,6 +46,15 @@ from bot.features.news.trend_policy import (
     build_trend_region_messages,
     build_trend_starter_body,
 )
+from bot.features.watch.service import (
+    calculate_change_pct,
+    evaluate_band_event,
+    render_band_comment,
+    render_close_comment,
+    render_watch_starter,
+)
+from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
+from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
     get_daily_posts_for_guild,
     get_guild_eod_forum_channel_id,
@@ -53,24 +62,26 @@ from bot.forum.repository import (
     get_guild_last_auto_run_date,
     get_guild_last_auto_skip_date,
     get_guild_news_forum_channel_id,
-    get_guild_watch_alert_channel_id,
+    get_guild_watch_forum_channel_id,
     get_job_last_runs,
-    get_watch_baseline,
+    get_watch_reference_snapshot,
+    get_watch_session_alert,
     list_guild_ids,
-    list_watch_symbols,
+    list_active_watch_symbols,
+    list_watch_tracked_symbols,
     load_state,
     save_state,
     set_guild_last_auto_skip,
     set_guild_last_auto_run_date,
     set_job_last_run,
     set_provider_status,
-    set_watch_baseline,
+    set_watch_reference_snapshot,
+    update_watch_session_alert,
 )
 from bot.forum.service import upsert_daily_post
 from bot.intel.instrument_registry import (
     RUNTIME_REGISTRY_FILE,
     build_live_registry,
-    format_watch_symbol,
     load_registry,
     registry_status,
     save_registry,
@@ -82,6 +93,7 @@ from bot.intel.providers.market import (
     MockEodSummaryProvider,
     MockMarketDataProvider,
     RoutedMarketDataProvider,
+    WatchSnapshot,
 )
 from bot.intel.providers.news import (
     ErrorNewsProvider,
@@ -207,6 +219,13 @@ def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
         return default_h, default_m
 
 
+def _log_job_result(job_key: str, status: str, detail: str) -> None:
+    if status == "failed":
+        logger.warning("[intel] %s status=%s detail=%s", job_key, status, detail)
+        return
+    logger.info("[intel] %s status=%s detail=%s", job_key, status, detail)
+
+
 def _job_status_on_date(state: dict, job_key: str, run_date: str) -> str | None:
     run = get_job_last_runs(state).get(job_key, {})
     if not str(run.get("run_at") or "").startswith(run_date):
@@ -253,6 +272,19 @@ def _should_start_instrument_registry_refresh(
     return True
 
 
+def _should_run_daily_job(
+    state: dict,
+    now: datetime,
+    *,
+    job_key: str,
+    scheduled_hour: int,
+    scheduled_minute: int,
+) -> bool:
+    if now.hour < scheduled_hour or (now.hour == scheduled_hour and now.minute < scheduled_minute):
+        return False
+    return _job_status_on_date(state, job_key, date_key(now)) is None
+
+
 def _refresh_instrument_registry_sync() -> dict[str, int | str]:
     previous_registry = load_registry()
     previous_symbols = {record.canonical_symbol for record in previous_registry.records}
@@ -276,9 +308,11 @@ def _format_instrument_registry_refresh_detail(summary: dict[str, int | str]) ->
 
 def _record_instrument_registry_refresh_result(*, ok: bool, detail: str) -> None:
     state = load_state()
-    set_job_last_run(state, "instrument_registry_refresh", "ok" if ok else "failed", detail)
+    status = "ok" if ok else "failed"
+    set_job_last_run(state, "instrument_registry_refresh", status, detail)
     set_provider_status(state, "instrument_registry", ok, detail)
     save_state(state)
+    _log_job_result("instrument_registry_refresh", status, detail)
 
 
 async def _refresh_instrument_registry() -> dict[str, int | str]:
@@ -360,10 +394,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         ):
             completed_guilds += 1
             continue
-        forum_channel_id = (
-            get_guild_news_forum_channel_id(state, guild_id)
-            or get_guild_forum_channel_id(state, guild_id)
-        )
+        forum_channel_id = get_guild_news_forum_channel_id(state, guild_id)
         if forum_channel_id is None:
             missing_forum += 1
             continue
@@ -375,11 +406,16 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "failed", detail)
             set_job_last_run(state, "trend_briefing", "failed", detail)
             save_state(state)
+            _log_job_result("news_briefing", "failed", detail)
+            _log_job_result("trend_briefing", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
-            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "skipped", detail)
+            set_job_last_run(state, "trend_briefing", "skipped", detail)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", detail)
+            _log_job_result("trend_briefing", "skipped", detail)
         return
 
     if NEWS_BRIEFING_TRADING_DAYS_ONLY:
@@ -389,6 +425,8 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "skipped", reason)
             set_job_last_run(state, "trend_briefing", "skipped", reason)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", reason)
+            _log_job_result("trend_briefing", "skipped", reason)
             return
 
     for guild_id, forum_channel_id in unresolved_pending_guilds:
@@ -409,11 +447,16 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             set_job_last_run(state, "news_briefing", "failed", detail)
             set_job_last_run(state, "trend_briefing", "failed", detail)
             save_state(state)
+            _log_job_result("news_briefing", "failed", detail)
+            _log_job_result("trend_briefing", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "news_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
-            set_job_last_run(state, "trend_briefing", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "news_briefing", "skipped", detail)
+            set_job_last_run(state, "trend_briefing", "skipped", detail)
             save_state(state)
+            _log_job_result("news_briefing", "skipped", detail)
+            _log_job_result("trend_briefing", "skipped", detail)
         return
 
     try:
@@ -433,6 +476,8 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         set_job_last_run(state, "news_briefing", "failed", str(exc))
         set_job_last_run(state, "trend_briefing", "failed", str(exc))
         save_state(state)
+        _log_job_result("news_briefing", "failed", str(exc))
+        _log_job_result("trend_briefing", "failed", str(exc))
         logger.exception("[intel] news fetch failed: %s", exc)
         return
 
@@ -525,31 +570,38 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
 
     total_failures = failed + resolution_failures
     news_status = "ok" if posted > 0 and total_failures == 0 else "failed"
+    news_detail = (
+        f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+        f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
+    )
     set_job_last_run(
         state,
         "news_briefing",
         news_status,
-        (
-            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
-            f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
-        ),
+        news_detail,
     )
     if trend_can_post:
         trend_total_failures = trend_failed + resolution_failures
         trend_status = "ok" if trend_posted > 0 and trend_total_failures == 0 else "failed"
+        trend_detail = (
+            f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
+            f"forum_resolution_failures={resolution_failures} "
+            f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
+        )
         set_job_last_run(
             state,
             "trend_briefing",
             trend_status,
-            (
-                f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
-                f"forum_resolution_failures={resolution_failures} "
-                f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
-            ),
+            trend_detail,
         )
     else:
         set_job_last_run(state, "trend_briefing", "skipped", trend_skip_reason)
     save_state(state)
+    _log_job_result("news_briefing", news_status, news_detail)
+    if trend_can_post:
+        _log_job_result("trend_briefing", trend_status, trend_detail)
+    else:
+        _log_job_result("trend_briefing", "skipped", trend_skip_reason)
 
 
 async def _analyze_news_provider(provider: NewsProvider, now: datetime) -> NewsAnalysis:
@@ -590,17 +642,16 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     if not unresolved_pending_guilds:
         if resolution_failures > 0:
-            set_job_last_run(
-                state,
-                "eod_summary",
-                "failed",
-                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
-            )
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "failed", detail)
             save_state(state)
+            _log_job_result("eod_summary", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "skipped", detail)
             save_state(state)
+            _log_job_result("eod_summary", "skipped", detail)
         return
 
     is_trading_day, err = safe_check_krx_trading_day(now)
@@ -608,6 +659,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
         set_job_last_run(state, "eod_summary", "skipped", reason)
         save_state(state)
+        _log_job_result("eod_summary", "skipped", reason)
         return
 
     for guild_id, forum_channel_id in unresolved_pending_guilds:
@@ -624,17 +676,16 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     if not pending_guilds:
         if resolution_failures > 0:
-            set_job_last_run(
-                state,
-                "eod_summary",
-                "failed",
-                f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}",
-            )
+            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "failed", detail)
             save_state(state)
+            _log_job_result("eod_summary", "failed", detail)
             return
         if missing_forum > 0 and completed_guilds == 0:
-            set_job_last_run(state, "eod_summary", "skipped", f"no-target-forums missing_forum={missing_forum}")
+            detail = f"no-target-forums missing_forum={missing_forum}"
+            set_job_last_run(state, "eod_summary", "skipped", detail)
             save_state(state)
+            _log_job_result("eod_summary", "skipped", detail)
         return
 
     try:
@@ -644,6 +695,7 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
         set_provider_status(state, "eod_provider", False, str(exc))
         set_job_last_run(state, "eod_summary", "failed", str(exc))
         save_state(state)
+        _log_job_result("eod_summary", "failed", str(exc))
         logger.exception("[intel] eod summary failed: %s", exc)
         return
 
@@ -671,112 +723,434 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
     total_failures = failed + resolution_failures
     status = "ok" if posted > 0 and total_failures == 0 else "failed"
+    detail = (
+        f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
+        f"forum_resolution_failures={resolution_failures} date={summary.date_text}"
+    )
     set_job_last_run(
         state,
         "eod_summary",
         status,
-        (
-            f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
-            f"forum_resolution_failures={resolution_failures} date={summary.date_text}"
-        ),
+        detail,
     )
     save_state(state)
+    _log_job_result("eod_summary", status, detail)
+
+
+def _has_unfinalized_watch_session(alert_entry: dict[str, object]) -> bool:
+    active_session_date = str(alert_entry.get("active_session_date") or "").strip()
+    if not active_session_date:
+        return False
+    last_finalized_session_date = str(alert_entry.get("last_finalized_session_date") or "").strip()
+    return active_session_date != last_finalized_session_date
+
+
+def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], list[str]]:
+    active_symbols = list_active_watch_symbols(state, guild_id)
+    tracked_symbols = list_watch_tracked_symbols(state, guild_id)
+    active_set = set(active_symbols)
+    targets = list(active_symbols)
+    for symbol in tracked_symbols:
+        if symbol in active_set:
+            continue
+        alert = get_watch_session_alert(state, guild_id, symbol)
+        if _has_unfinalized_watch_session(alert):
+            targets.append(symbol)
+    return active_symbols, targets
+
+
+def _is_invalid_watch_symbol_error(exc: RuntimeError) -> bool:
+    message = str(exc)
+    return message.startswith("unsupported-market:")
+
+
+def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> float | None:
+    if snapshot.session_date == target_session_date and snapshot.session_close_price is not None:
+        return snapshot.session_close_price
+    if (
+        snapshot.session_date > target_session_date
+        and snapshot.previous_close > 0
+        and is_adjacent_watch_session_date(
+            symbol,
+            previous_session_date=target_session_date,
+            next_session_date=snapshot.session_date,
+        )
+    ):
+        return snapshot.previous_close
+    return None
+
+
+async def _find_existing_close_comment(
+    thread: discord.Thread,
+    *,
+    symbol: str,
+    session_date: str,
+) -> discord.Message | None:
+    marker = f"[watch-close:{symbol}:{session_date}]"
+    history = getattr(thread, "history", None)
+    if not callable(history):
+        return None
+    try:
+        async for message in history(limit=50):
+            if marker in str(getattr(message, "content", "")):
+                return message
+    except Exception:
+        return None
+    return None
+
+
+async def _finalize_watch_session(
+    client: discord.Client,
+    state: dict,
+    *,
+    now: datetime,
+    guild_id: int,
+    forum_channel_id: int,
+    symbol: str,
+    snapshot: WatchSnapshot,
+    active: bool,
+) -> bool:
+    reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+    if reference_snapshot is None:
+        return False
+    reference_price = float(reference_snapshot.get("reference_price") or 0.0)
+    target_session_date = str(reference_snapshot.get("session_date") or "")
+    if reference_price <= 0 or not target_session_date:
+        return False
+
+    close_price = _resolve_watch_close_price(symbol, snapshot, target_session_date)
+    if close_price is None:
+        return False
+
+    handle = await upsert_watch_thread(
+        client=client,
+        state=state,
+        guild_id=guild_id,
+        forum_channel_id=forum_channel_id,
+        symbol=symbol,
+        active=active,
+        starter_text=None,
+    )
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    intraday_comment_ids = [message_id for message_id in alert_entry.get("intraday_comment_ids", []) if isinstance(message_id, int)]
+    remaining_intraday_comment_ids: list[int] = []
+
+    for message_id in intraday_comment_ids:
+        try:
+            comment = await handle.thread.fetch_message(message_id)
+            await comment.delete()
+        except discord.NotFound:
+            continue
+        except (discord.Forbidden, discord.HTTPException):
+            remaining_intraday_comment_ids.append(message_id)
+
+    if remaining_intraday_comment_ids:
+        update_watch_session_alert(
+            state,
+            guild_id,
+            symbol,
+            intraday_comment_ids=remaining_intraday_comment_ids,
+            updated_at=now.isoformat(),
+        )
+        return False
+
+    close_comment_ids_by_session = {
+        str(date_text): int(message_id)
+        for date_text, message_id in alert_entry.get("close_comment_ids_by_session", {}).items()
+        if isinstance(date_text, str) and isinstance(message_id, int)
+    }
+    close_comment = None
+    existing_close_comment_id = close_comment_ids_by_session.get(target_session_date)
+    if isinstance(existing_close_comment_id, int):
+        try:
+            close_comment = await handle.thread.fetch_message(existing_close_comment_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            close_comment = None
+    if close_comment is None:
+        close_comment = await _find_existing_close_comment(handle.thread, symbol=symbol, session_date=target_session_date)
+
+    close_text = render_close_comment(
+        symbol,
+        session_date=target_session_date,
+        reference_price=reference_price,
+        close_price=close_price,
+    )
+    if close_comment is None:
+        close_comment = await handle.thread.send(close_text)
+    else:
+        await close_comment.edit(content=close_text)
+
+    close_comment_ids_by_session[target_session_date] = close_comment.id
+    update_watch_session_alert(
+        state,
+        guild_id,
+        symbol,
+        intraday_comment_ids=[],
+        close_comment_ids_by_session=close_comment_ids_by_session,
+        updated_at=now.isoformat(),
+    )
+    save_state(state)
+    update_watch_session_alert(
+        state,
+        guild_id,
+        symbol,
+        last_finalized_session_date=target_session_date,
+        updated_at=now.isoformat(),
+    )
+    save_state(state)
+    return True
 
 
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
-    sent = 0
-    alert_attempts = 0
-    processed = 0
-    quote_failures = 0
-    channel_failures = 0
-    missing_channel_guilds = 0
-    send_failures = 0
-    watched_symbols = 0
-    pending_guilds: list[tuple[int, discord.abc.Messageable, list[str]]] = []
+    active_symbols_count = 0
+    updated_threads = 0
+    finalized_sessions = 0
+    missing_forum_guilds = 0
+    thread_failures = 0
+    snapshot_failures = 0
+    comment_failures = 0
+    total_target_symbols = 0
+    pending_guilds: list[tuple[int, int, set[str], list[str]]] = []
     warm_symbols: set[str] = set()
 
     for guild_id in list_guild_ids(state):
-        symbols = list_watch_symbols(state, guild_id)
-        if not symbols:
+        active_symbols, target_symbols = _watch_poll_target_symbols(state, guild_id)
+        active_symbols_count += len(active_symbols)
+        total_target_symbols += len(target_symbols)
+        if not target_symbols:
             continue
-        watched_symbols += len(symbols)
-        alert_channel_id = get_guild_watch_alert_channel_id(state, guild_id)
-        if alert_channel_id is None:
-            missing_channel_guilds += 1
+        forum_channel_id = get_guild_watch_forum_channel_id(state, guild_id)
+        if forum_channel_id is None:
+            missing_forum_guilds += 1
             continue
-        channel = client.get_channel(alert_channel_id)
-        if channel is None:
+        pending_guilds.append((guild_id, forum_channel_id, set(active_symbols), target_symbols))
+        for symbol in target_symbols:
             try:
-                channel = await client.fetch_channel(alert_channel_id)
-            except Exception:
-                channel_failures += 1
+                market_session = get_watch_market_session(symbol, now)
+            except RuntimeError as exc:
+                if not _is_invalid_watch_symbol_error(exc):
+                    raise
+                logger.debug(
+                    "[intel] watch warm skipped invalid symbol guild=%s symbol=%s detail=%s",
+                    guild_id,
+                    symbol,
+                    exc,
+                )
                 continue
-        channel_guild = getattr(channel, "guild", None)
-        if not isinstance(channel, discord.abc.Messageable) or getattr(channel_guild, "id", None) != guild_id:
-            channel_failures += 1
-            continue
-        pending_guilds.append((guild_id, channel, symbols))
-        warm_symbols.update(symbols)
+            if market_session.is_regular_session_open or _has_unfinalized_watch_session(get_watch_session_alert(state, guild_id, symbol)):
+                warm_symbols.add(symbol)
 
-    warm_quotes = getattr(quote_provider, "warm_quotes", None)
-    if pending_guilds and callable(warm_quotes):
+    warm_watch_snapshots = getattr(quote_provider, "warm_watch_snapshots", None)
+    if warm_symbols and callable(warm_watch_snapshots):
         try:
-            await warm_quotes(sorted(warm_symbols), now)
+            await warm_watch_snapshots(sorted(warm_symbols), now)
         except Exception as exc:
-            logger.exception("[intel] watch warm quotes failed: %s", exc)
+            logger.exception("[intel] watch warm snapshots failed: %s", exc)
 
-    for guild_id, channel, symbols in pending_guilds:
+    for guild_id, forum_channel_id, active_symbols, symbols in pending_guilds:
         for symbol in symbols:
             try:
-                quote = await quote_provider.get_quote(symbol, now)
-                provider_key = getattr(quote, "provider", "") or "kis_quote"
-                set_provider_status(state, provider_key, True, f"quote:{symbol}")
+                market_session = get_watch_market_session(symbol, now)
+            except RuntimeError as exc:
+                if not _is_invalid_watch_symbol_error(exc):
+                    raise
+                logger.warning(
+                    "[intel] watch symbol skipped guild=%s symbol=%s detail=%s",
+                    guild_id,
+                    symbol,
+                    exc,
+                )
+                snapshot_failures += 1
+                continue
+            alert_entry = get_watch_session_alert(state, guild_id, symbol)
+            needs_finalization = _has_unfinalized_watch_session(alert_entry)
+            if not market_session.is_regular_session_open and not needs_finalization:
+                continue
+
+            try:
+                snapshot = await quote_provider.get_watch_snapshot(symbol, now)
+                provider_key = getattr(snapshot, "provider", "") or "kis_quote"
+                set_provider_status(state, provider_key, True, f"snapshot:{symbol}")
             except Exception as exc:
                 provider_key = getattr(exc, "provider_key", "kis_quote")
                 set_provider_status(state, provider_key, False, str(exc))
-                quote_failures += 1
+                snapshot_failures += 1
                 continue
 
-            baseline = get_watch_baseline(state, guild_id, symbol) or quote.price
-            from bot.features.watch.service import evaluate_watch_signal
-
-            should_send, direction, change_pct = evaluate_watch_signal(
-                state=state,
-                guild_id=guild_id,
-                symbol=symbol,
-                base_price=baseline,
-                current_price=quote.price,
-            )
-            set_watch_baseline(state, guild_id, symbol, baseline, now.isoformat())
-            processed += 1
-            if should_send:
-                alert_attempts += 1
-                emoji = "📈" if direction == "up" else "📉"
-                display_symbol = format_watch_symbol(symbol)
+            if market_session.is_regular_session_open and symbol in active_symbols:
                 try:
-                    await channel.send(
-                        f"{emoji} {display_symbol} 변동 알림: 기준가 {baseline:,.2f} → 현재가 {quote.price:,.2f} ({change_pct:+.2f}%)"
+                    reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+                    active_session_date = str(alert_entry.get("active_session_date") or "")
+                    reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
+                    if needs_finalization and reference_session_date and reference_session_date < snapshot.session_date:
+                        finalized = await _finalize_watch_session(
+                            client,
+                            state,
+                            now=now,
+                            guild_id=guild_id,
+                            forum_channel_id=forum_channel_id,
+                            symbol=symbol,
+                            snapshot=snapshot,
+                            active=True,
+                        )
+                        if not finalized:
+                            comment_failures += 1
+                            logger.warning(
+                                "[intel] watch carry-forward finalization not completed guild=%s symbol=%s target_session=%s new_session=%s",
+                                guild_id,
+                                symbol,
+                                reference_session_date,
+                                snapshot.session_date,
+                            )
+                            continue
+                        finalized_sessions += 1
+                        alert_entry = get_watch_session_alert(state, guild_id, symbol)
+                        reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+                        active_session_date = str(alert_entry.get("active_session_date") or "")
+                    if (
+                        reference_snapshot is None
+                        or str(reference_snapshot.get("session_date") or "") != snapshot.session_date
+                        or active_session_date != snapshot.session_date
+                    ):
+                        set_watch_reference_snapshot(
+                            state,
+                            guild_id,
+                            symbol,
+                            basis="previous_close",
+                            reference_price=snapshot.previous_close,
+                            session_date=snapshot.session_date,
+                            checked_at=now.isoformat(),
+                        )
+                        update_watch_session_alert(
+                            state,
+                            guild_id,
+                            symbol,
+                            active_session_date=snapshot.session_date,
+                            highest_up_band=0,
+                            highest_down_band=0,
+                            intraday_comment_ids=[],
+                            updated_at=now.isoformat(),
+                        )
+                    else:
+                        set_watch_reference_snapshot(
+                            state,
+                            guild_id,
+                            symbol,
+                            basis="previous_close",
+                            reference_price=snapshot.previous_close,
+                            session_date=snapshot.session_date,
+                            checked_at=now.isoformat(),
+                        )
+
+                    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+                    current_highest_up_band = int(alert_entry.get("highest_up_band") or 0)
+                    current_highest_down_band = int(alert_entry.get("highest_down_band") or 0)
+                    change_pct = calculate_change_pct(snapshot.previous_close, snapshot.current_price)
+                    event = evaluate_band_event(
+                        highest_up_band=current_highest_up_band,
+                        highest_down_band=current_highest_down_band,
+                        change_pct=change_pct,
                     )
-                    sent += 1
-                except Exception:
-                    send_failures += 1
+                    highest_up_band = current_highest_up_band
+                    highest_down_band = current_highest_down_band
+                    if event is not None:
+                        if event.direction == "up":
+                            highest_up_band = event.band
+                        else:
+                            highest_down_band = event.band
+
+                    starter_text = render_watch_starter(
+                        symbol,
+                        reference_price=snapshot.previous_close,
+                        current_price=snapshot.current_price,
+                        change_pct=change_pct,
+                        updated_at=snapshot.asof,
+                    )
+                    handle = await upsert_watch_thread(
+                        client=client,
+                        state=state,
+                        guild_id=guild_id,
+                        forum_channel_id=forum_channel_id,
+                        symbol=symbol,
+                        active=True,
+                        starter_text=starter_text,
+                    )
+                    updated_threads += 1
+                except Exception as exc:
+                    logger.exception("[intel] watch thread update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                    thread_failures += 1
+                    continue
+
+                try:
+                    intraday_comment_ids = [
+                        message_id
+                        for message_id in alert_entry.get("intraday_comment_ids", [])
+                        if isinstance(message_id, int)
+                    ]
+                    if event is not None:
+                        comment = await handle.thread.send(
+                            render_band_comment(
+                                symbol,
+                                direction=event.direction,
+                                band=event.band,
+                                change_pct=event.change_pct,
+                                updated_at=snapshot.asof,
+                            )
+                        )
+                        intraday_comment_ids.append(comment.id)
+                    update_watch_session_alert(
+                        state,
+                        guild_id,
+                        symbol,
+                        highest_up_band=highest_up_band,
+                        highest_down_band=highest_down_band,
+                        intraday_comment_ids=intraday_comment_ids,
+                        updated_at=now.isoformat(),
+                    )
+                    save_state(state)
+                except Exception as exc:
+                    logger.exception("[intel] watch comment/state update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                    comment_failures += 1
+                continue
+
+            if needs_finalization:
+                try:
+                    finalized = await _finalize_watch_session(
+                        client,
+                        state,
+                        now=now,
+                        guild_id=guild_id,
+                        forum_channel_id=forum_channel_id,
+                        symbol=symbol,
+                        snapshot=snapshot,
+                        active=symbol in active_symbols,
+                    )
+                except Exception as exc:
+                    logger.exception("[intel] watch finalization failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                    comment_failures += 1
+                    continue
+                if finalized:
+                    finalized_sessions += 1
 
     detail = (
-        "alerts="
-        f"{sent} alert_attempts={alert_attempts} processed={processed} watched_symbols={watched_symbols} "
-        f"quote_failures={quote_failures} channel_failures={channel_failures} "
-        f"missing_channel_guilds={missing_channel_guilds} send_failures={send_failures}"
+        f"active_symbols={active_symbols_count} updated_threads={updated_threads} finalized_sessions={finalized_sessions} "
+        f"missing_forum_guilds={missing_forum_guilds} thread_failures={thread_failures} "
+        f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
     )
-    if watched_symbols == 0:
-        set_job_last_run(state, "watch_poll", "skipped", "no-watch-symbols")
-    elif quote_failures > 0 or channel_failures > 0 or send_failures > 0:
-        set_job_last_run(state, "watch_poll", "failed", detail)
-    elif processed > 0:
-        set_job_last_run(state, "watch_poll", "ok", detail)
+    if total_target_symbols == 0:
+        status = "skipped"
+        detail = "no-watch-symbols"
+    elif not pending_guilds and missing_forum_guilds > 0:
+        status = "skipped"
+        detail = f"no-target-forums {detail}"
+    elif snapshot_failures > 0 or thread_failures > 0 or comment_failures > 0:
+        status = "failed"
     else:
-        set_job_last_run(state, "watch_poll", "skipped", f"no-target-channels {detail}")
+        status = "ok"
+    set_job_last_run(state, "watch_poll", status, detail)
     save_state(state)
+    _log_job_result("watch_poll", status, detail)
 
 
 async def intel_scheduler(client: discord.Client) -> None:
@@ -803,18 +1177,31 @@ async def intel_scheduler(client: discord.Client) -> None:
                         detail=_format_instrument_registry_refresh_detail(summary),
                     )
                 registry_refresh_task = None
+            state = load_state()
             if INSTRUMENT_REGISTRY_REFRESH_ENABLED:
-                state = load_state()
                 if registry_refresh_task is None and _should_start_instrument_registry_refresh(
                     state,
                     now,
                     refresh_hour=registry_h,
                     refresh_minute=registry_m,
                 ):
+                    logger.info("[intel] instrument_registry_refresh status=started scheduled_for=%02d:%02d", registry_h, registry_m)
                     registry_refresh_task = asyncio.create_task(_refresh_instrument_registry())
-            if NEWS_BRIEFING_ENABLED and now.hour == news_h and now.minute == news_m:
+            if NEWS_BRIEFING_ENABLED and _should_run_daily_job(
+                state,
+                now,
+                job_key="news_briefing",
+                scheduled_hour=news_h,
+                scheduled_minute=news_m,
+            ):
                 await _run_news_job(client, now)
-            if EOD_SUMMARY_ENABLED and now.hour == eod_h and now.minute == eod_m:
+            if EOD_SUMMARY_ENABLED and _should_run_daily_job(
+                state,
+                now,
+                job_key="eod_summary",
+                scheduled_hour=eod_h,
+                scheduled_minute=eod_m,
+            ):
                 await _run_eod_job(client, now)
 
             if WATCH_POLL_ENABLED:

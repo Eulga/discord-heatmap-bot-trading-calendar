@@ -1,5 +1,186 @@
 # Review Log
 
+## 2026-04-03
+- Context: PR #19의 후속 Codex review가 scheduler catch-up과 `/watch add` canonical symbol validation을 다시 지적했다.
+- Finding:
+1. `bot/features/intel_scheduler.py`의 news/EOD scheduler gate는 exact-minute equality만 사용해, 봇이 configured minute 뒤에 기동되거나 event loop가 그 minute를 놓치면 해당 일자의 run을 조용히 건너뛸 수 있었다.
+2. `bot/features/watch/command.py`의 `/watch add`는 syntactically valid canonical symbol이면 registry 존재 여부를 확인하지 않고 바로 성공 처리해, 실제로는 quote provider가 resolve할 수 없는 symbol을 watchlist에 저장할 수 있었다.
+- Resolution:
+1. news/EOD는 `now >= scheduled time` 기반의 daily catch-up helper를 사용하고, same-day `job_last_runs`가 있으면 재실행하지 않도록 수정했다.
+2. `/watch add`는 canonical/legacy fast-path도 instrument registry 존재 검증을 통과해야만 성공하게 수정했다.
+3. 관련 regression을 `tests/integration/test_intel_scheduler_logic.py`와 `tests/unit/test_watch_command.py`에 추가했고, instrument registry refresh가 same-day success 뒤 재시작되지 않는 scheduler loop도 함께 고정 검증했다.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/unit/test_watch_command.py tests/integration/test_intel_scheduler_logic.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
+## 2026-04-03
+- Context: PR #19의 Codex review와 후속 서브에이전트 전체 리뷰를 기준으로 watch stop stale-thread 경로를 재점검했다.
+- Finding:
+1. `/watch stop`는 tracked thread starter를 update-only로 비활성화하는 경로에서 `upsert_watch_thread(..., allow_create=False)`가 `None`을 반환하면 조기 `return`해, symbol status를 `inactive`로 내리지 못했다.
+2. 이 상태에서는 stale/deleted forum thread가 남아 있는 symbol이 계속 active로 유지돼 `watch_poll` alert가 이어지고, 동일한 `/watch stop` 재시도도 같은 stale handle에 막혀 회복이 어려웠다.
+- Resolution:
+1. stale thread handle은 hard failure가 아니라 degraded stop으로 처리하고, starter placeholder를 갱신하지 못해도 symbol status와 runtime state는 정상적으로 비활성화되게 수정했다.
+2. stale tracked thread에서도 inactive status 저장과 runtime cooldown 정리를 보장하는 integration regression을 추가했다.
+3. 수정 후 서브에이전트가 current local diff 전체를 다시 리뷰했고 추가 actionable issue는 없었다.
+- Verification:
+1. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `docker run --rm -v "$PWD:/work" -w /work discord-heatmap-bot-trading-calendar-discord-bot python -m pytest tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_watch_command.py -q -x --tb=line -p no:cacheprovider`
+- Status: done
+
+## 2026-03-27
+- Context: PR #17 Codex 리뷰에서 새 watch lifecycle command surface에 대한 legacy data 재등록 경로를 재점검했다.
+- Finding:
+1. 구 `/watch remove`가 watchlist에서는 symbol을 지웠지만 inactive thread/session-alert metadata를 남긴 길드에서는, `/watch add`가 same-session band checkpoint를 reset하지 않아 재등록 직후 intraday band alert가 누락될 수 있었다.
+- Resolution:
+1. `/watch add`가 성공적으로 watchlist에 symbol을 다시 넣은 뒤에도 기존 inactive thread metadata가 있으면 `_reset_reactivated_same_session_band_state(...)`를 호출하도록 수정했다.
+2. legacy inactive metadata + empty watchlist 조합을 재현하는 통합 테스트를 추가하고, integration inventory 문서를 `WF-18`까지 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: 서브에이전트 재리뷰에서 새 `add/start/stop/delete` watch command 모델에 대한 후속 점검이 진행됐다.
+- Finding:
+1. `/watch stop`가 tracked thread starter 비활성화에 실패해도 inactive state를 먼저 저장하면, 사용자 화면의 starter는 active처럼 남은 채 scheduler도 다시 고쳐주지 못한다.
+- Resolution:
+1. tracked thread가 있는 `/watch stop`은 inactive placeholder update가 성공한 뒤에만 state를 `inactive`로 저장하도록 수정했다.
+2. starter update가 실패하거나 stale handle로 update-only가 불가능하면 command는 실패 응답을 반환하고 active state와 runtime state를 그대로 유지하게 바꿨다.
+3. 관련 회귀 테스트를 `tests/integration/test_watch_forum_flow.py`에 추가하고 current-truth 문서를 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: 내부 follow-up 검토에서 `/watch remove`가 "watchlist 제거"와 "실시간 감시 중단"을 동시에 의미해 상태/UX가 모호하다는 점이 재확인됐고, 사용자가 command policy를 `add/start/stop/delete`로 재정의했다.
+- Finding:
+1. 기존 `/watch add`에 재활성 기능까지 실으면 duplicate add no-op 계약과 충돌하고, `/watch remove`는 symbol 보관 여부와 실시간 감시 여부를 한 번에 바꿔 operator가 현재 상태를 읽기 어렵다.
+2. stopped symbol을 watchlist에서 지워 버리면 목록/재시작/close finalization과 실제 runtime state가 다시 분리될 수 있다.
+3. destructive delete와 단순 stop은 권한/안전성이 달라 command를 분리하는 편이 낫다.
+- Resolution:
+1. `/watch add`는 신규 symbol 추가만 담당하고, inactive duplicate는 `/watch start` 안내로 정리했다.
+2. `/watch stop`은 watchlist를 유지한 채 status만 `inactive`로 바꾸고, scheduler는 active symbol만 장중 poll 대상으로 삼도록 바꿨다.
+3. `/watch delete`는 owner/admin/global-admin gated destructive command로 추가하고, watchlist/thread/runtime state를 함께 제거하도록 구현했다.
+4. starter/list 출력에 symbol status를 명시해 사용자가 active/inactive를 바로 볼 수 있게 했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_command.py tests/unit/test_watchlist_repository.py tests/unit/test_watch_cooldown.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-27
+- Context: PR #16 재리뷰에서 watch forum-thread follow-up 결함과 남은 문서 불일치를 재확인했다.
+- Finding:
+1. `/watch remove`가 기존 thread registry 없이도 새 inactive thread를 만들 수 있었고, remove가 "삭제"가 아니라 새 forum thread 생성으로 보일 수 있었다.
+2. 기존 symbol thread를 재사용하는 `/watch add` / `/watch remove` 경로에서 starter가 active/inactive placeholder로 전환되지 않아 사용자에게 stale 상태가 남을 수 있었다.
+3. 현재 코드가 이미 hard cut 한 `WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id` / `WATCH_ALERT_COOLDOWN_MINUTES`가 `.env.example`과 current-runtime 문서에 남아 있었다.
+4. current docs에는 band comment label이 `int(WATCH_ALERT_THRESHOLD_PCT) * band`를 사용한다는 설명이 없어, non-integer threshold 운영 의도를 읽어낼 수 없었다.
+5. 후속 reviewer는 `/watch remove`가 stale registry entry를 가진 경우에도 `upsert_watch_thread()` fallback recreate 때문에 새 inactive thread를 만들 수 있다고 지적했다.
+6. 전체 reviewer는 `docs/specs/integration-test-cases.md`가 이번 브랜치의 실제 non-live integration coverage와 watch forum-thread 회귀 파일을 반영하지 못한다고 지적했다.
+7. 최신 Codex review는 carry-forward finalization이 여러 trading session gap 뒤의 newer snapshot에도 `previous_close` fallback을 허용해 잘못된 close price로 old session을 finalize할 수 있다고 지적했다.
+8. 같은 review는 same-session remove/re-add 뒤 기존 `highest_up_band/highest_down_band`가 남아 early band alert가 누락될 수 있다고 지적했다.
+9. 같은 review는 malformed persisted symbol 하나가 `get_watch_market_session()` 예외로 전체 `watch_poll` cycle을 중단시킬 수 있다고 지적했다.
+10. 같은 review는 KRX post-close snapshot이 `stck_cntg_hour` 기반 stale-quote 판정 때문에 close finalization까지 가지 못할 수 있다고 지적했다.
+11. follow-up 전체 리뷰는 `/watch add`의 create-or-recover 표현이 실제 duplicate-add no-op 동작과 어긋나 repair command처럼 읽힌다고 지적했다.
+12. 최신 Codex review는 post-close stale snapshot 허용이 `KRX`만 whitelist하고 있어 US close finalization은 여전히 stale-quote에 막힐 수 있다고 지적했다.
+13. 같은 review는 fractional threshold에서 band label이 정수 절단되어 보이는 점을 다시 지적했다.
+14. 후속 Codex review는 `bot/features/watch/thread_service.py`가 `discord.Forbidden` / `discord.HTTPException`도 missing resource처럼 취급해 transient fetch failure 뒤 duplicate watch thread를 만들 수 있다고 지적했다.
+15. 같은 review는 band label이 fractional threshold와 sub-1% threshold를 정확히 드러내지 못해 operator-facing text가 실제 trigger 기준과 어긋난다고 다시 지적했다.
+16. 전체 PR 서브에이전트 리뷰는 hard cut 이후 checked-in local state와 active handoff가 여전히 legacy `watch_alert_channel_id` migration 필요를 명시하지 않아, deploy 시 watch routing loss를 숨길 수 있다고 지적했다.
+- Resolution:
+1. `/watch remove`는 기존 tracked thread가 있을 때만 inactive starter update를 수행하고, registry가 없으면 새 thread를 만들지 않도록 수정했다.
+2. `/watch add`는 re-add/recover 시 active placeholder starter를 명시적으로 다시 쓰도록 수정했다.
+3. legacy watch route env/settings/type/docs surface를 current code에 맞춰 정리하고, hard cut 이후 watch routing source of truth가 `watch_forum_channel_id`뿐임을 문서에 남겼다.
+4. current behavior spec에 band comment label의 정수 절단 의도를 명시했다.
+5. `upsert_watch_thread()`에 `allow_create` 제어를 추가하고 `/watch remove`는 update-only로 호출해, stale registry entry가 있어도 새 inactive thread를 만들지 않도록 막았다.
+6. `docs/specs/integration-test-cases.md`의 suite summary, totals, watch coverage 섹션을 현재 collect 결과와 watch forum-thread 테스트 파일 기준으로 갱신했다.
+7. `bot/features/intel_scheduler.py`의 close-price fallback을 adjacent next trading session으로 제한해 multi-session outage 뒤 잘못된 close finalization을 막았다.
+8. `bot/features/watch/command.py`에서 same-session re-add 시 highest band checkpoint를 reset하도록 보강했고, 관련 integration/unit regression을 추가했다.
+9. `bot/features/intel_scheduler.py`에서 malformed persisted symbol을 per-symbol snapshot failure로 처리해, bad symbol 하나가 같은 cycle의 다른 guild-symbol 처리까지 막지 않도록 수정했다.
+10. `bot/intel/providers/market.py`에서 KRX off-hours close finalization용 snapshot은 `session_close_price`와 current off-hours `session_date`가 맞으면 stale-quote로 reject하지 않도록 완화했다.
+11. malformed symbol isolation 가드는 broad `Exception` 대신 `unsupported-market:*` runtime error만 잡도록 좁혀, 예상 못 한 session 계산 결함이 `snapshot_failures`로 묻히지 않게 수정했다.
+12. current-truth 문서의 `/watch add` 설명을 duplicate add no-op 기준으로 교정해, stale thread repair는 `/watch add`의 계약이 아니라는 점을 명시했다.
+13. `bot/intel/providers/market.py`의 post-close stale snapshot 허용을 market-agnostic off-hours close snapshot으로 넓혀, US close finalization도 stale-quote에 막히지 않도록 수정했다.
+14. `bot/features/watch/thread_service.py`는 authoritative `discord.NotFound`만 recreate 신호로 사용하고, `discord.Forbidden` / `discord.HTTPException`은 호출자 쪽 failure로 surface되게 바꿔 transient Discord 오류 시 duplicate thread 생성을 막았다.
+15. `bot/features/watch/service.py`는 band label `%`를 effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` 기준의 trimmed decimal로 렌더링하게 바꿔, fractional threshold와 sub-1% threshold에서도 alert text가 실제 trigger와 일치하도록 수정했다.
+16. `bot/app/bot_client.py` startup에 legacy watch route migration warning을 추가하고, `CURRENT_STATE.md`와 `session-handoff.md`에 현재 로컬 state 기준 `/setwatchforum` 필요를 명시해 hard cut rollout risk를 숨기지 않도록 했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_market_provider.py -q -x --tb=line -p no:cacheprovider`
+2. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py tests/unit/test_market_provider.py tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/unit/test_bot_client.py -q -x --tb=line -p no:cacheprovider`
+3. `.\.venv\Scripts\python.exe -m pytest tests/integration --collect-only -q -m "not live"`
+- Status: done
+
+## 2026-03-24
+- Context: 사용자가 이전 QA 리뷰에서 P0/P1만 추려 GitHub issue draft와 주차별 구현 순서를 요청했다.
+- Finding:
+1. P0 묶음은 `state fail-open 차단`, `mock/live fail-closed`, `watch quote freshness + market-session gating`이다.
+2. P1 묶음은 `shared watchlist 권한`, `state mutation serialization`, `daily scheduler catch-up`, `transient Discord fetch 시 duplicate post 방지`, `hybrid news partial-region 허용`, `empty-region briefing status 재정의`다.
+3. 구현 순서는 `Week 1=P0`, `Week 2=state/scheduler/Discord idempotency`, `Week 3=news functional degradation + status semantics`로 정리하는 것이 가장 자연스럽다.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 principal-level QA 아키텍트 프롬프트를 적용한 전체 QA 리뷰를 요청했다.
+- Finding:
+1. `bot/forum/repository.py`의 `load_state()`는 `JSONDecodeError`/`OSError`에서 빈 state를 정상값처럼 반환하고, 여러 command/scheduler path가 그 값을 다시 저장해 guild routing, watchlist, daily post dedupe state를 통째로 지울 수 있다.
+2. `bot/features/intel_scheduler.py`의 `news/watch`는 기본값이 `enabled + mock provider` 조합이라 운영자가 env를 충분히 채우지 않았을 때도 synthetic data를 실제 브리핑/알림처럼 게시할 수 있다. `eod_summary`도 활성화 시 여전히 `MockEodSummaryProvider`를 사용한다.
+3. `bot/intel/providers/market.py`는 국내 quote를 `asof=now`로 기록해 stale/off-hours domestic quote를 fresh처럼 통과시킬 수 있고, 해외 quote의 `khms`도 scheduler timezone 기준으로 파싱해 미국장 시각 해석이 어긋날 가능성이 있다.
+4. `bot/features/watch/command.py`는 shared guild watchlist를 아무 길드 멤버나 수정할 수 있고, `bot/features/status/command.py`는 `/health`, `/last-run`, `/source-status`를 모든 멤버에게 공개한다.
+5. `bot/features/auto_scheduler.py`와 `bot/features/intel_scheduler.py`의 daily jobs는 exact-minute trigger만 있고 catch-up path가 없어, 늦은 시작/재배포/짧은 stall 뒤에는 그날 run을 조용히 놓칠 수 있다.
+6. `bot/forum/service.py`는 기존 thread/message fetch의 transient `HTTPException`/`Forbidden`을 `NotFound`와 같이 취급해 same-day duplicate thread 또는 trend follow-up duplicate message를 만들 수 있다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest -q` 전체 통과.
+- Status: open
+
+## 2026-03-24
+- Context: 사용자가 `trendbriefing` 생성 시 `Marketaux`로 수집한 영어 해외뉴스가 현재 테마 판정에서 제대로 동작하는지 확인을 요청했다.
+- Finding:
+1. `bot/intel/providers/news.py`의 `MarketauxNewsProvider.analyze()`는 글로벌 trend 후보를 `NaverNewsProvider`처럼 theme probe query로 넓게 모으지 않고, briefing에 남은 기사만 `_fallback_candidates_by_region()`으로 점수화해 사용한다.
+2. 이 fallback 경로는 `title`, `source`, `published_at`만 사실상 쓰고 `description`을 빈 문자열로 둬 영어 기사 본문/요약/엔터티 신호를 trend 매칭에 반영하지 못한다.
+3. `_match_theme_candidate()`는 curated keyword/symbol hit와 최소 score를 동시에 요구하는데, 글로벌 taxonomy의 `representative_symbols`와 alias가 상당수 한국어 중심이라 `Apple`, `Microsoft`, `Nvidia`, `Tesla`, `Amazon`, `Meta`, `Alphabet`, `Powell` 같은 영어 company-only headline recall이 낮다.
+4. 로컬 논리 검증에서 `Fed/Treasury yields`, `Apple/Microsoft`, `Nvidia/AMD` headline 조합은 global theme 0개였고, `AI chip/semiconductor`처럼 explicit theme keyword가 제목에 들어간 경우만 `AI/반도체`로 매칭됐다.
+5. 현재 테스트 커버리지는 `tests/unit/test_news_provider.py`의 `test_marketaux_news_provider_normalizes_payload()` 수준이라, Marketaux 영어 trend 판정 회귀를 직접 잡는 테스트가 없다.
+- Status: open
+
+## 2026-03-23
+- Context: 사용자가 두 스레드에서 진행한 수정이 겹쳤는지 불확실하다며 전체 modified 파일 리뷰와 clean 확인을 요청했다.
+- Finding:
+1. 명백한 merge conflict 잔재나 같은 목적의 이중 구현은 보이지 않았다. 변경 축은 `watch` 재알림 제어, command/status 로깅, KIS 해외 quote fallback으로 비교적 분리돼 있었다.
+2. 다만 `watch_alert_latches` 도입 뒤 `bot/forum/repository.py`의 `remove_watch_symbol()`이 runtime watch 메타상태를 지우지 않아, 종목을 제거 후 다시 등록해도 이전 `latch/cooldown/baseline`이 남아 첫 same-direction 알림이 막힐 수 있었다.
+- Resolution:
+1. 제거 시 해당 symbol의 `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`를 함께 정리하도록 보강했다.
+2. `tests/unit/test_watchlist_repository.py`, `tests/unit/test_watch_cooldown.py`에 remove/re-add reset 회귀를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_watch_cooldown.py tests\unit\test_watchlist_repository.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 기능별 로그 누락 검토 후 바로 보강 패치를 진행했다.
+- Finding: 기존 지적은 유효했고, `intel_scheduler` success/skip와 주요 slash command 실행 흔적이 파일 로그에 거의 남지 않아 `bot.log`만으로 운영 흐름을 추적하기 어려웠다.
+- Resolution:
+1. `bot/features/intel_scheduler.py`는 각 job의 최종 `status/detail`을 파일 로그에도 기록한다.
+2. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`, `bot/features/status/command.py`는 command audit log를 남긴다.
+3. `bot/app/command_sync.py`의 fail-open 경로는 `print(...)` 대신 logger를 사용한다.
+4. logging 보강 과정에서 `interaction.user`가 없는 테스트 더블 회귀가 드러나, 관련 command logger는 모두 fail-safe helper를 사용하도록 보강했다.
+5. reviewer follow-up으로 `bot/intel/providers/market.py`의 exchange alias retry가 request-stage `not-found`에서도 계속되도록 추가 수정했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_command_sync.py tests\unit\test_watch_command.py tests\unit\test_status_command.py tests\unit\test_market_provider.py tests\integration\test_intel_scheduler_logic.py -q` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 전체 회귀 통과
+3. `docker compose up -d --build` 후 `data/logs/bot.log`에 `watch_poll status=ok` 라인이 실제로 추가되는 것을 확인했다.
+- Status: done
+
+## 2026-03-23
+- Context: 사용자가 "기능별 로그가 제대로 안 찍히는 것 같다"고 보고해 현재 로깅 경로를 점검했다.
+- Finding:
+1. 파일 로깅 자체는 동작하지만, `bot/features/intel_scheduler.py`는 `news_briefing`, `eod_summary`, `watch_poll`, `instrument_registry_refresh`의 성공/skip 결과를 state에만 기록하고 파일 로그에는 남기지 않는다. 실제로 `data/state/state.json`의 최신 `watch_poll=ok`가 갱신된 뒤에도 `data/logs/bot.log`에는 startup 로그만 있고 해당 tick 로그는 없다.
+2. 수동 기능도 feature-level 로그가 거의 없다. `bot/features/watch/command.py`, `bot/features/admin/command.py`, `bot/features/runner.py`는 slash command 호출/성공/실패를 logger로 남기지 않아 `/watch add`, `/setwatchchannel`, 수동 `kheatmap/usheatmap` 실행 흐름을 파일 로그만으로 추적하기 어렵다.
+3. `bot/app/command_sync.py`의 state 저장 실패 경로는 logger가 아니라 `print(...)`를 사용해, 로그 형식/파일 핸들러를 우회한다.
+- Why:
+1. `bot/features/auto_scheduler.py`만 success/skip/failure를 구조적으로 로그로 남기고 있어 기능별 가시성 편차가 크다.
+2. 운영자가 `job_last_runs` state를 직접 열지 않는 한, 로그 파일만 보고는 어떤 기능이 성공했는지와 어느 guild/channel에서 돌았는지 판단하기 어렵다.
+- Status: done
+
 ## 2026-03-23
 - Context: `bot/intel/providers/market.py`의 overseas warm-up batch failure가 same-poll single-symbol fallback까지 막는 reviewer P2 후속 수정
 - Finding: 기존 지적은 유효했고, `_warm_overseas_chunk()`가 batch failure를 chunk 전체 `_quote_errors`로 저장해 버려 `get_quote()`가 개별 `price` endpoint fallback을 시도하지 못하고 즉시 실패할 수 있었다.

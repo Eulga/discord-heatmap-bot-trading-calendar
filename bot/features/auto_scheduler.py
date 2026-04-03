@@ -12,10 +12,12 @@ from bot.features.usheatmap.policy import build_body as build_us_body
 from bot.features.usheatmap.policy import build_post_title as build_us_title
 from bot.forum.repository import (
     get_auto_enabled_guild_ids,
+    get_guild_last_auto_attempt_date,
     get_guild_last_auto_run_date,
     get_guild_last_auto_skip_date,
     load_state,
     save_state,
+    set_guild_last_auto_attempt_date,
     set_guild_last_auto_run_date,
     set_guild_last_auto_skip,
 )
@@ -26,9 +28,10 @@ from bot.markets.trading_calendar import safe_check_krx_trading_day, safe_check_
 logger = logging.getLogger(__name__)
 
 TradingDayCheck = Callable[[datetime], tuple[bool | None, str | None]]
+ScheduledJob = tuple[str, dict[str, str], object, object, object, int, int, TradingDayCheck]
 
 
-def _should_skip_last_auto_run_save(previous_state: dict, refreshed_state: dict, guild_id: int) -> bool:
+def _should_skip_auto_metadata_save(previous_state: dict, refreshed_state: dict, guild_id: int) -> bool:
     guild_key = str(guild_id)
     had_guild_state = guild_key in previous_state.get("guilds", {})
     if not had_guild_state:
@@ -36,35 +39,41 @@ def _should_skip_last_auto_run_save(previous_state: dict, refreshed_state: dict,
     return not refreshed_state.get("commands") and not refreshed_state.get("guilds")
 
 
-def _jobs_for_now(now: datetime) -> list[tuple[str, dict[str, str], object, object, object, int, int, TradingDayCheck]]:
-    jobs: list[tuple[str, dict[str, str], object, object, object, int, int, TradingDayCheck]] = []
-    if now.hour == 15 and now.minute == 35:
-        jobs.append(
-            (
-                "kheatmap",
-                KOREA_MARKET_URLS,
-                capture_korea,
-                build_k_title,
-                build_k_body,
-                15,
-                35,
-                safe_check_krx_trading_day,
-            )
-        )
-    if now.hour == 6 and now.minute == 5:
-        jobs.append(
-            (
-                "usheatmap",
-                US_MARKET_URLS,
-                capture_us,
-                build_us_title,
-                build_us_body,
-                6,
-                5,
-                safe_check_nyse_trading_day,
-            )
-        )
-    return jobs
+def _scheduled_jobs() -> list[ScheduledJob]:
+    return [
+        (
+            "kheatmap",
+            KOREA_MARKET_URLS,
+            capture_korea,
+            build_k_title,
+            build_k_body,
+            15,
+            35,
+            safe_check_krx_trading_day,
+        ),
+        (
+            "usheatmap",
+            US_MARKET_URLS,
+            capture_us,
+            build_us_title,
+            build_us_body,
+            6,
+            5,
+            safe_check_nyse_trading_day,
+        ),
+    ]
+
+
+def _scheduled_tick(now: datetime, hour: int, minute: int) -> datetime:
+    return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def _is_job_due(now: datetime, hour: int, minute: int) -> bool:
+    return now >= _scheduled_tick(now, hour, minute)
+
+
+def _jobs_for_now(now: datetime) -> list[ScheduledJob]:
+    return [job for job in _scheduled_jobs() if _is_job_due(now, job[5], job[6])]
 
 
 async def process_auto_screenshot_tick(client, now: datetime | None = None) -> None:
@@ -79,39 +88,47 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
 
     for guild_id in guild_ids:
         for command_key, targets, capture_func, title_builder, body_builder, h, m, trading_day_check in jobs:
+            last_attempt = get_guild_last_auto_attempt_date(state, guild_id, command_key)
+            if last_attempt == current_date:
+                continue
+
             last_run = get_guild_last_auto_run_date(state, guild_id, command_key)
             if last_run == current_date:
                 continue
 
-            is_trading_day, check_error = trading_day_check(tick_now)
+            last_skip_date = get_guild_last_auto_skip_date(state, guild_id, command_key)
+            if last_skip_date == current_date:
+                continue
+
+            scheduled_label = f"{h:02d}:{m:02d}"
+            scheduled_tick = _scheduled_tick(tick_now, h, m)
+            is_trading_day, check_error = trading_day_check(scheduled_tick)
             if is_trading_day is None:
                 reason = f"calendar-check-failed: {check_error}"
-                last_skip_date = get_guild_last_auto_skip_date(state, guild_id, command_key)
-                if last_skip_date != current_date:
-                    set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
-                    save_state(state)
+                set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
+                set_guild_last_auto_attempt_date(state, guild_id, command_key, current_date)
+                save_state(state)
                 logger.warning(
-                    "[auto-screenshot] skipped guild=%s command=%s at=%02d:%02d reason=%s",
+                    "[auto-screenshot] skipped guild=%s command=%s scheduled=%s tick=%s reason=%s attempt_consumed=true",
                     guild_id,
                     command_key,
-                    h,
-                    m,
+                    scheduled_label,
+                    tick_now.isoformat(),
                     reason,
                 )
                 continue
 
             if is_trading_day is False:
                 reason = "holiday"
-                last_skip_date = get_guild_last_auto_skip_date(state, guild_id, command_key)
-                if last_skip_date != current_date:
-                    set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
-                    save_state(state)
+                set_guild_last_auto_skip(state, guild_id, command_key, current_date, reason)
+                set_guild_last_auto_attempt_date(state, guild_id, command_key, current_date)
+                save_state(state)
                 logger.info(
-                    "[auto-screenshot] skipped guild=%s command=%s at=%02d:%02d reason=%s",
+                    "[auto-screenshot] skipped guild=%s command=%s scheduled=%s tick=%s reason=%s attempt_consumed=true",
                     guild_id,
                     command_key,
-                    h,
-                    m,
+                    scheduled_label,
+                    tick_now.isoformat(),
                     reason,
                 )
                 continue
@@ -130,31 +147,43 @@ async def process_auto_screenshot_tick(client, now: datetime | None = None) -> N
                 # The runner persists daily post/cache state through its own load/save cycle,
                 # so refresh before writing scheduler metadata to avoid clobbering it.
                 refreshed_state = load_state()
-                if _should_skip_last_auto_run_save(state, refreshed_state, guild_id):
+                if _should_skip_auto_metadata_save(state, refreshed_state, guild_id):
                     logger.warning(
-                        "[auto-screenshot] skipped last_auto_runs save guild=%s command=%s because state refresh returned empty",
+                        "[auto-screenshot] skipped auto metadata save guild=%s command=%s because state refresh returned empty",
                         guild_id,
                         command_key,
                     )
                     continue
                 state = refreshed_state
                 set_guild_last_auto_run_date(state, guild_id, command_key, current_date)
+                set_guild_last_auto_attempt_date(state, guild_id, command_key, current_date)
                 save_state(state)
                 logger.info(
-                    "[auto-screenshot] success guild=%s command=%s at=%02d:%02d msg=%s",
+                    "[auto-screenshot] success guild=%s command=%s scheduled=%s tick=%s msg=%s",
                     guild_id,
                     command_key,
-                    h,
-                    m,
+                    scheduled_label,
+                    tick_now.isoformat(),
                     message,
                 )
             else:
+                refreshed_state = load_state()
+                if _should_skip_auto_metadata_save(state, refreshed_state, guild_id):
+                    logger.warning(
+                        "[auto-screenshot] skipped auto metadata save guild=%s command=%s because state refresh returned empty after failure",
+                        guild_id,
+                        command_key,
+                    )
+                    continue
+                state = refreshed_state
+                set_guild_last_auto_attempt_date(state, guild_id, command_key, current_date)
+                save_state(state)
                 logger.error(
-                    "[auto-screenshot] failed guild=%s command=%s at=%02d:%02d reason=%s",
+                    "[auto-screenshot] failed guild=%s command=%s scheduled=%s tick=%s reason=%s attempt_consumed=true",
                     guild_id,
                     command_key,
-                    h,
-                    m,
+                    scheduled_label,
+                    tick_now.isoformat(),
                     message,
                 )
 
