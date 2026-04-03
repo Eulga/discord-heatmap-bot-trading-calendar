@@ -26,6 +26,9 @@
 - Keep changes small and deliberate. Prefer the smallest effective change over broad rewrites.
 - Respect the existing code style, structure, naming, and file layout unless there is a strong reason not to.
 - Ask only when a risky misunderstanding is likely; otherwise make a reasonable assumption and state it.
+- If a required tool or dependency is missing, ask for approval before installing it and before switching to a workaround path.
+- When working from an explicit plan or in Plan mode, if the work produced file changes, update any required docs before handoff and always create a commit before handoff.
+- If `docs/context/session-handoff.md` needs carry-forward updates, include those handoff changes in the same commit rather than leaving them uncommitted.
 - Verify work proportionally. If you cannot run validation, say so explicitly.
 - Distinguish facts from inferences in both analysis and close-out.
 - For review tasks, prioritize defects, regressions, missing tests, and operational risk over praise.
