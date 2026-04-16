@@ -1,14 +1,16 @@
 # Runtime Runbook
 
 ## Local Run
-- Create and activate a virtual environment:
-  - `python -m venv .venv`
+- Local bootstrap currently requires Python `3.10+`.
+- Bootstrap the virtual environment:
+  - Windows: `py -3 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --with-playwright`
+- If `.venv` was created on another OS or is no longer runnable:
+  - Windows: `py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+- Optional shell activation after bootstrap:
   - Windows: `.\.venv\Scripts\Activate.ps1`
   - macOS/Linux: `source .venv/bin/activate`
-- Install dependencies:
-  - `python -m pip install --upgrade pip`
-  - `pip install -r requirements.txt`
-  - `python -m playwright install chromium`
 - Prepare configuration:
   - copy `.env.example` to `.env`
   - set the bot token and any feature-specific credentials you actually need
@@ -17,13 +19,18 @@
 
 ## Standard Validation
 - Default local and CI validation entrypoint:
-  - `python scripts/run_repo_checks.py`
+  - Windows: `py -3 scripts/run_repo_checks.py`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py`
 - Narrower suites:
-  - `python scripts/run_repo_checks.py unit`
-  - `python scripts/run_repo_checks.py integration`
-  - `python scripts/run_repo_checks.py collect`
+  - Windows: `py -3 scripts/run_repo_checks.py unit`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py unit`
+  - Windows: `py -3 scripts/run_repo_checks.py integration`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py integration`
+  - Windows: `py -3 scripts/run_repo_checks.py collect`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py collect`
 - Live-only tests:
-  - `python scripts/run_repo_checks.py --include-live`
+  - Windows: `py -3 scripts/run_repo_checks.py --include-live`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py --include-live`
 
 ## Docker Run
 - Start:
@@ -34,6 +41,7 @@
   - `docker compose down`
 - Docker-specific note:
   - mounted `data/` directories are used so logs, state, and cached artifacts can survive container recreation
+  - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
@@ -67,7 +75,7 @@
 - Set the required forum routes for the guild before expecting posts or alerts.
 - Use the status commands to inspect recent job/provider state when debugging.
 - If scheduler behavior looks wrong, also check for duplicate running bot processes and stale local/container state.
-- For change validation before shipping, prefer `python scripts/run_repo_checks.py` over ad hoc `pytest` commands so local and CI behavior stay aligned.
+- For change validation before shipping, prefer `scripts/run_repo_checks.py` through the active interpreter over ad hoc `pytest` commands so local and CI behavior stay aligned.
 
 ## Troubleshooting
 - Commands not visible:

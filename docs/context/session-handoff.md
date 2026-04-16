@@ -1,9 +1,10 @@
 # Session Handoff
 
 - Active carry-forward as of 2026-04-16:
-  - Repo agent 운영 기본선이 올라갔다. 검증 엔트리포인트는 이제 `python scripts/run_repo_checks.py`로 표준화됐고, `.github/workflows/pr-checks.yml`이 `collect`, `unit`, `integration` non-live 검증을 PR/push에 실행한다.
+  - Repo agent 운영 기본선이 올라갔다. 로컬 bootstrap은 이제 `scripts/bootstrap_dev_env.py`, 검증은 `scripts/run_repo_checks.py`를 현재 OS의 인터프리터로 호출하는 방식으로 정리됐고, `.github/workflows/pr-checks.yml`이 `collect`, `unit`, `integration` non-live 검증을 PR/push에 실행한다.
   - repo-local Codex skill이 4개 추가됐다: `pr-review`, `ci-triage`, `docs-sync`, `scheduler-watch-review`. 구현보다 review/triage/docs 동작을 repo 규칙에 맞게 반복시키는 용도다.
-  - 현재 로컬 셸에서는 `.venv`가 존재하지만 바로 실행 가능한 repo-local Python 경로가 확인되지 않았다. 문서/CI는 `python scripts/run_repo_checks.py` 기준으로 맞췄지만, 실제 개발 머신별 virtualenv activation 절차는 필요 시 다시 점검해야 한다.
+  - 이전 `.venv`가 다른 OS에서 만들어진 경우 `scripts/run_repo_checks.py`는 raw import failure 대신 bootstrap/recreate 안내를 출력하도록 바뀌었다. 다음 세션은 `py -3`(Windows) 또는 `python3`(macOS/Linux) 기준으로 실행 경로를 해석하면 된다.
+  - 현재 macOS 시스템 Python은 `3.9.6`이라 local bootstrap은 의도적으로 실패하고, `bootstrap_dev_env.py` / `run_repo_checks.py`가 Python `3.10+` requirement와 Docker fallback을 함께 안내한다.
 - Active carry-forward as of 2026-04-03:
   - PR #19의 후속 Codex review finding 2건은 로컬에서 수정됐다. `/watch add`는 이제 registry에 없는 canonical/legacy fast-path symbol을 거절하고, news/EOD scheduler는 exact-minute-only가 아니라 same-day catch-up으로 한 번 실행된다. 관련 targeted regression은 `tests/unit/test_watch_command.py`와 `tests/integration/test_intel_scheduler_logic.py`에서 통과했다.
   - PR #19 Codex review의 `/watch stop` stale-thread P1은 로컬에서 수정됐다. 이제 update-only starter refresh가 `None`을 반환해도 symbol status는 `inactive`로 내려가고 runtime state도 정리된다. 관련 regression은 `tests/integration/test_watch_forum_flow.py`에 추가됐다.

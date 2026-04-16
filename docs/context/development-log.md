@@ -1,6 +1,25 @@
 # Development Log
 
 ## 2026-04-16
+- Context: 이전 agent baseline 변경 후에도 `.venv`가 Windows 전용 artifact로 남아 있었고, current-truth 문서 일부가 여전히 raw `.venv\Scripts\python.exe` 또는 `python ...` 경로를 섞어 써서 macOS/Linux local validation이 실제로 복원되지 않았다.
+- Change:
+1. `scripts/bootstrap_dev_env.py`, `scripts/dev_env_utils.py`, `scripts/__init__.py`를 추가해 repo-local `.venv` bootstrap/recreate 흐름과 OS별 interpreter detection helper를 도입했다.
+2. `scripts/run_repo_checks.py`는 이제 current interpreter에 `pytest`가 없으면 current-OS repo `.venv` interpreter를 fallback으로 찾고, `.venv`가 cross-platform mismatch거나 missing이면 `bootstrap_dev_env.py` 안내를 출력하도록 바꿨다.
+3. `tests/unit/test_dev_env_scripts.py`를 추가해 `.venv` cross-platform 판별과 pytest interpreter 선택 분기를 고정했다.
+4. `README.md`, `AGENTS.md`, `docs/operations/runtime-runbook.md`, `docs/specs/integration-test-cases.md`, `docs/specs/integration-live-test-cases.md`, `.agents/skills/ship-develop/SKILL.md`, `.agents/skills/ci-triage/SKILL.md`, `.agents/skills/scheduler-watch-review/SKILL.md`를 업데이트해 bootstrap/validation 경로를 OS별 active interpreter 기준으로 정렬했다.
+5. `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 갱신해 새 cross-platform validation baseline을 current context에 반영했다.
+- Verification:
+1. `python3 -m py_compile scripts/__init__.py scripts/dev_env_utils.py scripts/bootstrap_dev_env.py scripts/run_repo_checks.py tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/bootstrap_dev_env.py --recreate`가 Python `3.10+` requirement와 Docker fallback을 명시적으로 안내하는지 확인
+3. `python3 scripts/run_repo_checks.py collect`가 unsupported local Python일 때 bootstrap/Docker fallback 메시지를 반환하는지 확인
+4. `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
+5. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py unit`
+6. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py integration`
+- Note:
+1. 실제 macOS host의 `python3`는 `3.9.6`이라 `bootstrap_dev_env.py`는 Python `3.10+` requirement를 안내한 뒤 중단하도록 보강했고, 이후 검증은 Docker fallback으로 진행한다.
+- Status: done
+
+## 2026-04-16
 - Context: 사용자가 현재 저장소에 Codex 기반 "AI 에이전트 운영체계" 요소를 실제로 반영해 달라고 요청했다.
 - Change:
 1. `scripts/run_repo_checks.py`를 추가해 local/CI 공통 pytest 엔트리포인트를 `collect`, `unit`, `integration`, `full` 기준으로 표준화했다.

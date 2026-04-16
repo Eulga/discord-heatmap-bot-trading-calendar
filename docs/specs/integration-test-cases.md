@@ -14,12 +14,13 @@
 ## 실행 기준
 - 기본 실행 명령:
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/integration
+```bash
+# Windows: py -3 scripts/run_repo_checks.py integration
+# macOS/Linux: python3 scripts/run_repo_checks.py integration
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 `tests/integration`를 그대로 돌려도 live marker가 붙은 캡처 테스트 2건은 deselect되고, 기본 integration suite는 non-live 84건만 실행된다.
+- 따라서 기본 integration 경로는 live marker가 붙은 캡처 테스트 2건을 deselect하고, non-live 84건만 실행한다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법

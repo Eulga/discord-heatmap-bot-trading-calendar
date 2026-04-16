@@ -26,7 +26,7 @@
 - Keep changes small and deliberate. Prefer the smallest effective change over broad rewrites.
 - Respect the existing code style, structure, naming, and file layout unless there is a strong reason not to.
 - Ask only when a risky misunderstanding is likely; otherwise make a reasonable assumption and state it.
-- Use `python scripts/run_repo_checks.py` as the default verification entrypoint for local and CI validation unless the task requires a narrower command.
+- Use `scripts/run_repo_checks.py` through the active interpreter for the current OS as the default verification entrypoint for local and CI validation unless the task requires a narrower command.
 - If a required tool or dependency is missing, ask for approval before installing it and before switching to a workaround path.
 - When working from an explicit plan or in Plan mode, if the work produced file changes, update any required docs before handoff and always create a commit before handoff.
 - If `docs/context/session-handoff.md` needs carry-forward updates, include those handoff changes in the same commit rather than leaving them uncommitted.
@@ -77,11 +77,14 @@
 - Skip `docs_researcher` when no external or documentation check is needed.
 - Keep blocking implementation work in the main session; use sidecar agents for exploration, review, or docs checks.
 - When `integration_tester` is used for this repo, its default test target is:
-  - `.\.venv\Scripts\python.exe -m pytest tests/integration`
+  - Windows: `py -3 scripts/run_repo_checks.py integration`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py integration`
 
 ## 7) Pointers To Deeper Docs
 - Onboarding:
   - `README.md`
+- Bootstrap helper:
+  - `scripts/bootstrap_dev_env.py`
 - Standardized validation:
   - `scripts/run_repo_checks.py`
 - Runtime operations:

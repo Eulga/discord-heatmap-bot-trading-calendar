@@ -47,9 +47,11 @@
 - Heatmap posting flow verification in real Discord usage.
 - Operator visibility through `/health`, `/last-run`, and `/source-status`.
 - Agent-operating baseline uplift:
-  - standardized repo validation via `python scripts/run_repo_checks.py`
+  - standardized local bootstrap via `scripts/bootstrap_dev_env.py`
+  - standardized repo validation via `scripts/run_repo_checks.py` through the active interpreter for the current OS
   - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
   - GitHub PR template plus CI workflow under `.github/`
+  - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
 
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
@@ -68,6 +70,8 @@
 - Do not assume live EOD behavior, robust daily catch-up beyond the current heatmap auto scheduler, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
 - The presence of `.github/workflows/pr-checks.yml` does not prove secrets-backed Codex/GitHub automation beyond test collection and pytest execution.
+- Do not assume `python` exists as a shell command on macOS/Linux; current docs now treat `scripts/bootstrap_dev_env.py` and `scripts/run_repo_checks.py` as interpreter-driven entrypoints.
+- Do not assume the host system Python is new enough for local bootstrap; the current dependency set requires Python `3.10+`.
 
 ## Last Verified
 - This summary was last updated on 2026-04-16 from:
@@ -78,5 +82,6 @@
   - `../operations/config-reference.md`
   - `../reports/qa-issue-review-2026-03-24.md`
   - `../README.md`
+  - `../../scripts/bootstrap_dev_env.py`
   - `../../.github/workflows/pr-checks.yml`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

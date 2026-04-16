@@ -24,9 +24,12 @@ Use this skill when changes touch scheduler loops, watch polling, watch commands
 - Current-truth docs and regression tests move with the change
 
 ## Suggested Verification
-- `python scripts/run_repo_checks.py integration -- tests/integration/test_intel_scheduler_logic.py`
-- `python scripts/run_repo_checks.py integration -- tests/integration/test_watch_forum_flow.py`
-- `python scripts/run_repo_checks.py integration -- tests/integration/test_watch_poll_forum_scheduler.py`
+- Windows: `py -3 scripts/run_repo_checks.py integration -- tests/integration/test_intel_scheduler_logic.py`
+- macOS/Linux: `python3 scripts/run_repo_checks.py integration -- tests/integration/test_intel_scheduler_logic.py`
+- Windows: `py -3 scripts/run_repo_checks.py integration -- tests/integration/test_watch_forum_flow.py`
+- macOS/Linux: `python3 scripts/run_repo_checks.py integration -- tests/integration/test_watch_forum_flow.py`
+- Windows: `py -3 scripts/run_repo_checks.py integration -- tests/integration/test_watch_poll_forum_scheduler.py`
+- macOS/Linux: `python3 scripts/run_repo_checks.py integration -- tests/integration/test_watch_poll_forum_scheduler.py`
 
 ## Done When
 - Scheduler truthfulness and watch lifecycle risks were explicitly reviewed

@@ -1,8 +1,22 @@
 # Design Decisions
 
 ## 2026-04-16
+- Context: 첫 agent 운영 기본선 도입 후에도 current-truth 문서와 skill 일부가 여전히 `.\.venv\Scripts\python.exe -m pytest` 또는 `python ...`처럼 OS 의존적인 명령을 섞어 쓰고 있었고, 실제 macOS 세션에서는 `python` 명령 자체가 존재하지 않았다.
+- Decision: 현재 truth 문서와 active skill은 raw `.venv` interpreter path를 기본 명령으로 쓰지 않는다. 로컬 bootstrap은 `scripts/bootstrap_dev_env.py`, 검증은 `scripts/run_repo_checks.py`를 기준으로 고정하고, 호출은 OS별 active interpreter(`py -3` on Windows, `python3` on macOS/Linux)로 표현한다. 또한 local bootstrap 최소 버전은 Python `3.10+`로 명시하고, 그보다 낮은 시스템 Python에서는 Docker fallback을 안내한다.
+- Why:
+1. `.venv`는 체크인되지 않는 generated artifact라 OS 간 재사용을 기본 가정하면 오히려 깨진 경로를 current truth로 문서화하게 된다.
+2. 현재 macOS 환경에서는 `python` 명령이 없으므로, `python scripts/run_repo_checks.py`를 canonical command처럼 적어 두는 것도 정확하지 않다.
+3. bootstrap script와 validation script를 분리하면 "환경 준비"와 "테스트 실행" 책임이 선명해지고, `.venv` mismatch 안내도 자동화할 수 있다.
+- Impact:
+1. current-truth docs와 repo-local skills는 이제 Windows/macOS/Linux 분기 또는 "active interpreter" 표현을 사용한다.
+2. `.venv` mismatch는 handoff 메모가 아니라 script behavior로 처리된다.
+3. integration/live test reference docs도 raw pytest path 대신 standardized entrypoint를 기준으로 해석한다.
+4. 지원되지 않는 시스템 Python은 조용히 dependency install에 실패하는 대신, bootstrap 단계에서 명시적으로 거절되고 Docker fallback을 제시한다.
+- Status: accepted
+
+## 2026-04-16
 - Context: 사용자가 이 저장소를 "Codex 보조도구" 수준이 아니라 반복 가능한 AI 에이전트 운영체계에 더 가깝게 정리하길 원했고, 실제 repo에는 문서 허브는 있지만 검증 엔트리포인트와 PR 자동화 기준이 플랫폼별로 흩어져 있었다.
-- Decision: agent 운영의 최소 공통면을 `python scripts/run_repo_checks.py`와 repo-local skill 세트, GitHub PR template/CI workflow로 표준화한다. 우선순위는 `검증 명령 통일 -> repo-local skill 재사용 -> PR CI 기본선`이며, 외부 Slack/MCP/secret-backed Codex automation은 후속 단계로 둔다.
+- Decision: agent 운영의 최소 공통면을 `scripts/run_repo_checks.py`와 repo-local skill 세트, GitHub PR template/CI workflow로 표준화한다. 우선순위는 `검증 명령 통일 -> repo-local skill 재사용 -> PR CI 기본선`이며, 외부 Slack/MCP/secret-backed Codex automation은 후속 단계로 둔다.
 - Why:
 1. 현재 repo는 문서 구조는 좋지만, 검증 명령이 Windows-style 기록과 ad hoc pytest 호출로 흩어져 있어 세션/OS/CI 간 일관성이 약했다.
 2. review, CI triage, docs sync, scheduler/watch review는 반복성이 높아 repo-local skill로 고정할 가치가 높다.
@@ -180,7 +194,7 @@
 
 ## 2026-03-22
 - Context: 사용자가 "기능 전체 통합 테스트 전용 subagent"를 하나 따로 두고, 이 agent가 테스트할 때는 항상 전체 integration suite를 돌리길 원했다.
-- Decision: project custom agent에 `integration_tester`를 추가하고, 이 agent의 테스트 기본 동작을 `.\.venv\Scripts\python.exe -m pytest tests/integration` 전체 실행으로 고정한다.
+- Decision: project custom agent에 `integration_tester`를 추가하고, 이 agent의 테스트 기본 동작을 현재 OS의 active interpreter로 `scripts/run_repo_checks.py integration` 전체 실행으로 고정한다.
 - Why:
 1. 이 저장소는 단일 파일 회귀만 보면 놓치는 scheduler/forum/state 연동 문제가 자주 나와, 기능 검증용 agent는 부분 테스트보다 전체 integration suite를 기본값으로 가져가는 편이 안전하다.
 2. 테스트 전용 역할을 별도로 분리하면 `repo_explorer`/`reviewer`와 책임이 섞이지 않고, 검증 요청 시 기대 동작이 명확해진다.

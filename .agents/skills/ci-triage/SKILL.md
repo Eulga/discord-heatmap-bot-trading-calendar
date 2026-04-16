@@ -8,7 +8,7 @@ description: Triage failing local or GitHub checks using the repo's standardized
 Use this skill when tests, collection, or CI jobs are failing.
 
 ## Standard Command
-- Default verification entrypoint is `python scripts/run_repo_checks.py`
+- Default verification entrypoint is `scripts/run_repo_checks.py` through the active interpreter for the current OS
 - Common suites:
   - `collect`
   - `unit`

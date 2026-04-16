@@ -1,6 +1,6 @@
 interface:
   display_name: "CI Triage"
   short_description: "Reproduce and narrow failing checks"
-  default_prompt: "Use $ci-triage to reproduce and narrow a failing local or GitHub check with `python scripts/run_repo_checks.py`, identify the root cause, and propose or implement the smallest safe fix."
+  default_prompt: "Use $ci-triage to reproduce and narrow a failing local or GitHub check with `scripts/run_repo_checks.py` through the active interpreter for the current OS, identify the root cause, and propose or implement the smallest safe fix."
 policy:
   allow_implicit_invocation: true

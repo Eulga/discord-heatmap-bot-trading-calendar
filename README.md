@@ -4,17 +4,35 @@ Python Discord bot for posting Korea/US heatmaps and running related scheduled m
 
 ## Setup
 
+Local bootstrap currently requires Python `3.10+`. If the machine only has an older Python, use Docker for validation instead of `.venv`.
+
 ```bash
-python -m venv .venv
-# Windows: .\.venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python -m playwright install chromium
+# Windows: py -3 scripts/bootstrap_dev_env.py --with-playwright
+# macOS/Linux: python3 scripts/bootstrap_dev_env.py --with-playwright
 cp .env.example .env
 ```
 
+If `.venv` was created on another OS or no longer matches the current interpreter, rebuild it with:
+
+```bash
+# Windows: py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright
+# macOS/Linux: python3 scripts/bootstrap_dev_env.py --recreate --with-playwright
+```
+
+Optional shell activation after bootstrap:
+
+```bash
+# Windows: .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+```
+
 Set the bot token in `.env` before running.
+
+Docker fallback for validation when a suitable local Python is unavailable:
+
+```bash
+docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect
+```
 
 ## Run
 
@@ -46,31 +64,36 @@ docker compose down
 Default:
 
 ```bash
-python scripts/run_repo_checks.py
+# Windows: py -3 scripts/run_repo_checks.py
+# macOS/Linux: python3 scripts/run_repo_checks.py
 ```
 
 Unit only:
 
 ```bash
-python scripts/run_repo_checks.py unit
+# Windows: py -3 scripts/run_repo_checks.py unit
+# macOS/Linux: python3 scripts/run_repo_checks.py unit
 ```
 
 Integration only:
 
 ```bash
-python scripts/run_repo_checks.py integration
+# Windows: py -3 scripts/run_repo_checks.py integration
+# macOS/Linux: python3 scripts/run_repo_checks.py integration
 ```
 
 Collection / CI parity:
 
 ```bash
-python scripts/run_repo_checks.py collect
+# Windows: py -3 scripts/run_repo_checks.py collect
+# macOS/Linux: python3 scripts/run_repo_checks.py collect
 ```
 
 Live-only:
 
 ```bash
-python scripts/run_repo_checks.py --include-live
+# Windows: py -3 scripts/run_repo_checks.py --include-live
+# macOS/Linux: python3 scripts/run_repo_checks.py --include-live
 ```
 
 ## Deeper Docs
@@ -96,7 +119,8 @@ python scripts/run_repo_checks.py --include-live
 ## Agent Workflow
 
 - Default agent read order starts at `AGENTS.md`
-- Standardized validation entrypoint is `python scripts/run_repo_checks.py`
+- Bootstrap helper is `scripts/bootstrap_dev_env.py`
+- Standardized validation entrypoint is `scripts/run_repo_checks.py`, invoked with the active interpreter for the current OS
 - Repo-local Codex skills now include:
   - `pr-review`
   - `ci-triage`
