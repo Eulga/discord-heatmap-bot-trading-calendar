@@ -5,6 +5,7 @@
   - repo-local Codex skill이 4개 추가됐다: `pr-review`, `ci-triage`, `docs-sync`, `scheduler-watch-review`. 구현보다 review/triage/docs 동작을 repo 규칙에 맞게 반복시키는 용도다.
   - 이전 `.venv`가 다른 OS에서 만들어진 경우 `scripts/run_repo_checks.py`는 raw import failure 대신 bootstrap/recreate 안내를 출력하도록 바뀌었다. 다음 세션은 `py -3`(Windows) 또는 `python3`(macOS/Linux) 기준으로 실행 경로를 해석하면 된다.
   - Homebrew `python3.11` 설치 후 `.venv`는 `3.11.15`로 재생성됐고, 현재 macOS host에서는 `python3`가 여전히 `3.9.6`이지만 `python3 scripts/run_repo_checks.py`가 repo `.venv` fallback으로 collect/unit/integration을 통과한다.
+  - PR #20의 첫 GitHub Actions run은 `DISCORD_BOT_TOKEN` 누락 때문에 collect/unit/integration이 모두 import-time `RuntimeError`로 실패했다. `.github/workflows/pr-checks.yml`은 이제 placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token`을 export해 non-live test jobs가 동일 원인으로 막히지 않게 했다.
 - Active carry-forward as of 2026-04-03:
   - PR #19의 후속 Codex review finding 2건은 로컬에서 수정됐다. `/watch add`는 이제 registry에 없는 canonical/legacy fast-path symbol을 거절하고, news/EOD scheduler는 exact-minute-only가 아니라 same-day catch-up으로 한 번 실행된다. 관련 targeted regression은 `tests/unit/test_watch_command.py`와 `tests/integration/test_intel_scheduler_logic.py`에서 통과했다.
   - PR #19 Codex review의 `/watch stop` stale-thread P1은 로컬에서 수정됐다. 이제 update-only starter refresh가 `None`을 반환해도 symbol status는 `inactive`로 내려가고 runtime state도 정리된다. 관련 regression은 `tests/integration/test_watch_forum_flow.py`에 추가됐다.

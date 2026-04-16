@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-04-16
+- Context: PR #20의 첫 GitHub Actions run이 collect/unit/integration 전부에서 실패했다. 원인은 workflow가 `bot.app.settings` import에 필요한 `DISCORD_BOT_TOKEN`을 주지 않아 test collection 자체가 막힌 것이었다.
+- Change:
+1. `.github/workflows/pr-checks.yml`에 workflow-level placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token`을 추가해 non-live pytest collect/unit/integration job이 import-time settings guard 때문에 중단되지 않도록 했다.
+2. `docs/operations/runtime-runbook.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`를 업데이트해 PR CI가 placeholder token으로 import-time validation만 우회한다는 경계를 현재 문서에 반영했다.
+- Verification:
+1. `gh run view 24511040944 --log-failed`
+2. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py collect`
+3. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py unit`
+4. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-04-16
 - Context: 이전 agent baseline 변경 후에도 `.venv`가 Windows 전용 artifact로 남아 있었고, current-truth 문서 일부가 여전히 raw `.venv\Scripts\python.exe` 또는 `python ...` 경로를 섞어 써서 macOS/Linux local validation이 실제로 복원되지 않았다.
 - Change:
 1. `scripts/bootstrap_dev_env.py`, `scripts/dev_env_utils.py`, `scripts/__init__.py`를 추가해 repo-local `.venv` bootstrap/recreate 흐름과 OS별 interpreter detection helper를 도입했다.

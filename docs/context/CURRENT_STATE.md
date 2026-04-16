@@ -51,6 +51,7 @@
   - standardized repo validation via `scripts/run_repo_checks.py` through the active interpreter for the current OS
   - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
   - GitHub PR template plus CI workflow under `.github/`
+  - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
   - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
 
@@ -71,6 +72,7 @@
 - Do not assume live EOD behavior, robust daily catch-up beyond the current heatmap auto scheduler, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
 - The presence of `.github/workflows/pr-checks.yml` does not prove secrets-backed Codex/GitHub automation beyond test collection and pytest execution.
+- The placeholder `DISCORD_BOT_TOKEN` used by PR checks is only for import-time testability; it does not prove Discord connectivity or secret-backed CI validation.
 - Do not assume `python` exists as a shell command on macOS/Linux; current docs now treat `scripts/bootstrap_dev_env.py` and `scripts/run_repo_checks.py` as interpreter-driven entrypoints.
 - Do not assume the host system Python is new enough for local bootstrap; the current dependency set requires Python `3.10+`.
 - Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.

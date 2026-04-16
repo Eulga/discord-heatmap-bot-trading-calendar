@@ -24,6 +24,9 @@
 - Default local and CI validation entrypoint:
   - Windows: `py -3 scripts/run_repo_checks.py`
   - macOS/Linux: `python3 scripts/run_repo_checks.py`
+- CI note:
+  - `.github/workflows/pr-checks.yml` exports placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token` because `bot.app.settings` requires a token at import time even for non-live test collection
+  - local validation still needs `.env` or an explicit `DISCORD_BOT_TOKEN` when no local env file is present
 - Narrower suites:
   - Windows: `py -3 scripts/run_repo_checks.py unit`
   - macOS/Linux: `python3 scripts/run_repo_checks.py unit`

@@ -11,6 +11,10 @@ concurrency:
   group: pr-checks-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # pytest collection imports bot.app.settings, which requires a token at import time.
+  DISCORD_BOT_TOKEN: ci-placeholder-token
+
 jobs:
   collect:
     runs-on: ubuntu-latest
