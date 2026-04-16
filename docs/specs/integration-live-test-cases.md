@@ -6,8 +6,9 @@
 
 ## 실행 명령
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest -m live
+```bash
+# Windows: py -3 scripts/run_repo_checks.py --include-live
+# macOS/Linux: python3 scripts/run_repo_checks.py --include-live
 ```
 
 ## 전제조건

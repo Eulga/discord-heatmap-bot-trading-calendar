@@ -1,0 +1,6 @@
+interface:
+  display_name: "Docs Sync"
+  short_description: "Update canonical docs with minimal drift"
+  default_prompt: "Use $docs-sync to update only the minimum necessary canonical docs, logs, and handoff notes after a code-confirmed change in this repository."
+policy:
+  allow_implicit_invocation: true

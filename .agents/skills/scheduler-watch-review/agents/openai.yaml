@@ -1,0 +1,6 @@
+interface:
+  display_name: "Scheduler Watch Review"
+  short_description: "Review scheduler and watch lifecycle changes"
+  default_prompt: "Use $scheduler-watch-review to inspect scheduler, watch forum-thread, and job-status changes for state ordering bugs, stale lifecycle state, catch-up regressions, and docs/test drift."
+policy:
+  allow_implicit_invocation: true
