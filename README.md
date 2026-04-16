@@ -4,11 +4,12 @@ Python Discord bot for posting Korea/US heatmaps and running related scheduled m
 
 ## Setup
 
-Local bootstrap currently requires Python `3.10+`. If the machine only has an older Python, use Docker for validation instead of `.venv`.
+Local bootstrap currently requires Python `3.10+`. On this macOS host, `python3` is still `3.9.6`, so the working local interpreter is `python3.11`. If the machine only has an older Python, use Docker for validation instead of `.venv`.
 
 ```bash
 # Windows: py -3 scripts/bootstrap_dev_env.py --with-playwright
-# macOS/Linux: python3 scripts/bootstrap_dev_env.py --with-playwright
+# macOS/Linux: python3.11 scripts/bootstrap_dev_env.py --with-playwright
+# macOS/Linux alternate: any other python3.10+ interpreter
 cp .env.example .env
 ```
 
@@ -16,7 +17,8 @@ If `.venv` was created on another OS or no longer matches the current interprete
 
 ```bash
 # Windows: py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright
-# macOS/Linux: python3 scripts/bootstrap_dev_env.py --recreate --with-playwright
+# macOS/Linux: python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright
+# macOS/Linux alternate: any other python3.10+ interpreter
 ```
 
 Optional shell activation after bootstrap:
@@ -66,6 +68,7 @@ Default:
 ```bash
 # Windows: py -3 scripts/run_repo_checks.py
 # macOS/Linux: python3 scripts/run_repo_checks.py
+# current macOS host also works with: python3.11 scripts/run_repo_checks.py
 ```
 
 Unit only:
@@ -73,6 +76,7 @@ Unit only:
 ```bash
 # Windows: py -3 scripts/run_repo_checks.py unit
 # macOS/Linux: python3 scripts/run_repo_checks.py unit
+# current macOS host also works with: python3.11 scripts/run_repo_checks.py unit
 ```
 
 Integration only:
@@ -80,6 +84,7 @@ Integration only:
 ```bash
 # Windows: py -3 scripts/run_repo_checks.py integration
 # macOS/Linux: python3 scripts/run_repo_checks.py integration
+# current macOS host also works with: python3.11 scripts/run_repo_checks.py integration
 ```
 
 Collection / CI parity:
@@ -87,6 +92,7 @@ Collection / CI parity:
 ```bash
 # Windows: py -3 scripts/run_repo_checks.py collect
 # macOS/Linux: python3 scripts/run_repo_checks.py collect
+# current macOS host also works with: python3.11 scripts/run_repo_checks.py collect
 ```
 
 Live-only:
@@ -94,6 +100,7 @@ Live-only:
 ```bash
 # Windows: py -3 scripts/run_repo_checks.py --include-live
 # macOS/Linux: python3 scripts/run_repo_checks.py --include-live
+# current macOS host also works with: python3.11 scripts/run_repo_checks.py --include-live
 ```
 
 ## Deeper Docs

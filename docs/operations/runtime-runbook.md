@@ -2,12 +2,15 @@
 
 ## Local Run
 - Local bootstrap currently requires Python `3.10+`.
+- On the current macOS host, `python3` is still `3.9.6`, so local bootstrap uses `/opt/homebrew/bin/python3.11`.
 - Bootstrap the virtual environment:
   - Windows: `py -3 scripts/bootstrap_dev_env.py --with-playwright`
-  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
 - If `.venv` was created on another OS or is no longer runnable:
   - Windows: `py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
-  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
 - Optional shell activation after bootstrap:
   - Windows: `.\.venv\Scripts\Activate.ps1`
   - macOS/Linux: `source .venv/bin/activate`

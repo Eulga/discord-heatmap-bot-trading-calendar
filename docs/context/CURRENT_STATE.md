@@ -52,6 +52,7 @@
   - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
   - GitHub PR template plus CI workflow under `.github/`
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
+  - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
 
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
@@ -72,6 +73,7 @@
 - The presence of `.github/workflows/pr-checks.yml` does not prove secrets-backed Codex/GitHub automation beyond test collection and pytest execution.
 - Do not assume `python` exists as a shell command on macOS/Linux; current docs now treat `scripts/bootstrap_dev_env.py` and `scripts/run_repo_checks.py` as interpreter-driven entrypoints.
 - Do not assume the host system Python is new enough for local bootstrap; the current dependency set requires Python `3.10+`.
+- Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
 - This summary was last updated on 2026-04-16 from:

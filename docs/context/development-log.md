@@ -15,8 +15,13 @@
 4. `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 5. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py unit`
 6. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py integration`
+- Follow-up:
+1. `/opt/homebrew/bin/python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+4. `python3 scripts/run_repo_checks.py integration`
 - Note:
-1. 실제 macOS host의 `python3`는 `3.9.6`이라 `bootstrap_dev_env.py`는 Python `3.10+` requirement를 안내한 뒤 중단하도록 보강했고, 이후 검증은 Docker fallback으로 진행한다.
+1. 실제 macOS host의 `python3`는 여전히 `3.9.6`이지만, Homebrew `python3.11` 설치 후 `.venv`를 `3.11.15`로 재생성했고, `run_repo_checks.py`는 이 `.venv`를 fallback interpreter로 사용해 로컬 collect/unit/integration을 통과했다.
 - Status: done
 
 ## 2026-04-16
