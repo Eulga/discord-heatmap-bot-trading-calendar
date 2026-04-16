@@ -2,8 +2,9 @@
 
 ## Local Run
 - Create and activate a virtual environment:
-  - `py -3 -m venv .venv`
-  - `.\.venv\Scripts\Activate.ps1`
+  - `python -m venv .venv`
+  - Windows: `.\.venv\Scripts\Activate.ps1`
+  - macOS/Linux: `source .venv/bin/activate`
 - Install dependencies:
   - `python -m pip install --upgrade pip`
   - `pip install -r requirements.txt`
@@ -13,6 +14,16 @@
   - set the bot token and any feature-specific credentials you actually need
 - Start the bot:
   - `python -m bot.main`
+
+## Standard Validation
+- Default local and CI validation entrypoint:
+  - `python scripts/run_repo_checks.py`
+- Narrower suites:
+  - `python scripts/run_repo_checks.py unit`
+  - `python scripts/run_repo_checks.py integration`
+  - `python scripts/run_repo_checks.py collect`
+- Live-only tests:
+  - `python scripts/run_repo_checks.py --include-live`
 
 ## Docker Run
 - Start:
@@ -56,6 +67,7 @@
 - Set the required forum routes for the guild before expecting posts or alerts.
 - Use the status commands to inspect recent job/provider state when debugging.
 - If scheduler behavior looks wrong, also check for duplicate running bot processes and stale local/container state.
+- For change validation before shipping, prefer `python scripts/run_repo_checks.py` over ad hoc `pytest` commands so local and CI behavior stay aligned.
 
 ## Troubleshooting
 - Commands not visible:

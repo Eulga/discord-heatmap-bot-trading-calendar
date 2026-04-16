@@ -4,13 +4,14 @@ Python Discord bot for posting Korea/US heatmaps and running related scheduled m
 
 ## Setup
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+```bash
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 python -m playwright install chromium
-Copy-Item .env.example .env
+cp .env.example .env
 ```
 
 Set the bot token in `.env` before running.
@@ -19,13 +20,13 @@ Set the bot token in `.env` before running.
 
 Local:
 
-```powershell
+```bash
 python -m bot.main
 ```
 
 Docker:
 
-```powershell
+```bash
 docker compose up -d --build
 docker compose logs -f discord-bot
 docker compose down
@@ -44,14 +45,32 @@ docker compose down
 
 Default:
 
-```powershell
-pytest
+```bash
+python scripts/run_repo_checks.py
+```
+
+Unit only:
+
+```bash
+python scripts/run_repo_checks.py unit
+```
+
+Integration only:
+
+```bash
+python scripts/run_repo_checks.py integration
+```
+
+Collection / CI parity:
+
+```bash
+python scripts/run_repo_checks.py collect
 ```
 
 Live-only:
 
-```powershell
-pytest -m live
+```bash
+python scripts/run_repo_checks.py --include-live
 ```
 
 ## Deeper Docs
@@ -73,3 +92,14 @@ pytest -m live
 - Existing integration test references:
   - `docs/specs/integration-test-cases.md`
   - `docs/specs/integration-live-test-cases.md`
+
+## Agent Workflow
+
+- Default agent read order starts at `AGENTS.md`
+- Standardized validation entrypoint is `python scripts/run_repo_checks.py`
+- Repo-local Codex skills now include:
+  - `pr-review`
+  - `ci-triage`
+  - `docs-sync`
+  - `scheduler-watch-review`
+- GitHub PRs now have a default template and CI workflow under `.github/`

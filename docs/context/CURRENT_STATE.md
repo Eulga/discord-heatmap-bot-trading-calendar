@@ -46,6 +46,10 @@
 - Operational stabilization around startup, scheduler reliability, and state safety.
 - Heatmap posting flow verification in real Discord usage.
 - Operator visibility through `/health`, `/last-run`, and `/source-status`.
+- Agent-operating baseline uplift:
+  - standardized repo validation via `python scripts/run_repo_checks.py`
+  - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
+  - GitHub PR template plus CI workflow under `.github/`
 
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
@@ -63,13 +67,16 @@
 - Do not treat `../reports/qa-issue-review-2026-03-24.md` as a runtime spec; it is a QA assessment/report.
 - Do not assume live EOD behavior, robust daily catch-up beyond the current heatmap auto scheduler, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
+- The presence of `.github/workflows/pr-checks.yml` does not prove secrets-backed Codex/GitHub automation beyond test collection and pytest execution.
 
 ## Last Verified
-- This summary was last updated on 2026-04-03 from:
+- This summary was last updated on 2026-04-16 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`
   - `../specs/watch-poll-functional-spec.md`
   - `../operations/config-reference.md`
   - `../reports/qa-issue-review-2026-03-24.md`
+  - `../README.md`
+  - `../../.github/workflows/pr-checks.yml`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

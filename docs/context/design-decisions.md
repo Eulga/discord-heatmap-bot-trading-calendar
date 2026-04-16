@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-04-16
+- Context: 사용자가 이 저장소를 "Codex 보조도구" 수준이 아니라 반복 가능한 AI 에이전트 운영체계에 더 가깝게 정리하길 원했고, 실제 repo에는 문서 허브는 있지만 검증 엔트리포인트와 PR 자동화 기준이 플랫폼별로 흩어져 있었다.
+- Decision: agent 운영의 최소 공통면을 `python scripts/run_repo_checks.py`와 repo-local skill 세트, GitHub PR template/CI workflow로 표준화한다. 우선순위는 `검증 명령 통일 -> repo-local skill 재사용 -> PR CI 기본선`이며, 외부 Slack/MCP/secret-backed Codex automation은 후속 단계로 둔다.
+- Why:
+1. 현재 repo는 문서 구조는 좋지만, 검증 명령이 Windows-style 기록과 ad hoc pytest 호출로 흩어져 있어 세션/OS/CI 간 일관성이 약했다.
+2. review, CI triage, docs sync, scheduler/watch review는 반복성이 높아 repo-local skill로 고정할 가치가 높다.
+3. 네트워크 권한이나 외부 secret이 필요한 자동화보다, repo 내부에서 바로 재현 가능한 CI/test baseline이 먼저 있어야 agent 운영 비용과 drift를 줄일 수 있다.
+- Impact:
+1. 로컬과 CI는 기본적으로 같은 검증 엔트리포인트를 사용한다.
+2. PR에는 기본 요약/검증/리스크 구조가 생기고, `.github/workflows/pr-checks.yml`이 non-live collect/unit/integration 기본선을 강제한다.
+3. Codex skill 확장은 implementation helper보다 review/triage/docs safety rail 중심으로 시작한다.
+- Status: accepted
+
 ## 2026-03-27
 - Context: 내부 검토에서 기존 `/watch remove`가 "watchlist에서 제거"와 "실시간 감시 중단"을 동시에 의미해 UX와 state 해석이 모호하다는 문제가 드러났고, 사용자가 command policy를 재정의했다.
 - Decision: watch command surface는 `add/start/stop/delete/list`로 분리한다. `/watch add`는 신규 symbol만 추가하고, `/watch start`는 stopped symbol의 실시간 감시를 다시 켠다. `/watch stop`은 symbol을 guild watchlist에 남긴 채 status만 `inactive`로 바꾸고 starter에도 상태를 드러낸다. `/watch delete`는 admin-gated destructive command로 두고, watchlist/state/thread를 함께 제거한다.

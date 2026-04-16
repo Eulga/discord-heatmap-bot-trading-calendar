@@ -1,5 +1,20 @@
 # Development Log
 
+## 2026-04-16
+- Context: 사용자가 현재 저장소에 Codex 기반 "AI 에이전트 운영체계" 요소를 실제로 반영해 달라고 요청했다.
+- Change:
+1. `scripts/run_repo_checks.py`를 추가해 local/CI 공통 pytest 엔트리포인트를 `collect`, `unit`, `integration`, `full` 기준으로 표준화했다.
+2. `.github/workflows/pr-checks.yml`을 추가해 PR/push에서 non-live test collection, unit, integration 검증을 실행하도록 했다.
+3. `.github/pull_request_template.md`를 추가해 요약, 검증, 문서 반영, 리스크, 롤백 메모를 PR 기본 구조로 고정했다.
+4. repo-local Codex skill `pr-review`, `ci-triage`, `docs-sync`, `scheduler-watch-review`를 추가해 반복 review/triage/docs 업무를 저장소 규칙에 맞게 재사용할 수 있게 했다.
+5. `README.md`, `AGENTS.md`, `docs/operations/runtime-runbook.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 업데이트해 새 검증 명령과 agent operating baseline을 current-truth 문서에 반영했다.
+- Verification:
+1. `python3 scripts/run_repo_checks.py collect` 호출 시 새 엔트리포인트가 예상 명령을 구성하는 것까지 확인했고, 현재 sandbox Python에 `pytest`가 없어 collect 단계는 `No module named pytest`로 중단됐다
+2. `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/run_repo_checks.py').read_text())"`로 새 스크립트 구문을 확인했다
+3. static review로 `.github/workflows/pr-checks.yml`, PR template, skill metadata가 새 검증 명령과 일관되는지 확인했다
+4. 이 환경에서는 repo-local virtualenv Python 경로가 바로 확인되지 않아 full/unit/integration 실행까지는 검증하지 못했다
+- Status: done
+
 ## 2026-04-03
 - Context: PR #19 Codex review reported two new P1 items: `/watch add` accepted nonexistent canonical symbols, and news/EOD daily schedulers still missed runs after late start.
 - Change:
