@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-04-24
+- Context: watch symbol threads had accumulated close comments, so the latest current price in the starter body was no longer the easiest item to inspect after scrolling to the bottom of a long thread.
+- Decision: watch symbol thread starters stay blank for now, while regular-session current price/status is maintained in a tracked current-price comment. Normal polls edit the same comment; when the bot creates a newer band/close-adjacent comment in the same flow, it recreates the current-price comment afterward so the latest watch state remains at the bottom. Future fundamental fields such as market cap, PER, and PBR are deferred.
+- Why:
+1. Users inspect long-running watch threads from the bottom, so the live state should live there rather than in the starter body.
+2. Editing the same comment avoids unnecessary comment churn during normal polling.
+3. Recreating only after bot-created newer comments preserves bottom positioning without creating a new message on every poll.
+- Impact:
+1. `system.watch_session_alerts.*.*.current_comment_id` is now part of watch runtime state.
+2. Close finalization and `/watch stop` must clean up stale current-price comments.
+3. Starter content is intentionally not used for current-price display in this phase.
+- Status: accepted
+
 ## 2026-03-27
 - Context: 내부 검토에서 기존 `/watch remove`가 "watchlist에서 제거"와 "실시간 감시 중단"을 동시에 의미해 UX와 state 해석이 모호하다는 문제가 드러났고, 사용자가 command policy를 재정의했다.
 - Decision: watch command surface는 `add/start/stop/delete/list`로 분리한다. `/watch add`는 신규 symbol만 추가하고, `/watch start`는 stopped symbol의 실시간 감시를 다시 켠다. `/watch stop`은 symbol을 guild watchlist에 남긴 채 status만 `inactive`로 바꾸고 starter에도 상태를 드러낸다. `/watch delete`는 admin-gated destructive command로 두고, watchlist/state/thread를 함께 제거한다.

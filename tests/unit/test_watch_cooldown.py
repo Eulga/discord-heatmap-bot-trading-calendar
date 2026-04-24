@@ -29,7 +29,7 @@ def test_watch_starter_status_supports_both_active_and_inactive():
 def test_watch_rendering_uses_user_facing_copy():
     updated_at = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
 
-    starter = service.render_watch_starter(
+    current_comment = service.render_watch_current_comment(
         "KRX:005930",
         reference_price=100.0,
         current_price=107.1,
@@ -45,15 +45,19 @@ def test_watch_rendering_uses_user_facing_copy():
     )
     inactive_placeholder = service.render_watch_placeholder("KRX:005930", active=False)
 
-    assert "상태: 실시간 감시중" in starter
-    assert "전일 종가: ₩100.00" in starter
-    assert "현재가: ₩107.10" in starter
-    assert "기준 세션" not in starter
-    assert "당일 alert status" not in starter
-    assert "당일 최고 상승 band" not in starter
+    assert "상태: 실시간 감시중" in current_comment
+    assert "전일 종가: ₩100.00" in current_comment
+    assert "현재가: ₩107.10" in current_comment
+    assert "기준 세션" not in current_comment
+    assert "당일 alert status" not in current_comment
+    assert "당일 최고 상승 band" not in current_comment
     assert comment == "삼성전자 (KRX:005930) +6% 이상 상승 : +7.10% · 2026-03-26 10:00:00"
     assert "상태: 감시 중단됨" in inactive_placeholder
     assert inactive_placeholder.endswith("실시간 감시가 중단되었습니다")
+
+
+def test_watch_blank_starter_has_no_visible_text():
+    assert service.render_blank_watch_starter() == service.BLANK_WATCH_STARTER
 
 
 def test_watch_rendering_preserves_fractional_band_threshold_text(monkeypatch):
@@ -81,7 +85,7 @@ def test_watch_rendering_preserves_fractional_band_threshold_text(monkeypatch):
 
 
 def test_watch_rendering_uses_dollar_symbol_for_us_products():
-    starter = service.render_watch_starter(
+    current_comment = service.render_watch_current_comment(
         "NAS:AAPL",
         reference_price=100.0,
         current_price=107.1,
@@ -89,8 +93,8 @@ def test_watch_rendering_uses_dollar_symbol_for_us_products():
         updated_at=datetime(2026, 3, 27, 0, 0, tzinfo=KST),
     )
 
-    assert "전일 종가: $100.00" in starter
-    assert "현재가: $107.10" in starter
+    assert "전일 종가: $100.00" in current_comment
+    assert "현재가: $107.10" in current_comment
 
 
 def test_watch_market_session_identifies_krx_open_and_preopen_session_dates():

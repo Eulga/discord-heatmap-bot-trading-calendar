@@ -50,12 +50,14 @@ from bot.features.watch.service import (
     calculate_change_pct,
     evaluate_band_event,
     render_band_comment,
+    render_blank_watch_starter,
     render_close_comment,
-    render_watch_starter,
+    render_watch_current_comment,
 )
 from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
+    clear_watch_current_comment_id,
     get_daily_posts_for_guild,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
@@ -75,6 +77,7 @@ from bot.forum.repository import (
     set_guild_last_auto_run_date,
     set_job_last_run,
     set_provider_status,
+    set_watch_current_comment_id,
     set_watch_reference_snapshot,
     update_watch_session_alert,
 )
@@ -799,6 +802,78 @@ async def _find_existing_close_comment(
     return None
 
 
+async def _delete_watch_current_comment(
+    thread: discord.Thread,
+    state: dict,
+    *,
+    guild_id: int,
+    symbol: str,
+) -> None:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    current_comment_id = alert_entry.get("current_comment_id")
+    if not isinstance(current_comment_id, int):
+        return
+    try:
+        current_comment = await thread.fetch_message(current_comment_id)
+        await current_comment.delete()
+    except discord.NotFound:
+        pass
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning(
+            "[intel] watch current comment cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+            guild_id,
+            symbol,
+            current_comment_id,
+            exc,
+        )
+    clear_watch_current_comment_id(state, guild_id, symbol)
+
+
+async def _upsert_watch_current_comment(
+    thread: discord.Thread,
+    state: dict,
+    *,
+    guild_id: int,
+    symbol: str,
+    content: str,
+    force_recreate: bool,
+) -> discord.Message:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    current_comment_id = alert_entry.get("current_comment_id")
+    current_comment = None
+
+    if isinstance(current_comment_id, int):
+        try:
+            current_comment = await thread.fetch_message(current_comment_id)
+        except discord.NotFound:
+            clear_watch_current_comment_id(state, guild_id, symbol)
+            current_comment = None
+
+    if current_comment is not None and force_recreate:
+        try:
+            await current_comment.delete()
+        except discord.NotFound:
+            pass
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning(
+                "[intel] watch current comment recreate cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+                guild_id,
+                symbol,
+                current_comment_id,
+                exc,
+            )
+        clear_watch_current_comment_id(state, guild_id, symbol)
+        current_comment = None
+
+    if current_comment is None:
+        current_comment = await thread.send(content)
+    else:
+        await current_comment.edit(content=content)
+
+    set_watch_current_comment_id(state, guild_id, symbol, current_comment.id)
+    return current_comment
+
+
 async def _finalize_watch_session(
     client: discord.Client,
     state: dict,
@@ -829,8 +904,9 @@ async def _finalize_watch_session(
         forum_channel_id=forum_channel_id,
         symbol=symbol,
         active=active,
-        starter_text=None,
+        starter_text=render_blank_watch_starter(),
     )
+    await _delete_watch_current_comment(handle.thread, state, guild_id=guild_id, symbol=symbol)
     alert_entry = get_watch_session_alert(state, guild_id, symbol)
     intraday_comment_ids = [message_id for message_id in alert_entry.get("intraday_comment_ids", []) if isinstance(message_id, int)]
     remaining_intraday_comment_ids: list[int] = []
@@ -905,6 +981,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
     active_symbols_count = 0
     updated_threads = 0
+    updated_current_comments = 0
     finalized_sessions = 0
     missing_forum_guilds = 0
     thread_failures = 0
@@ -1060,7 +1137,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         else:
                             highest_down_band = event.band
 
-                    starter_text = render_watch_starter(
+                    current_comment_text = render_watch_current_comment(
                         symbol,
                         reference_price=snapshot.previous_close,
                         current_price=snapshot.current_price,
@@ -1074,7 +1151,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         forum_channel_id=forum_channel_id,
                         symbol=symbol,
                         active=True,
-                        starter_text=starter_text,
+                        starter_text=render_blank_watch_starter(),
                     )
                     updated_threads += 1
                 except Exception as exc:
@@ -1088,27 +1165,62 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         for message_id in alert_entry.get("intraday_comment_ids", [])
                         if isinstance(message_id, int)
                     ]
+                    persisted_highest_up_band = current_highest_up_band
+                    persisted_highest_down_band = current_highest_down_band
+                    band_comment_posted = False
                     if event is not None:
-                        comment = await handle.thread.send(
-                            render_band_comment(
-                                symbol,
-                                direction=event.direction,
-                                band=event.band,
-                                change_pct=event.change_pct,
-                                updated_at=snapshot.asof,
+                        try:
+                            comment = await handle.thread.send(
+                                render_band_comment(
+                                    symbol,
+                                    direction=event.direction,
+                                    band=event.band,
+                                    change_pct=event.change_pct,
+                                    updated_at=snapshot.asof,
+                                )
                             )
+                        except Exception as exc:
+                            logger.exception("[intel] watch band comment failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                            comment_failures += 1
+                        else:
+                            intraday_comment_ids.append(comment.id)
+                            persisted_highest_up_band = highest_up_band
+                            persisted_highest_down_band = highest_down_band
+                            band_comment_posted = True
+                            update_watch_session_alert(
+                                state,
+                                guild_id,
+                                symbol,
+                                highest_up_band=persisted_highest_up_band,
+                                highest_down_band=persisted_highest_down_band,
+                                intraday_comment_ids=intraday_comment_ids,
+                                updated_at=now.isoformat(),
+                            )
+                            save_state(state)
+                    try:
+                        await _upsert_watch_current_comment(
+                            handle.thread,
+                            state,
+                            guild_id=guild_id,
+                            symbol=symbol,
+                            content=current_comment_text,
+                            force_recreate=band_comment_posted,
                         )
-                        intraday_comment_ids.append(comment.id)
-                    update_watch_session_alert(
-                        state,
-                        guild_id,
-                        symbol,
-                        highest_up_band=highest_up_band,
-                        highest_down_band=highest_down_band,
-                        intraday_comment_ids=intraday_comment_ids,
-                        updated_at=now.isoformat(),
-                    )
-                    save_state(state)
+                    except Exception as exc:
+                        logger.exception("[intel] watch current comment update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                        comment_failures += 1
+                    else:
+                        updated_current_comments += 1
+                        update_watch_session_alert(
+                            state,
+                            guild_id,
+                            symbol,
+                            highest_up_band=persisted_highest_up_band,
+                            highest_down_band=persisted_highest_down_band,
+                            intraday_comment_ids=intraday_comment_ids,
+                            updated_at=now.isoformat(),
+                        )
+                        save_state(state)
                 except Exception as exc:
                     logger.exception("[intel] watch comment/state update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
                     comment_failures += 1
@@ -1134,7 +1246,8 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     finalized_sessions += 1
 
     detail = (
-        f"active_symbols={active_symbols_count} updated_threads={updated_threads} finalized_sessions={finalized_sessions} "
+        f"active_symbols={active_symbols_count} updated_threads={updated_threads} "
+        f"updated_current_comments={updated_current_comments} finalized_sessions={finalized_sessions} "
         f"missing_forum_guilds={missing_forum_guilds} thread_failures={thread_failures} "
         f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
     )
