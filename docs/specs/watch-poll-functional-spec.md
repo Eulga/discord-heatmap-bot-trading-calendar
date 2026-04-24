@@ -231,6 +231,7 @@
    - same-session close comment reuse or create
    - `close_comment_ids_by_session[session_date]` checkpoint save
    - `last_finalized_session_date` save
+   - current-price comment delete의 `Forbidden`/`HTTPException`은 best-effort cleanup failure로 보고 finalization을 계속 진행한다.
 4. close comment는 아래 내용을 담는다.
    - marker: `[watch-close:{symbol}:{session_date}]`
    - 날짜

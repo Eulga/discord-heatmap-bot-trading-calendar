@@ -1,6 +1,16 @@
 # Development Log
 
 ## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that close finalization could still abort when current-price comment cleanup hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats close-finalization current-price comment cleanup as best-effort for `Forbidden`/`HTTPException`, logs the cleanup failure, clears the stored current comment ID, and continues close finalization.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving close comment creation and `last_finalized_session_date` persistence still happen when current-comment delete fails.
+3. Watch docs now state that finalization current-price comment cleanup is best-effort.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
 - Context: PR #21 Codex review reported that current-price comments had become coupled to band comment success, and `/watch stop` could fail when best-effort current-comment cleanup hit Discord errors.
 - Change:
 1. `bot/features/intel_scheduler.py` now keeps band comment send and current-price comment upsert in separate failure boundaries.

@@ -18,6 +18,10 @@ class FakeNotFound(Exception):
     pass
 
 
+class FakeHTTPException(Exception):
+    pass
+
+
 class FakeMessage:
     def __init__(self, message_id: int, content: str = ""):
         self.id = message_id
@@ -390,6 +394,90 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
     assert "current_comment_id" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 1
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_failure(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    monkeypatch.setattr(intel_scheduler.discord, "HTTPException", FakeHTTPException)
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    thread = FakeThread(2001, starter)
+    intraday = FakeMessage(3002, "band-1")
+
+    class CurrentComment(FakeMessage):
+        async def delete(self):
+            raise FakeHTTPException("delete-failed")
+
+    current_comment = CurrentComment(3003, "current")
+    thread.add_message(intraday)
+    thread.add_message(current_comment)
+    forum._threads[thread.id] = thread
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "KRX:005930": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-03-26",
+                        "checked_at": "2026-03-26T10:00:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-26",
+                        "highest_up_band": 1,
+                        "highest_down_band": 0,
+                        "current_comment_id": 3003,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {},
+                    }
+                }
+            },
+        },
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            return market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=99.0,
+                previous_close=100.0,
+                session_close_price=98.0,
+                asof=now,
+                session_date="2026-03-26",
+                provider="kis_quote",
+            )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
+
+    alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert current_comment.deleted is False
+    assert intraday.deleted is True
+    assert "current_comment_id" not in alert_entry
+    assert alert_entry["last_finalized_session_date"] == "2026-03-26"
+    close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
+    assert len(close_comments) == 1
+    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
 
 
 @pytest.mark.asyncio

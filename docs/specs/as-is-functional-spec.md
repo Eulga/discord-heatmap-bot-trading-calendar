@@ -818,6 +818,7 @@
 - Band comment failures increment counters but do not block current-price comment updates for that symbol.
 - Current-price comment failures increment counters but the job continues for other symbols.
 - `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
+- Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
 - Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
