@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-04-24
+- Context: PR #21 Codex review reported that current-price comments had become coupled to band comment success, and `/watch stop` could fail when best-effort current-comment cleanup hit Discord errors.
+- Change:
+1. `bot/features/intel_scheduler.py` now keeps band comment send and current-price comment upsert in separate failure boundaries.
+2. Failed band comment sends increment `comment_failures` but do not advance band checkpoints and do not block current-price updates.
+3. `/watch stop` now treats current-price comment cleanup `Forbidden`/`HTTPException` as best-effort failures, logs them, clears the stored current comment ID, and still persists inactive status.
+4. Regression tests cover both PR review findings.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
 - Context: 사용자가 `watch_poll`의 현재가 표시를 포럼 게시글 본문 수정에서 thread 하단 comment 수정 방식으로 옮기고, starter 본문은 이번 범위에서 비워두길 요청했다.
 - Change:
 1. `watch_poll`은 이제 regular session poll에서 starter를 blank 상태로 유지하고 `current_comment_id`로 추적되는 현재가 comment를 생성/수정한다.

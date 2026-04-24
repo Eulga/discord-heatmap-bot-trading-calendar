@@ -788,6 +788,7 @@
    - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
    - the session state resets when `session_date` changes
    - at most one highest newly crossed `3%` band comment is created per poll
+   - band comment send failures do not block current-price comment updates, and failed band checkpoints are not advanced
    - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
 8. Outside regular-session hours:
    - current-price and intraday updates are skipped
@@ -814,7 +815,9 @@
 ### 4.7 Error / edge handling (As-Is)
 - Snapshot failures increment counters and skip current-price/comment updates for that symbol.
 - Missing or invalid watch forum/thread failures increment counters and skip that symbol.
-- Comment delete/create failures increment counters but the job continues for other symbols.
+- Band comment failures increment counters but do not block current-price comment updates for that symbol.
+- Current-price comment failures increment counters but the job continues for other symbols.
+- `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
 - Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 

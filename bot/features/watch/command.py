@@ -47,6 +47,14 @@ async def _delete_current_comment_if_present(thread: discord.Thread, state, guil
         await comment.delete()
     except discord.NotFound:
         pass
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning(
+            "[command] watch.stop current comment cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+            guild_id,
+            symbol,
+            current_comment_id,
+            exc,
+        )
     clear_watch_current_comment_id(state, guild_id, symbol)
 
 

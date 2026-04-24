@@ -237,6 +237,63 @@ async def test_watch_poll_keeps_same_session_highest_band_and_supports_both_acti
 
 
 @pytest.mark.asyncio
+async def test_watch_poll_updates_current_comment_when_band_comment_send_fails(monkeypatch):
+    _patch_discord_types(monkeypatch)
+
+    class BandFailThread(FakeThread):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.send_calls = 0
+
+        async def send(self, content: str):
+            self.send_calls += 1
+            if self.send_calls == 1:
+                raise RuntimeError("band-send-failed")
+            return await super().send(content)
+
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    thread = BandFailThread(2001, starter, parent_id=456)
+    forum._threads[thread.id] = thread
+    state = {
+        "commands": {
+            "watchpoll": {
+                "symbol_threads_by_guild": {
+                    "1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}
+                },
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            return _open_snapshot(now, 104.0)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+    alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert thread.send_calls == 2
+    assert len(thread.sent_contents) == 1
+    assert "현재가: ₩104.00" in thread.sent_contents[0]
+    assert alert_entry["highest_up_band"] == 0
+    assert alert_entry["highest_down_band"] == 0
+    assert alert_entry["intraday_comment_ids"] == []
+    assert alert_entry["current_comment_id"] == _visible_messages(thread)[-1].id
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "failed"
+    assert "comment_failures=1" in run["detail"]
+    assert "updated_current_comments=1" in run["detail"]
+
+
+@pytest.mark.asyncio
 async def test_watch_poll_defers_close_finalization_until_session_close_price_is_available(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)

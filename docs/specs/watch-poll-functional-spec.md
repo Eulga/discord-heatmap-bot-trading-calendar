@@ -208,6 +208,7 @@
    - 마지막 갱신 시각
    - 저장된 `current_comment_id`가 없거나 메시지가 없으면 새로 만들고, 있으면 같은 comment를 edit한다.
    - 같은 poll에서 band comment를 새로 남기면 기존 현재가 comment를 삭제 후 다시 보내 현재가 comment가 thread 하단에 오도록 한다.
+   - band comment 전송에 실패해도 current-price comment 갱신은 계속 시도하고, 실패한 band checkpoint는 다음 poll에서 재시도될 수 있게 advance하지 않는다.
 7. `change_pct = ((current_price - previous_close) / previous_close) * 100`를 계산한다.
 8. `3% band ladder` 규칙:
    - `+3`, `+6`, `+9` ...

@@ -1149,46 +1149,62 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         for message_id in alert_entry.get("intraday_comment_ids", [])
                         if isinstance(message_id, int)
                     ]
+                    persisted_highest_up_band = current_highest_up_band
+                    persisted_highest_down_band = current_highest_down_band
+                    band_comment_posted = False
                     if event is not None:
-                        comment = await handle.thread.send(
-                            render_band_comment(
-                                symbol,
-                                direction=event.direction,
-                                band=event.band,
-                                change_pct=event.change_pct,
-                                updated_at=snapshot.asof,
+                        try:
+                            comment = await handle.thread.send(
+                                render_band_comment(
+                                    symbol,
+                                    direction=event.direction,
+                                    band=event.band,
+                                    change_pct=event.change_pct,
+                                    updated_at=snapshot.asof,
+                                )
                             )
+                        except Exception as exc:
+                            logger.exception("[intel] watch band comment failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                            comment_failures += 1
+                        else:
+                            intraday_comment_ids.append(comment.id)
+                            persisted_highest_up_band = highest_up_band
+                            persisted_highest_down_band = highest_down_band
+                            band_comment_posted = True
+                            update_watch_session_alert(
+                                state,
+                                guild_id,
+                                symbol,
+                                highest_up_band=persisted_highest_up_band,
+                                highest_down_band=persisted_highest_down_band,
+                                intraday_comment_ids=intraday_comment_ids,
+                                updated_at=now.isoformat(),
+                            )
+                            save_state(state)
+                    try:
+                        await _upsert_watch_current_comment(
+                            handle.thread,
+                            state,
+                            guild_id=guild_id,
+                            symbol=symbol,
+                            content=current_comment_text,
+                            force_recreate=band_comment_posted,
                         )
-                        intraday_comment_ids.append(comment.id)
+                    except Exception as exc:
+                        logger.exception("[intel] watch current comment update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                        comment_failures += 1
+                    else:
+                        updated_current_comments += 1
                         update_watch_session_alert(
                             state,
                             guild_id,
                             symbol,
-                            highest_up_band=highest_up_band,
-                            highest_down_band=highest_down_band,
+                            highest_up_band=persisted_highest_up_band,
+                            highest_down_band=persisted_highest_down_band,
                             intraday_comment_ids=intraday_comment_ids,
                             updated_at=now.isoformat(),
                         )
                         save_state(state)
-                    await _upsert_watch_current_comment(
-                        handle.thread,
-                        state,
-                        guild_id=guild_id,
-                        symbol=symbol,
-                        content=current_comment_text,
-                        force_recreate=event is not None,
-                    )
-                    updated_current_comments += 1
-                    update_watch_session_alert(
-                        state,
-                        guild_id,
-                        symbol,
-                        highest_up_band=highest_up_band,
-                        highest_down_band=highest_down_band,
-                        intraday_comment_ids=intraday_comment_ids,
-                        updated_at=now.isoformat(),
-                    )
-                    save_state(state)
                 except Exception as exc:
                     logger.exception("[intel] watch comment/state update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
                     comment_failures += 1

@@ -626,6 +626,60 @@ async def test_watch_stop_marks_thread_inactive_and_blanks_starter(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_watch_stop_ignores_current_comment_cleanup_http_failure(monkeypatch):
+    monkeypatch.setattr(watch_command.discord, "NotFound", FakeNotFound)
+    monkeypatch.setattr(watch_command.discord, "Forbidden", FakeForbidden)
+    monkeypatch.setattr(watch_command.discord, "HTTPException", FakeHTTPException)
+
+    tree, client = _tree()
+    watch_command.register(tree, client)
+    group = _command_by_name(tree, "watch")
+    stop_command = next(command for command in group.commands if command.name == "stop")
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {
+            "1": {
+                "watch_forum_channel_id": 456,
+                "watchlist": ["KRX:005930"],
+                "watch_alert_cooldowns": {"KRX:005930:up": "2026-03-27T10:00:00+09:00"},
+            }
+        },
+        "system": {"watch_session_alerts": {"1": {"KRX:005930": {"current_comment_id": 3002}}}},
+    }
+
+    class CleanupMessage:
+        async def delete(self):
+            raise FakeHTTPException("delete-failed")
+
+    class CleanupThread:
+        async def fetch_message(self, message_id: int):
+            assert message_id == 3002
+            return CleanupMessage()
+
+    async def fake_upsert_watch_thread(**kwargs):
+        return SimpleNamespace(action="updated", thread=CleanupThread())
+
+    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
+
+    interaction = FakeInteraction(guild_id=1, user_id=10)
+    await stop_command.callback(interaction, "005930")
+
+    assert state["commands"]["watchpoll"]["symbol_threads_by_guild"]["1"]["KRX:005930"]["status"] == "inactive"
+    assert state["guilds"]["1"]["watch_alert_cooldowns"] == {}
+    assert "current_comment_id" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert interaction.response.messages[-1][0] == "관심종목 `삼성전자 (KRX:005930)` 의 실시간 감시를 중단했습니다."
+
+
+@pytest.mark.asyncio
 async def test_watch_stop_without_registry_entry_records_inactive_status_without_thread_create(monkeypatch):
     tree, client = _tree()
     watch_command.register(tree, client)
