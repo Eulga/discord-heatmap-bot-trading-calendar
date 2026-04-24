@@ -5,11 +5,12 @@ from discord import app_commands
 
 from bot.app.settings import DISCORD_GLOBAL_ADMIN_USER_IDS
 from bot.common.clock import now_kst
-from bot.features.watch.service import render_watch_placeholder
+from bot.features.watch.service import render_blank_watch_starter
 from bot.features.watch.session import get_watch_market_session
 from bot.features.watch.thread_service import delete_watch_thread, upsert_watch_thread
 from bot.forum.repository import (
     add_watch_symbol,
+    clear_watch_current_comment_id,
     clear_watch_symbol_runtime_state,
     delete_watch_symbol,
     get_guild_watch_forum_channel_id,
@@ -34,6 +35,19 @@ from bot.intel.instrument_registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _delete_current_comment_if_present(thread: discord.Thread, state, guild_id: int, symbol: str) -> None:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    current_comment_id = alert_entry.get("current_comment_id")
+    if not isinstance(current_comment_id, int):
+        return
+    try:
+        comment = await thread.fetch_message(current_comment_id)
+        await comment.delete()
+    except discord.NotFound:
+        pass
+    clear_watch_current_comment_id(state, guild_id, symbol)
 
 
 def _reset_reactivated_same_session_band_state(state, guild_id: int, symbol: str, existing_thread) -> None:
@@ -320,7 +334,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
                 forum_channel_id=watch_forum_channel_id,
                 symbol=resolved_symbol,
                 active=True,
-                starter_text=render_watch_placeholder(resolved_symbol, active=True),
+                starter_text=render_blank_watch_starter(),
             )
         except Exception as exc:
             logger.exception(
@@ -408,7 +422,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
                 forum_channel_id=watch_forum_channel_id,
                 symbol=resolved_symbol,
                 active=True,
-                starter_text=render_watch_placeholder(resolved_symbol, active=True),
+                starter_text=render_blank_watch_starter(),
             )
         except Exception as exc:
             logger.exception(
@@ -498,7 +512,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
                     forum_channel_id=watch_forum_channel_id,
                     symbol=resolved_symbol,
                     active=False,
-                    starter_text=render_watch_placeholder(resolved_symbol, active=False),
+                    starter_text=render_blank_watch_starter(),
                     allow_create=False,
                 )
                 if handle is None:
@@ -510,6 +524,10 @@ def register(tree: app_commands.CommandTree, client) -> None:
                         symbol,
                         resolved_symbol,
                     )
+                else:
+                    handle_thread = getattr(handle, "thread", None)
+                    if handle_thread is not None:
+                        await _delete_current_comment_if_present(handle_thread, state, interaction.guild_id, resolved_symbol)
             except Exception as exc:
                 logger.exception(
                     "[command] watch.stop result=failed guild=%s user=%s symbol=%s resolved=%s detail=%s",
@@ -528,6 +546,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
 
         set_watch_symbol_thread_status(state, interaction.guild_id, resolved_symbol, "inactive")
         clear_watch_symbol_runtime_state(state, interaction.guild_id, resolved_symbol)
+        clear_watch_current_comment_id(state, interaction.guild_id, resolved_symbol)
         save_state(state)
         logger.info(
             "[command] watch.stop result=ok guild=%s user=%s symbol=%s resolved=%s",

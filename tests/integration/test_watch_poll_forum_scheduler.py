@@ -148,6 +148,10 @@ def _open_snapshot(now: datetime, price: float) -> market_provider.WatchSnapshot
     )
 
 
+def _visible_messages(thread: FakeThread) -> list[FakeMessage]:
+    return [message for message in sorted(thread._messages.values(), key=lambda item: item.id) if not message.deleted]
+
+
 @pytest.mark.asyncio
 async def test_watch_poll_updates_starter_and_posts_highest_new_band_comment(monkeypatch):
     _patch_discord_types(monkeypatch)
@@ -169,14 +173,17 @@ async def test_watch_poll_updates_starter_and_posts_highest_new_band_comment(mon
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=now)
 
     thread = next(iter(forum._threads.values()))
-    assert "전일 종가: ₩100.00" in thread.starter_message.content
-    assert "현재가: ₩107.10" in thread.starter_message.content
-    assert "기준 세션" not in thread.starter_message.content
-    assert "당일 최고 상승 band" not in thread.starter_message.content
-    assert len(thread.sent_contents) == 1
+    assert thread.starter_message.content == intel_scheduler.render_blank_watch_starter()
+    assert len(thread.sent_contents) == 2
     assert thread.sent_contents[0] == "삼성전자 (KRX:005930) +6% 이상 상승 : +7.10% · 2026-03-26 10:00:00"
+    assert "전일 종가: ₩100.00" in thread.sent_contents[1]
+    assert "현재가: ₩107.10" in thread.sent_contents[1]
+    assert "기준 세션" not in thread.sent_contents[1]
+    assert "당일 최고 상승 band" not in thread.sent_contents[1]
+    assert _visible_messages(thread)[-1].id == state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"]
     assert state["system"]["provider_status"]["kis_quote"]["message"] == "snapshot:KRX:005930"
     assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+    assert "updated_current_comments=1" in state["system"]["job_last_runs"]["watch_poll"]["detail"]
 
 
 @pytest.mark.asyncio
@@ -205,14 +212,28 @@ async def test_watch_poll_keeps_same_session_highest_band_and_supports_both_acti
 
     client = FakeClient({456: forum})
     await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+    thread = next(iter(forum._threads.values()))
+    first_current_comment_id = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"]
+
     await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 10, 1, tzinfo=KST))
+    second_current_comment_id = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"]
+    assert second_current_comment_id == first_current_comment_id
+    assert "현재가: ₩104.50" in thread._messages[first_current_comment_id].content
+
     await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 10, 2, tzinfo=KST))
 
-    thread = next(iter(forum._threads.values()))
-    assert len(thread.sent_contents) == 2
+    third_current_comment_id = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"]
+    assert third_current_comment_id != first_current_comment_id
+    assert thread._messages[first_current_comment_id].deleted is True
+    assert len(thread.sent_contents) == 4
     assert thread.sent_contents[0] == "삼성전자 (KRX:005930) +3% 이상 상승 : +4.00% · 2026-03-26 10:00:00"
-    assert thread.sent_contents[1] == "삼성전자 (KRX:005930) -6% 이상 하락 : -6.20% · 2026-03-26 10:02:00"
-    assert "당일 alert status" not in thread.starter_message.content
+    assert "현재가: ₩104.00" in thread.sent_contents[1]
+    assert thread.sent_contents[2] == "삼성전자 (KRX:005930) -6% 이상 하락 : -6.20% · 2026-03-26 10:02:00"
+    assert "현재가: ₩93.80" in thread.sent_contents[3]
+    visible_contents = [message.content for message in _visible_messages(thread)]
+    assert visible_contents[-2] == "삼성전자 (KRX:005930) -6% 이상 하락 : -6.20% · 2026-03-26 10:02:00"
+    assert "현재가: ₩93.80" in visible_contents[-1]
+    assert "당일 alert status" not in visible_contents[-1]
 
 
 @pytest.mark.asyncio
@@ -223,8 +244,10 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
     thread = FakeThread(2001, starter)
     intraday_one = FakeMessage(3002, "band-1")
     intraday_two = FakeMessage(3003, "band-2")
+    current_comment = FakeMessage(3004, "current")
     thread.add_message(intraday_one)
     thread.add_message(intraday_two)
+    thread.add_message(current_comment)
     forum._threads[thread.id] = thread
 
     state = {
@@ -253,6 +276,7 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
                         "active_session_date": "2026-03-26",
                         "highest_up_band": 2,
                         "highest_down_band": 0,
+                        "current_comment_id": 3004,
                         "intraday_comment_ids": [3002, 3003],
                         "close_comment_ids_by_session": {},
                     }
@@ -298,12 +322,15 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
     await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 1, tzinfo=KST))
     assert intraday_one.deleted is False
     assert intraday_two.deleted is False
+    assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
 
     await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 2, tzinfo=KST))
     assert intraday_one.deleted is True
     assert intraday_two.deleted is True
+    assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
+    assert "current_comment_id" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 1
 
@@ -315,7 +342,9 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
     starter = FakeMessage(3001, "starter")
     thread = FakeThread(2001, starter)
     intraday = FakeMessage(3002, "band-1")
+    current_comment = FakeMessage(3003, "current")
     thread.add_message(intraday)
+    thread.add_message(current_comment)
     forum._threads[thread.id] = thread
 
     state = {
@@ -344,6 +373,7 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
                         "active_session_date": "2026-03-26",
                         "highest_up_band": 1,
                         "highest_down_band": 0,
+                        "current_comment_id": 3003,
                         "intraday_comment_ids": [3002],
                         "close_comment_ids_by_session": {},
                     }
@@ -374,7 +404,9 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
 
     assert intraday.deleted is True
+    assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
+    assert "current_comment_id" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
 
 
 @pytest.mark.asyncio
@@ -416,7 +448,9 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
     starter = FakeMessage(3001, "starter")
     thread = FakeThread(2001, starter, parent_id=456)
     intraday = FakeMessage(3002, "band-1")
+    current_comment = FakeMessage(3003, "current")
     thread.add_message(intraday)
+    thread.add_message(current_comment)
     forum._threads[thread.id] = thread
 
     state = {
@@ -445,6 +479,7 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
                         "active_session_date": "2026-03-26",
                         "highest_up_band": 1,
                         "highest_down_band": 0,
+                        "current_comment_id": 3003,
                         "intraday_comment_ids": [3002],
                         "close_comment_ids_by_session": {},
                     }
@@ -475,12 +510,16 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
 
     assert intraday.deleted is True
+    assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-27"
     assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"] != 3003
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 1
-    assert "전일 종가: ₩98.00" in thread.starter_message.content
+    assert thread.starter_message.content == intel_scheduler.render_blank_watch_starter()
+    assert "전일 종가: ₩98.00" in _visible_messages(thread)[-1].content
+    assert "현재가: ₩98.40" in _visible_messages(thread)[-1].content
 
 
 @pytest.mark.asyncio
@@ -587,11 +626,13 @@ async def test_watch_poll_invalid_symbol_does_not_abort_other_symbols(monkeypatc
     assert warm_calls == [["KRX:005930"]]
     assert snapshot_calls == ["KRX:005930"]
     thread = next(iter(forum._threads.values()))
-    assert "현재가: ₩104.00" in thread.starter_message.content
+    assert thread.starter_message.content == intel_scheduler.render_blank_watch_starter()
+    assert "현재가: ₩104.00" in _visible_messages(thread)[-1].content
     run = state["system"]["job_last_runs"]["watch_poll"]
     assert run["status"] == "failed"
     assert "snapshot_failures=1" in run["detail"]
     assert "updated_threads=1" in run["detail"]
+    assert "updated_current_comments=1" in run["detail"]
 
 
 @pytest.mark.asyncio
