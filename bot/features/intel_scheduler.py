@@ -854,6 +854,14 @@ async def _upsert_watch_current_comment(
             await current_comment.delete()
         except discord.NotFound:
             pass
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning(
+                "[intel] watch current comment recreate cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+                guild_id,
+                symbol,
+                current_comment_id,
+                exc,
+            )
         clear_watch_current_comment_id(state, guild_id, symbol)
         current_comment = None
 

@@ -784,6 +784,7 @@
 7. During market regular-session hours:
    - the current-price comment is updated from the latest snapshot
    - when a band comment is created, the current-price comment is recreated after it so the latest watch state remains at the bottom of the thread
+   - if deleting the old current-price comment during that recreate step fails with `Forbidden` or `HTTPException`, the bot logs the cleanup failure, clears the stale ID, and still attempts to send a replacement current-price comment
    - `previous_close` becomes the reference basis for percent-change rendering
    - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
    - the session state resets when `session_date` changes
@@ -817,6 +818,7 @@
 - Missing or invalid watch forum/thread failures increment counters and skip that symbol.
 - Band comment failures increment counters but do not block current-price comment updates for that symbol.
 - Current-price comment failures increment counters but the job continues for other symbols.
+- Current-price comment recreate cleanup failures are best-effort and do not block replacement current-price comment sends.
 - `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
 - Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
 - Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.

@@ -298,6 +298,60 @@ async def test_watch_poll_updates_current_comment_when_band_comment_send_fails(m
 
 
 @pytest.mark.asyncio
+async def test_watch_poll_recreates_current_comment_when_old_current_delete_fails(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    monkeypatch.setattr(intel_scheduler.discord, "HTTPException", FakeHTTPException)
+
+    class CurrentComment(FakeMessage):
+        async def delete(self):
+            raise FakeHTTPException("delete-failed")
+
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    current_comment = CurrentComment(3002, "old current")
+    thread = FakeThread(2001, starter, parent_id=456)
+    thread.add_message(current_comment)
+    forum._threads[thread.id] = thread
+    state = {
+        "commands": {
+            "watchpoll": {
+                "symbol_threads_by_guild": {
+                    "1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}
+                },
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+        "system": {"watch_session_alerts": {"1": {"KRX:005930": {"current_comment_id": 3002}}}},
+    }
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            return _open_snapshot(now, 104.0)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
+
+    alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    assert current_comment.deleted is False
+    assert len(thread.sent_contents) == 2
+    assert thread.sent_contents[0] == "삼성전자 (KRX:005930) +3% 이상 상승 : +4.00% · 2026-03-26 10:00:00"
+    assert "현재가: ₩104.00" in thread.sent_contents[1]
+    assert alert_entry["highest_up_band"] == 1
+    assert alert_entry["intraday_comment_ids"] == [3003]
+    assert alert_entry["current_comment_id"] == 3004
+    assert _visible_messages(thread)[-1].id == 3004
+    run = state["system"]["job_last_runs"]["watch_poll"]
+    assert run["status"] == "ok"
+    assert "updated_current_comments=1" in run["detail"]
+
+
+@pytest.mark.asyncio
 async def test_watch_poll_defers_close_finalization_until_session_close_price_is_available(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)

@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that current-price comment recreation could abort when deleting the old current-price comment hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats old current-price comment delete failures during force-recreate as best-effort cleanup failures, logs them, clears the stale current comment ID, and still attempts to send the replacement current-price comment after the band comment.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving a band poll still creates the replacement current-price comment and advances the successful band checkpoint when old current-comment delete fails.
+3. Watch docs now state that current-price recreate cleanup failures do not block replacement current-price comment sends.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_poll_forum_scheduler.py -k "recreates_current_comment_when_old_current_delete_fails"`
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
 - Context: PR #21 follow-up Codex review reported that close finalization could still abort when current-price comment cleanup hit `Forbidden` or `HTTPException`.
 - Change:
 1. `bot/features/intel_scheduler.py` now treats close-finalization current-price comment cleanup as best-effort for `Forbidden`/`HTTPException`, logs the cleanup failure, clears the stored current comment ID, and continues close finalization.
