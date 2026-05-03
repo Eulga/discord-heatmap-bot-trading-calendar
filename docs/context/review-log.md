@@ -6,16 +6,19 @@
 1. A current interpreter with global `pytest` but missing repo dependencies could still be selected before the healthy repo `.venv`.
 2. The fallback repo `.venv` interpreter was accepted without checking its Python version.
 3. Explicit pytest targets passed through `scripts/run_repo_checks.py` still ran the full suite because suite default paths were always injected.
+4. Path-valued pytest options such as `--junitxml reports/unit.xml` could be misread as explicit targets and accidentally drop the selected suite path.
 - Resolution:
 1. Interpreter selection now validates the Python version and required test/runtime imports before accepting a candidate, preferring a usable repo `.venv` before the current interpreter.
 2. Stale same-OS `.venv` Python versions now produce rebuild guidance instead of being selected.
 3. Suite default paths are skipped when explicit pytest targets are passed.
+4. Explicit-target detection now skips values for common pytest options before looking for target-like path arguments.
 - Verification:
 1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
-2. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
-3. `python3 scripts/run_repo_checks.py unit`
-4. `python3 scripts/run_repo_checks.py collect`
-5. `python3 scripts/run_repo_checks.py integration`
+2. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
+3. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py collect`
+6. `python3 scripts/run_repo_checks.py integration`
 - Status: done
 
 ## 2026-05-03

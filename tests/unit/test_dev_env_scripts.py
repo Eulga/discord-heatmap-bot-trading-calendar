@@ -253,3 +253,24 @@ def test_build_pytest_args_omits_default_suite_when_target_follows_separator():
 
     assert "tests/unit" not in args
     assert args == ["-m", "pytest", "-q", "-m", "not live"]
+
+
+def test_build_pytest_args_keeps_default_suite_for_path_valued_option():
+    args = run_repo_checks.build_pytest_args(
+        "unit",
+        include_live=False,
+        passthrough_args=["--junitxml", "reports/unit.xml"],
+    )
+
+    assert "tests/unit" in args
+
+
+def test_build_pytest_args_still_detects_target_after_option_value():
+    args = run_repo_checks.build_pytest_args(
+        "unit",
+        include_live=False,
+        passthrough_args=["-k", "dev_env", "tests/unit/test_dev_env_scripts.py"],
+    )
+
+    assert "tests/unit" not in args
+    assert args == ["-m", "pytest", "-q", "-m", "not live"]

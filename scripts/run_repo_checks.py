@@ -31,6 +31,23 @@ except ImportError:
 
 
 REQUIRED_TEST_MODULES = ("pytest", "pytest_asyncio", "discord", "dotenv")
+PYTEST_OPTIONS_WITH_VALUES = {
+    "-k",
+    "-m",
+    "--basetemp",
+    "--cov",
+    "--cov-report",
+    "--durations",
+    "--junit-prefix",
+    "--junit-xml",
+    "--junitxml",
+    "--log-cli-level",
+    "--log-file",
+    "--log-level",
+    "--maxfail",
+    "--rootdir",
+    "--tb",
+}
 
 
 def _same_path(left: Path, right: Path) -> bool:
@@ -184,8 +201,17 @@ def choose_pytest_interpreter(
 
 
 def _has_explicit_pytest_target(passthrough_args: list[str]) -> bool:
+    skip_option_value = False
     for arg in passthrough_args:
-        if arg == "--" or arg.startswith("-"):
+        if skip_option_value:
+            skip_option_value = False
+            continue
+        if arg == "--":
+            continue
+        if arg.startswith("-"):
+            option_name = arg.split("=", 1)[0]
+            if "=" not in arg and option_name in PYTEST_OPTIONS_WITH_VALUES:
+                skip_option_value = True
             continue
         if arg.startswith("tests") or "/" in arg or "\\" in arg or "::" in arg or arg.endswith(".py"):
             return True
