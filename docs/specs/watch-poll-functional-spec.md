@@ -16,7 +16,7 @@
 - regular session close 후 close finalization은 KST exact-minute due time에만 시도한다.
   - KRX symbol은 KST `16:00` minute에만 시도한다.
   - NAS/NYS/AMS symbol은 KST `07:00` minute에만 시도한다.
-  - due minute을 놓치면 같은 날 catch-up하지 않고 다음 due minute까지 unfinalized 상태로 남는다.
+  - due minute을 놓치면 close finalization만 pending으로 남고, 이후 정규장 current-price comment와 band alert는 계속 수행한다.
 - close finalization은 현재가 comment와 intraday comment를 삭제하고 same-session `마감가 알림` comment 1건을 남긴다.
 - 과거 text watch route (`WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id`)는 hard cut 되었고, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`만 legacy cleanup/read 호환 대상으로 남아 있다.
 
@@ -115,6 +115,12 @@
           "highest_down_band": 1,
           "current_comment_id": 2003,
           "intraday_comment_ids": [2001, 2002],
+          "pending_close_sessions": {
+            "2026-03-25": {
+              "reference_price": 72000.0,
+              "intraday_comment_ids": [1900]
+            }
+          },
           "close_comment_ids_by_session": {
             "2026-03-25": 1901
           },
@@ -195,7 +201,8 @@
 
 ### Warm-up
 - provider가 `warm_watch_snapshots()`를 구현하면 regular-session update 대상과 close-finalization due 대상의 unique canonical set에 대해 poll cycle당 1회 호출한다.
-- off-hours unfinalized symbol이라도 due minute이 아니면 warm-up과 snapshot fetch 대상에서 제외된다.
+- active regular-session symbol은 prior session close가 pending이어도 warm-up과 snapshot fetch 대상에 계속 포함된다.
+- off-hours unfinalized symbol은 due minute이 아니면 warm-up과 snapshot fetch 대상에서 제외된다.
 - warm-up 실패는 로그만 남기고 poll 전체를 중단시키지 않는다.
 - malformed/unsupported persisted symbol은 warm-up에서 건너뛰고, 개별 symbol 처리 단계에서 `snapshot_failures`로 집계된다.
 
@@ -205,7 +212,7 @@
 3. 이전 session이 아직 finalization되지 않은 상태에서 더 늦은 `session_date` snapshot이 오면, due minute일 때만 current session 현재가 comment로 넘어가기 전에 prior session close finalization을 먼저 시도한다.
    - `snapshot.previous_close` fallback으로 close를 확정하는 경우는 새 snapshot이 target session의 바로 다음 trading session일 때만 허용한다.
    - 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 old session은 그대로 unfinalized로 남는다.
-   - due minute이 아니면 snapshot fetch와 current-session rotation을 건너뛰고 old session을 unfinalized 상태로 유지한다.
+   - due minute이 아니면 old session close target을 `pending_close_sessions`에 보존하고, current session reference/session state로 rotate해 current-price comment와 band alert를 계속 처리한다.
 4. session이 바뀌면 `watch_reference_snapshots`를 새 `previous_close/session_date`로 교체한다.
 5. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
 6. starter message는 blank 상태로 유지되고, 현재가 comment는 아래 정보를 포함해 매 성공 poll마다 edit된다.
@@ -236,9 +243,11 @@
 2. KST exact-minute due gate를 통과한 poll tick에서만 warm-up, snapshot fetch, close comment 생성/수정을 시도한다.
    - `KRX:*`: KST `16:00`
    - `NAS:*`, `NYS:*`, `AMS:*`: KST `07:00`
-   - due minute이 아니면 session은 그대로 unfinalized로 남고 provider/Discord 호출을 하지 않는다.
+   - due minute이 아니면 off-hours session은 그대로 unfinalized로 남고 provider/Discord 호출을 하지 않는다.
 3. `session_close_price`가 아직 없으면 session은 그대로 unfinalized로 남는다.
    - market 구분 없이 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, last-trade 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
+   - missed due 뒤 다음 regular session이 시작된 경우, old session의 reference price와 intraday comment IDs는 `pending_close_sessions`에 보존되고 다음 due minute에 close finalization을 재시도한다.
+   - 같은 due minute에 pending old session과 current active session이 모두 close 가능한 경우, scheduler는 pending old session close comment를 먼저 만들고 current session close comment를 이어서 만든다.
 4. finalization 순서:
    - current-price comment delete
    - intraday comment delete

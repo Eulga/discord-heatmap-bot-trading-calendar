@@ -825,17 +825,17 @@
 - 기대 status/detail/log: detail은 정확히 `no-watch-symbols`다.
 - 회귀 방지 포인트: stop 이후에도 raw watchlist membership만 보고 장중 poll이 계속 도는 문제를 막는다.
 
-### WP-06 due minute 전에는 prior session rotation을 보류
+### WP-06 missed prior close가 있어도 regular update는 계속 수행
 - 테스트 ID: `WP-06`
-- 기능/보호 계약: 이전 session이 unfinalized인 상태에서 다음 regular session open tick이 와도 KST due minute 전이면 prior session과 reference snapshot을 그대로 보존해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_defers_prior_session_rotation_until_close_due_minute`
+- 기능/보호 계약: 이전 session이 unfinalized인 상태에서 다음 regular session open tick이 오면, prior close target은 pending으로 보존하되 current-price update와 band state는 새 session 기준으로 계속 진행해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_minute`
 - 사전 상태: reference/session state는 `2026-03-26`, intraday comment 1건이 남아 있다.
-- 입력/트리거: 다음 거래일 KST `10:00` 장중 tick이 들어오지만 close finalization due minute은 아니다.
-- mock/stub 전제: provider는 호출되면 새 세션 snapshot을 반환하지만, due gate 때문에 호출되지 않아야 한다.
-- 기대 동작: 이전 세션 close comment는 생성되지 않고, 새 세션 current-price update도 수행되지 않는다.
-- 기대 상태 저장 변화: `last_finalized_session_date`는 없고 `active_session_date`와 `watch_reference_snapshots`는 `2026-03-26` 그대로다.
-- 기대 status/detail/log: close comment와 current-price comment 추가 send가 없다.
-- 회귀 방지 포인트: exact-minute 정책에서 due minute 전에 prior session을 잃거나 새 session으로 rotation해 이후 close finalization 기회를 잃는 문제를 막는다.
+- 입력/트리거: 다음 거래일 KST `10:00` 장중 tick 후 KST `16:00` due-minute tick이 들어온다.
+- mock/stub 전제: provider는 첫 tick에 새 세션 snapshot, 둘째 tick에 close snapshot을 반환한다.
+- 기대 동작: 첫 tick은 이전 세션 close comment를 만들지 않지만 current-price comment를 새 session 가격으로 갱신한다. 둘째 tick은 pending old session close comment와 current session close comment를 순서대로 남긴다.
+- 기대 상태 저장 변화: 첫 tick 뒤 `pending_close_sessions.2026-03-26`이 생기고 `active_session_date`와 `watch_reference_snapshots`는 `2026-03-27`로 rotate된다. 둘째 tick 뒤 pending state는 제거되고 `last_finalized_session_date="2026-03-27"`가 기록된다.
+- 기대 status/detail/log: close comment는 최종 2건이다.
+- 회귀 방지 포인트: due minute을 놓친 뒤 다음 정규장 전체가 current-price/band update 없이 멈추는 문제를 막는다.
 
 ### WP-07 인접하지 않은 더 늦은 snapshot만 있을 때 old session은 finalize하지 않음
 - 테스트 ID: `WP-07`

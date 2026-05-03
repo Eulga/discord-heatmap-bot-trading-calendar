@@ -1,11 +1,23 @@
 # Development Log
 
 ## 2026-05-04
+- Context: PR #22 Codex review found that the KST due-minute gate also suppressed regular-session polling after a missed close due minute.
+- Change:
+1. `watch_poll` now preserves missed prior-session close targets under `pending_close_sessions` while still rotating to the new regular session and continuing current-price comments plus band alerts.
+2. Due-minute finalization now processes pending old close targets before the current active session close target when the same snapshot can close both.
+3. Regression coverage now proves a missed KRX close due minute does not stop the next regular-session update, and that the next KST `16:00` tick clears both the pending old close and current close.
+4. Watch current-truth docs were updated to describe pending close targets instead of blocking regular-session rotation.
+- Verification:
+1. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+2. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 watch `마감가 알림`을 시장별 한국시간 고정 정각에만 생성하도록 변경해 달라고 요청했다. 합의된 동작은 KRX KST `16:00`, NAS/NYS/AMS KST `07:00`, env/state 설정 없음, missed due minute catch-up 없음이다.
 - Change:
 1. `bot/features/intel_scheduler.py`에 market prefix별 KST close-finalization due helper를 추가했다.
 2. `watch_poll`은 off-hours unfinalized symbol을 due minute이 아니면 warm-up, snapshot fetch, close comment 생성 경로에서 제외한다.
-3. 다음 regular session open에서 prior session이 아직 unfinalized이면 due minute 전에는 snapshot fetch와 session rotation을 보류해 기존 session state를 유지한다.
+3. 다음 regular session open에서 prior session이 아직 unfinalized이면 due minute 전에는 close finalization만 보류한다.
 4. KRX/US exact-minute helper unit tests와 KRX/US close-finalization due gate integration regressions를 추가했고, 기존 close-price-missing / inactive-finalization / prior-session carry-forward expectations를 새 정책에 맞게 조정했다.
 5. Current-truth docs and integration inventory now describe KST `16:00`/`07:00` exact-minute finalization and the no catch-up consequence.
 - Verification:

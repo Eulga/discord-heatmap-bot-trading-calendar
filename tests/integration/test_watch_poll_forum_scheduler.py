@@ -809,7 +809,7 @@ async def test_watch_poll_does_not_update_stopped_symbol_during_open_session(mon
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_defers_prior_session_rotation_until_close_due_minute(monkeypatch):
+async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_minute(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -855,23 +855,37 @@ async def test_watch_poll_defers_prior_session_rotation_until_close_due_minute(m
         },
     }
 
-    snapshot_calls = {"count": 0}
+    snapshots = iter(
+        [
+            market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=98.4,
+                previous_close=98.0,
+                session_close_price=None,
+                asof=datetime(2026, 3, 27, 10, 0, tzinfo=KST),
+                session_date="2026-03-27",
+                provider="kis_quote",
+            ),
+            market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=99.0,
+                previous_close=98.0,
+                session_close_price=99.0,
+                asof=datetime(2026, 3, 27, 16, 0, tzinfo=KST),
+                session_date="2026-03-27",
+                provider="kis_quote",
+            ),
+        ]
+    )
+    snapshot_calls: list[datetime] = []
 
     class Provider:
         async def warm_watch_snapshots(self, symbols, now):
             return None
 
         async def get_watch_snapshot(self, symbol, now):
-            snapshot_calls["count"] += 1
-            return market_provider.WatchSnapshot(
-                symbol="KRX:005930",
-                current_price=98.4,
-                previous_close=98.0,
-                session_close_price=None,
-                asof=now,
-                session_date="2026-03-27",
-                provider="kis_quote",
-            )
+            snapshot_calls.append(now)
+            return next(snapshots)
 
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
@@ -879,16 +893,35 @@ async def test_watch_poll_defers_prior_session_rotation_until_close_due_minute(m
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
 
-    assert snapshot_calls["count"] == 0
+    assert snapshot_calls == [datetime(2026, 3, 27, 10, 0, tzinfo=KST)]
     assert intraday.deleted is False
     assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
-    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-26"
-    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-26"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-27"
+    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"] == 3003
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["pending_close_sessions"] == {
+        "2026-03-26": {"reference_price": 100.0, "intraday_comment_ids": [3002], "updated_at": "2026-03-27T10:00:00+09:00"}
+    }
+    assert "현재가: ₩98.40" in current_comment.content
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 0
     assert thread.sent_contents == []
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
+
+    assert snapshot_calls == [
+        datetime(2026, 3, 27, 10, 0, tzinfo=KST),
+        datetime(2026, 3, 27, 16, 0, tzinfo=KST),
+    ]
+    assert intraday.deleted is True
+    assert current_comment.deleted is True
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-27"
+    assert "pending_close_sessions" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
+    assert len(close_comments) == 2
+    assert "[watch-close:KRX:005930:2026-03-26]" in close_comments[0]
+    assert "[watch-close:KRX:005930:2026-03-27]" in close_comments[1]
 
 
 @pytest.mark.asyncio

@@ -795,7 +795,9 @@
    - current-price and intraday updates are skipped
    - close finalization is attempted only when the poll tick is in the configured KST due minute
    - `KRX:*` close finalization is due only at KST `16:00`, while `NAS:*`, `NYS:*`, and `AMS:*` close finalization is due only at KST `07:00`
-   - due-minute matching uses the KST hour and minute; if the scheduler misses that minute, the session remains unfinalized until the next due minute
+   - due-minute matching uses the KST hour and minute; if the scheduler misses that minute, close finalization remains pending until the next due minute
+   - when a later regular session starts before a missed close is finalized, the old close target is preserved under `pending_close_sessions` and regular-session current-price/band processing continues against the new session
+   - if a later due-minute snapshot can close both a pending old session and the current active session, pending close comments are created first and the current session close comment is created after them
    - the latest unfinalized session is finalized by deleting the tracked current-price comment plus tracked intraday comments, then reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
@@ -825,7 +827,7 @@
 - `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
 - Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
 - Close finalization remains pending when `session_close_price` is unavailable and is retried on a later KST due-minute poll.
-- If a prior session is still unfinalized at the next regular-session open and the current tick is not the market-specific KST due minute, the bot leaves that prior session and reference snapshot intact instead of rotating to the new session.
+- If a prior session is still unfinalized at the next regular-session open and the current tick is not the market-specific KST due minute, the bot queues the old close target under `pending_close_sessions`, rotates current reference/session state, and keeps regular-session monitoring active.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints

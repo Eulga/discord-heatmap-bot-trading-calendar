@@ -62,7 +62,7 @@
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
   - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
-  - if the runtime misses the due minute, the unfinalized watch session is left pending until the next due minute; there is no same-day catch-up for this path
+  - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
 
 ## Logs and State Paths
 - Main mutable state:
