@@ -1,5 +1,97 @@
 # Development Log
 
+## 2026-05-03
+- Context: PR #20 follow-up review found remaining validation wrapper issues: current Python with only global `pytest` could bypass the repo `.venv`, fallback `.venv` and bootstrap-reused `.venv` Python versions were not checked, explicit pytest targets still ran the full unit/integration suite, and path-valued, unknown, or alias pytest options could be mistaken for explicit target parsing.
+- Change:
+1. `scripts/run_repo_checks.py` now treats an interpreter as usable only when it satisfies the repo Python `3.10+` boundary and can import the required test/runtime modules: `pytest`, `pytest_asyncio`, `discord`, and `dotenv`.
+2. Interpreter resolution now tries a usable repo `.venv` before accepting the current interpreter, and stale same-OS `.venv` Python versions return explicit rebuild guidance.
+3. `build_pytest_args(...)` now omits default `tests/unit` or `tests/integration` paths when the caller supplies an explicit pytest target, including after a `--` separator.
+4. Explicit-target detection now skips values for known value-taking pytest options and unknown options, while still recognizing targets after known no-value flags and after a `--` separator.
+5. `tests/unit/test_dev_env_scripts.py` adds regressions for global-pytest current Python, old fallback `.venv`, explicit target argument construction, path-valued pytest options, and unknown value-taking options.
+6. `scripts/bootstrap_dev_env.py` now rejects an existing same-OS `.venv` when its interpreter is below Python `3.10+`, before installing dependencies into that stale environment.
+7. `tests/unit/test_dev_env_scripts.py` adds a bootstrap regression for an old existing `.venv` to ensure rebuild guidance is emitted and install commands are not run.
+8. Pytest no-value aliases and flags such as `--lf`, `--ff`, `--nf`, `--sw`, `--pyargs`, `--collect-in-virtualenv`, and `--stepwise-reset` are now recognized before target detection decides whether to inject default suite paths.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py unit --lf tests/unit/test_dev_env_scripts.py`
+3. `python3 scripts/run_repo_checks.py unit --collect-in-virtualenv tests/unit/test_dev_env_scripts.py`
+4. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+5. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
+6. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
+7. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
+8. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+9. `python3 scripts/run_repo_checks.py unit`
+10. `python3 scripts/run_repo_checks.py collect`
+11. `python3 scripts/run_repo_checks.py integration`
+12. `git diff --check`
+- Status: done
+
+## 2026-05-03
+- Context: PR #20 review found that `scripts/run_repo_checks.py` could still select an unsupported current Python when that interpreter happened to have `pytest`, and that `docs/specs/integration-test-cases.md` had stale integration inventory counts.
+- Change:
+1. `choose_pytest_interpreter(...)` now rejects the current interpreter when it is below the repository's Python `3.10+` boundary before checking whether it can import `pytest`, allowing the repo `.venv` fallback or bootstrap guidance to remain authoritative.
+2. `tests/unit/test_dev_env_scripts.py` adds a regression for an old current Python with `pytest` installed.
+3. `docs/specs/integration-test-cases.md` now matches the collected non-live integration inventory: 90 total cases, including 40 Intel scheduler and 19 Watch forum flow cases.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 -c "import ast, pathlib; paths=['scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+6. `git diff --check`
+- Status: done
+
+## 2026-04-16
+- Context: PR #20의 첫 GitHub Actions run이 collect/unit/integration 전부에서 실패했다. 원인은 workflow가 `bot.app.settings` import에 필요한 `DISCORD_BOT_TOKEN`을 주지 않아 test collection 자체가 막힌 것이었다.
+- Change:
+1. `.github/workflows/pr-checks.yml`에 workflow-level placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token`을 추가해 non-live pytest collect/unit/integration job이 import-time settings guard 때문에 중단되지 않도록 했다.
+2. `docs/operations/runtime-runbook.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`를 업데이트해 PR CI가 placeholder token으로 import-time validation만 우회한다는 경계를 현재 문서에 반영했다.
+- Verification:
+1. `gh run view 24511040944 --log-failed`
+2. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py collect`
+3. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py unit`
+4. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-04-16
+- Context: 이전 agent baseline 변경 후에도 `.venv`가 Windows 전용 artifact로 남아 있었고, current-truth 문서 일부가 여전히 raw `.venv\Scripts\python.exe` 또는 `python ...` 경로를 섞어 써서 macOS/Linux local validation이 실제로 복원되지 않았다.
+- Change:
+1. `scripts/bootstrap_dev_env.py`, `scripts/dev_env_utils.py`, `scripts/__init__.py`를 추가해 repo-local `.venv` bootstrap/recreate 흐름과 OS별 interpreter detection helper를 도입했다.
+2. `scripts/run_repo_checks.py`는 이제 current interpreter에 `pytest`가 없으면 current-OS repo `.venv` interpreter를 fallback으로 찾고, `.venv`가 cross-platform mismatch거나 missing이면 `bootstrap_dev_env.py` 안내를 출력하도록 바꿨다.
+3. `tests/unit/test_dev_env_scripts.py`를 추가해 `.venv` cross-platform 판별과 pytest interpreter 선택 분기를 고정했다.
+4. `README.md`, `AGENTS.md`, `docs/operations/runtime-runbook.md`, `docs/specs/integration-test-cases.md`, `docs/specs/integration-live-test-cases.md`, `.agents/skills/ship-develop/SKILL.md`, `.agents/skills/ci-triage/SKILL.md`, `.agents/skills/scheduler-watch-review/SKILL.md`를 업데이트해 bootstrap/validation 경로를 OS별 active interpreter 기준으로 정렬했다.
+5. `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 갱신해 새 cross-platform validation baseline을 current context에 반영했다.
+- Verification:
+1. `python3 -m py_compile scripts/__init__.py scripts/dev_env_utils.py scripts/bootstrap_dev_env.py scripts/run_repo_checks.py tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/bootstrap_dev_env.py --recreate`가 Python `3.10+` requirement와 Docker fallback을 명시적으로 안내하는지 확인
+3. `python3 scripts/run_repo_checks.py collect`가 unsupported local Python일 때 bootstrap/Docker fallback 메시지를 반환하는지 확인
+4. `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
+5. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py unit`
+6. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py integration`
+- Follow-up:
+1. `/opt/homebrew/bin/python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+4. `python3 scripts/run_repo_checks.py integration`
+- Note:
+1. 실제 macOS host의 `python3`는 여전히 `3.9.6`이지만, Homebrew `python3.11` 설치 후 `.venv`를 `3.11.15`로 재생성했고, `run_repo_checks.py`는 이 `.venv`를 fallback interpreter로 사용해 로컬 collect/unit/integration을 통과했다.
+- Status: done
+
+## 2026-04-16
+- Context: 사용자가 현재 저장소에 Codex 기반 "AI 에이전트 운영체계" 요소를 실제로 반영해 달라고 요청했다.
+- Change:
+1. `scripts/run_repo_checks.py`를 추가해 local/CI 공통 pytest 엔트리포인트를 `collect`, `unit`, `integration`, `full` 기준으로 표준화했다.
+2. `.github/workflows/pr-checks.yml`을 추가해 PR/push에서 non-live test collection, unit, integration 검증을 실행하도록 했다.
+3. `.github/pull_request_template.md`를 추가해 요약, 검증, 문서 반영, 리스크, 롤백 메모를 PR 기본 구조로 고정했다.
+4. repo-local Codex skill `pr-review`, `ci-triage`, `docs-sync`, `scheduler-watch-review`를 추가해 반복 review/triage/docs 업무를 저장소 규칙에 맞게 재사용할 수 있게 했다.
+5. `README.md`, `AGENTS.md`, `docs/operations/runtime-runbook.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 업데이트해 새 검증 명령과 agent operating baseline을 current-truth 문서에 반영했다.
+- Verification:
+1. `python3 scripts/run_repo_checks.py collect` 호출 시 새 엔트리포인트가 예상 명령을 구성하는 것까지 확인했고, 현재 sandbox Python에 `pytest`가 없어 collect 단계는 `No module named pytest`로 중단됐다
+2. `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/run_repo_checks.py').read_text())"`로 새 스크립트 구문을 확인했다
+3. static review로 `.github/workflows/pr-checks.yml`, PR template, skill metadata가 새 검증 명령과 일관되는지 확인했다
+4. 이 환경에서는 repo-local virtualenv Python 경로가 바로 확인되지 않아 full/unit/integration 실행까지는 검증하지 못했다
+- Status: done
+
 ## 2026-04-03
 - Context: PR #19 Codex review reported two new P1 items: `/watch add` accepted nonexistent canonical symbols, and news/EOD daily schedulers still missed runs after late start.
 - Change:

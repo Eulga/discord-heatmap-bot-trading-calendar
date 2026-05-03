@@ -19,10 +19,10 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 ## Quick Start
 
 1. Check `git status --short --branch` and confirm what branch you are on.
-2. Run tests or validation proportional to the change.
+2. Run tests or validation proportional to the change through `scripts/run_repo_checks.py`.
 3. If the tree is dirty, create the commit before shipping.
 4. Resolve the target base branch from the invocation. Default to `develop`, but if the user invoked `$ship-develop master`, use `master`.
-5. For the default first pass, run `scripts/ship_develop.py --base <resolved-base> --codex-review`.
+5. For the default first pass, run `.agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review` with the active interpreter for the current OS.
 6. If the script reports `codex-review-requested`, return the PR URL and stop. After Codex review is expected to be ready, rerun with `--wait-codex-seconds 300 --wait-seconds 600` so the script can observe the result before merge and then watch checks.
 7. If the script reports `codex-review-findings`, read the PR review comments, fix them, rerun validation, and run the same command again.
 8. Use `--require-review` only when the user explicitly wants human approval before merge.
@@ -54,8 +54,9 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
   - checkout the chosen base branch and delete the local branch after a successful merge
 - Preferred command:
 
-```powershell
-.\.venv\Scripts\python .agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review
+```bash
+# Windows: py -3 .agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review
+# macOS/Linux: python3 .agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review
 ```
 
 ### 4. Interpret outcomes conservatively

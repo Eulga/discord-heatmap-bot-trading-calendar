@@ -1,18 +1,42 @@
 # Runtime Runbook
 
 ## Local Run
-- Create and activate a virtual environment:
-  - `py -3 -m venv .venv`
-  - `.\.venv\Scripts\Activate.ps1`
-- Install dependencies:
-  - `python -m pip install --upgrade pip`
-  - `pip install -r requirements.txt`
-  - `python -m playwright install chromium`
+- Local bootstrap currently requires Python `3.10+`.
+- On the current macOS host, `python3` is still `3.9.6`, so local bootstrap uses `/opt/homebrew/bin/python3.11`.
+- Bootstrap the virtual environment:
+  - Windows: `py -3 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
+- If `.venv` was created on another OS or is no longer runnable:
+  - Windows: `py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
+- Optional shell activation after bootstrap:
+  - Windows: `.\.venv\Scripts\Activate.ps1`
+  - macOS/Linux: `source .venv/bin/activate`
 - Prepare configuration:
   - copy `.env.example` to `.env`
   - set the bot token and any feature-specific credentials you actually need
 - Start the bot:
   - `python -m bot.main`
+
+## Standard Validation
+- Default local and CI validation entrypoint:
+  - Windows: `py -3 scripts/run_repo_checks.py`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py`
+- CI note:
+  - `.github/workflows/pr-checks.yml` exports placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token` because `bot.app.settings` requires a token at import time even for non-live test collection
+  - local validation still needs `.env` or an explicit `DISCORD_BOT_TOKEN` when no local env file is present
+- Narrower suites:
+  - Windows: `py -3 scripts/run_repo_checks.py unit`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py unit`
+  - Windows: `py -3 scripts/run_repo_checks.py integration`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py integration`
+  - Windows: `py -3 scripts/run_repo_checks.py collect`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py collect`
+- Live-only tests:
+  - Windows: `py -3 scripts/run_repo_checks.py --include-live`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py --include-live`
 
 ## Docker Run
 - Start:
@@ -23,6 +47,7 @@
   - `docker compose down`
 - Docker-specific note:
   - mounted `data/` directories are used so logs, state, and cached artifacts can survive container recreation
+  - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
@@ -56,6 +81,7 @@
 - Set the required forum routes for the guild before expecting posts or alerts.
 - Use the status commands to inspect recent job/provider state when debugging.
 - If scheduler behavior looks wrong, also check for duplicate running bot processes and stale local/container state.
+- For change validation before shipping, prefer `scripts/run_repo_checks.py` through the active interpreter over ad hoc `pytest` commands so local and CI behavior stay aligned.
 
 ## Troubleshooting
 - Commands not visible:
