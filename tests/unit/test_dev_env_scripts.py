@@ -320,6 +320,18 @@ def test_build_pytest_args_detects_target_after_known_flag_without_value():
     assert args == ["-m", "pytest", "-q", "-m", "not live"]
 
 
+def test_build_pytest_args_detects_target_after_pytest_no_value_aliases():
+    for option in ("--lf", "--ff", "--nf", "--sw"):
+        args = run_repo_checks.build_pytest_args(
+            "unit",
+            include_live=False,
+            passthrough_args=[option, "tests/unit/test_dev_env_scripts.py"],
+        )
+
+        assert "tests/unit" not in args
+        assert args == ["-m", "pytest", "-q", "-m", "not live"]
+
+
 def test_build_pytest_args_keeps_default_suite_for_absolute_path_option_value():
     args = run_repo_checks.build_pytest_args(
         "integration",
