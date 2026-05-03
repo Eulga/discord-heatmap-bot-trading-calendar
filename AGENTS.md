@@ -26,6 +26,7 @@
 - Keep changes small and deliberate. Prefer the smallest effective change over broad rewrites.
 - Respect the existing code style, structure, naming, and file layout unless there is a strong reason not to.
 - Ask only when a risky misunderstanding is likely; otherwise make a reasonable assumption and state it.
+- Use `scripts/run_repo_checks.py` through the active interpreter for the current OS as the default verification entrypoint for local and CI validation unless the task requires a narrower command.
 - If a required tool or dependency is missing, ask for approval before installing it and before switching to a workaround path.
 - When working from an explicit plan or in Plan mode, if the work produced file changes, update any required docs before handoff and always create a commit before handoff.
 - If `docs/context/session-handoff.md` needs carry-forward updates, include those handoff changes in the same commit rather than leaving them uncommitted.
@@ -34,6 +35,10 @@
 - For review tasks, prioritize defects, regressions, missing tests, and operational risk over praise.
 - Do not expose secrets, tokens, credentials, or personal data in output or docs.
 - Do not perform destructive or hard-to-reverse actions without explicit user approval.
+- Treat the following as the default definition of done unless the task clearly narrows scope:
+  - code or docs changed only as much as needed
+  - relevant verification ran through `scripts/run_repo_checks.py` or an explicitly narrower command
+  - canonical docs/logs are updated when current behavior or operator truth changed
 
 ## 4) Documentation Update Rules
 - After implemented work or code-verified behavior changes, update only the minimum necessary docs.
@@ -72,11 +77,16 @@
 - Skip `docs_researcher` when no external or documentation check is needed.
 - Keep blocking implementation work in the main session; use sidecar agents for exploration, review, or docs checks.
 - When `integration_tester` is used for this repo, its default test target is:
-  - `.\.venv\Scripts\python.exe -m pytest tests/integration`
+  - Windows: `py -3 scripts/run_repo_checks.py integration`
+  - macOS/Linux: `python3 scripts/run_repo_checks.py integration`
 
 ## 7) Pointers To Deeper Docs
 - Onboarding:
   - `README.md`
+- Bootstrap helper:
+  - `scripts/bootstrap_dev_env.py`
+- Standardized validation:
+  - `scripts/run_repo_checks.py`
 - Runtime operations:
   - `docs/operations/runtime-runbook.md`
 - Config/env/state boundary:
