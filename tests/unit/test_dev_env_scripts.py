@@ -237,7 +237,6 @@ def test_bootstrap_rejects_old_existing_venv_before_installing(tmp_path, monkeyp
 
     monkeypatch.setattr(bootstrap_dev_env, "inspect_venv", lambda: inspection)
     monkeypatch.setattr(bootstrap_dev_env, "VENV_DIR", inspection.venv_dir)
-    monkeypatch.setattr(bootstrap_dev_env, "_can_run_python", lambda executable: True)
     monkeypatch.setattr(bootstrap_dev_env, "_python_version_info", lambda executable: (3, 9, 6))
     monkeypatch.setattr(bootstrap_dev_env, "_run", fail_if_called)
     monkeypatch.setattr(bootstrap_dev_env.sys, "argv", ["bootstrap_dev_env.py"])
@@ -321,7 +320,15 @@ def test_build_pytest_args_detects_target_after_known_flag_without_value():
 
 
 def test_build_pytest_args_detects_target_after_pytest_no_value_aliases():
-    for option in ("--lf", "--ff", "--nf", "--sw"):
+    for option in (
+        "--lf",
+        "--ff",
+        "--nf",
+        "--sw",
+        "--pyargs",
+        "--collect-in-virtualenv",
+        "--stepwise-reset",
+    ):
         args = run_repo_checks.build_pytest_args(
             "unit",
             include_live=False,
@@ -330,6 +337,17 @@ def test_build_pytest_args_detects_target_after_pytest_no_value_aliases():
 
         assert "tests/unit" not in args
         assert args == ["-m", "pytest", "-q", "-m", "not live"]
+
+
+def test_build_pytest_args_detects_pyargs_module_target():
+    args = run_repo_checks.build_pytest_args(
+        "unit",
+        include_live=False,
+        passthrough_args=["--pyargs", "tests.unit.test_dev_env_scripts"],
+    )
+
+    assert "tests/unit" not in args
+    assert args == ["-m", "pytest", "-q", "-m", "not live"]
 
 
 def test_build_pytest_args_keeps_default_suite_for_absolute_path_option_value():

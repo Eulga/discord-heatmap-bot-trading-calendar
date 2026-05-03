@@ -8,26 +8,27 @@
 3. Explicit pytest targets passed through `scripts/run_repo_checks.py` still ran the full suite because suite default paths were always injected.
 4. Path-valued pytest options such as `--junitxml reports/unit.xml` and value-taking options such as `--confcutdir tests` could be misread as explicit targets and accidentally drop the selected suite path.
 5. `scripts/bootstrap_dev_env.py` treated an existing same-OS `.venv` as reusable when its interpreter was runnable, without checking that the `.venv` itself met the repo Python `3.10+` boundary.
-6. No-value pytest aliases such as `--lf` and `--ff` could be mistaken for options that consume the following test path, causing explicit target runs to include the default suite again.
+6. No-value pytest aliases and flags such as `--lf`, `--ff`, `--pyargs`, `--collect-in-virtualenv`, and `--stepwise-reset` could be mistaken for options that consume the following test path, causing explicit target runs to include the default suite again.
 - Resolution:
 1. Interpreter selection now validates the Python version and required test/runtime imports before accepting a candidate, preferring a usable repo `.venv` before the current interpreter.
 2. Stale same-OS `.venv` Python versions now produce rebuild guidance instead of being selected.
 3. Suite default paths are skipped when explicit pytest targets are passed.
 4. Explicit-target detection now skips values for known value-taking pytest options and unknown options before looking for target-like path arguments.
 5. Bootstrap now checks the existing `.venv` interpreter version before installing dependencies and tells the operator to recreate stale Python environments.
-6. Common no-value pytest aliases now stay in the no-value option set, and regression coverage verifies targets after these aliases keep the narrow requested scope.
+6. Common no-value pytest aliases and flags now stay in the no-value option set, and regression coverage verifies targets after these aliases keep the narrow requested scope.
 - Verification:
 1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
 2. `python3 scripts/run_repo_checks.py unit --lf tests/unit/test_dev_env_scripts.py`
-3. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
-4. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
-5. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
-6. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
-7. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
-8. `python3 scripts/run_repo_checks.py unit`
-9. `python3 scripts/run_repo_checks.py collect`
-10. `python3 scripts/run_repo_checks.py integration`
-11. `git diff --check`
+3. `python3 scripts/run_repo_checks.py unit --collect-in-virtualenv tests/unit/test_dev_env_scripts.py`
+4. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+5. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
+6. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
+7. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
+8. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+9. `python3 scripts/run_repo_checks.py unit`
+10. `python3 scripts/run_repo_checks.py collect`
+11. `python3 scripts/run_repo_checks.py integration`
+12. `git diff --check`
 - Status: done
 
 ## 2026-05-03

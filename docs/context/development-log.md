@@ -10,19 +10,20 @@
 5. `tests/unit/test_dev_env_scripts.py` adds regressions for global-pytest current Python, old fallback `.venv`, explicit target argument construction, path-valued pytest options, and unknown value-taking options.
 6. `scripts/bootstrap_dev_env.py` now rejects an existing same-OS `.venv` when its interpreter is below Python `3.10+`, before installing dependencies into that stale environment.
 7. `tests/unit/test_dev_env_scripts.py` adds a bootstrap regression for an old existing `.venv` to ensure rebuild guidance is emitted and install commands are not run.
-8. Pytest no-value aliases such as `--lf`, `--ff`, `--nf`, and `--sw` are now recognized before target detection decides whether to inject default suite paths.
+8. Pytest no-value aliases and flags such as `--lf`, `--ff`, `--nf`, `--sw`, `--pyargs`, `--collect-in-virtualenv`, and `--stepwise-reset` are now recognized before target detection decides whether to inject default suite paths.
 - Verification:
 1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
 2. `python3 scripts/run_repo_checks.py unit --lf tests/unit/test_dev_env_scripts.py`
-3. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
-4. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
-5. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
-6. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
-7. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
-8. `python3 scripts/run_repo_checks.py unit`
-9. `python3 scripts/run_repo_checks.py collect`
-10. `python3 scripts/run_repo_checks.py integration`
-11. `git diff --check`
+3. `python3 scripts/run_repo_checks.py unit --collect-in-virtualenv tests/unit/test_dev_env_scripts.py`
+4. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+5. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
+6. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
+7. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
+8. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+9. `python3 scripts/run_repo_checks.py unit`
+10. `python3 scripts/run_repo_checks.py collect`
+11. `python3 scripts/run_repo_checks.py integration`
+12. `git diff --check`
 - Status: done
 
 ## 2026-05-03

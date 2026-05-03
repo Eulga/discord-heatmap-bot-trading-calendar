@@ -35,20 +35,6 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, cwd=PROJECT_ROOT, check=True)
 
 
-def _can_run_python(executable: Path) -> bool:
-    try:
-        completed = subprocess.run(
-            [str(executable), "-c", "import sys"],
-            cwd=PROJECT_ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except OSError:
-        return False
-    return completed.returncode == 0
-
-
 def _python_version_info(executable: Path) -> tuple[int, int, int] | None:
     try:
         completed = subprocess.run(
@@ -135,16 +121,17 @@ def main() -> int:
         )
         return 1
 
-    if not _can_run_python(inspection.expected_python):
+    venv_version = _python_version_info(inspection.expected_python)
+    if venv_version is None:
         print(
-            "[bootstrap_dev_env] existing .venv interpreter is not runnable from this machine. "
+            "[bootstrap_dev_env] existing .venv interpreter is not runnable from this machine "
+            "or its Python version cannot be inspected. "
             f"Re-run with `{_recreate_message()}`."
         )
         return 1
 
-    venv_version = _python_version_info(inspection.expected_python)
-    if venv_version is None or venv_version[:2] < MIN_SUPPORTED_PYTHON:
-        version_text = format_python_version(venv_version) if venv_version else "unknown"
+    if venv_version[:2] < MIN_SUPPORTED_PYTHON:
+        version_text = format_python_version(venv_version)
         minimum = format_python_version(MIN_SUPPORTED_PYTHON)
         print(
             f"[bootstrap_dev_env] existing .venv uses Python {version_text}, "
