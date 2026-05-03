@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-04-24
+- Context: watch symbol threads had accumulated close comments, so the latest current price in the starter body was no longer the easiest item to inspect after scrolling to the bottom of a long thread.
+- Decision: watch symbol thread starters stay blank for now, while regular-session current price/status is maintained in a tracked current-price comment. Normal polls edit the same comment; when the bot creates a newer band/close-adjacent comment in the same flow, it recreates the current-price comment afterward so the latest watch state remains at the bottom. Future fundamental fields such as market cap, PER, and PBR are deferred.
+- Why:
+1. Users inspect long-running watch threads from the bottom, so the live state should live there rather than in the starter body.
+2. Editing the same comment avoids unnecessary comment churn during normal polling.
+3. Recreating only after bot-created newer comments preserves bottom positioning without creating a new message on every poll.
+- Impact:
+1. `system.watch_session_alerts.*.*.current_comment_id` is now part of watch runtime state.
+2. Close finalization and `/watch stop` must clean up stale current-price comments.
+3. Starter content is intentionally not used for current-price display in this phase.
+- Status: accepted
+
 ## 2026-04-16
 - Context: 첫 agent 운영 기본선 도입 후에도 current-truth 문서와 skill 일부가 여전히 `.\.venv\Scripts\python.exe -m pytest` 또는 `python ...`처럼 OS 의존적인 명령을 섞어 쓰고 있었고, 실제 macOS 세션에서는 `python` 명령 자체가 존재하지 않았다.
 - Decision: 현재 truth 문서와 active skill은 raw `.venv` interpreter path를 기본 명령으로 쓰지 않는다. 로컬 bootstrap은 `scripts/bootstrap_dev_env.py`, 검증은 `scripts/run_repo_checks.py`를 기준으로 고정하고, 호출은 OS별 active interpreter(`py -3` on Windows, `python3` on macOS/Linux)로 표현한다. 또한 local bootstrap 최소 버전은 Python `3.10+`로 명시하고, 그보다 낮은 시스템 Python에서는 Docker fallback을 안내한다.

@@ -6,7 +6,7 @@ import discord
 
 from bot.app.types import AppState
 from bot.common.errors import ForumChannelTypeError
-from bot.features.watch.service import render_watch_placeholder
+from bot.features.watch.service import render_blank_watch_starter
 from bot.forum.repository import get_watch_symbol_thread, set_watch_symbol_thread
 from bot.intel.instrument_registry import format_watch_symbol
 
@@ -97,7 +97,7 @@ async def upsert_watch_thread(
                 thread, starter_message = resolved
                 if thread.name != desired_title:
                     await thread.edit(name=desired_title)
-                if desired_starter is not None:
+                if desired_starter is not None and getattr(starter_message, "content", None) != desired_starter:
                     await starter_message.edit(content=desired_starter)
                 set_watch_symbol_thread(
                     state,
@@ -114,7 +114,7 @@ async def upsert_watch_thread(
 
     created = await forum_channel.create_thread(
         name=desired_title,
-        content=desired_starter or render_watch_placeholder(symbol, active=active),
+        content=desired_starter if desired_starter is not None else render_blank_watch_starter(),
     )
     thread = created.thread
     starter_message = created.message

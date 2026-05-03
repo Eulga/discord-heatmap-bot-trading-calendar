@@ -30,8 +30,8 @@
   - `/setwatchforum` configures the route
   - `/watch add` only adds a new tracked symbol and creates its persistent thread
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
-  - regular session polls update starter/comment state for active symbols only
-  - off-hours polls only attempt close finalization, including stopped symbols that still have an unfinalized session
+  - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
+  - off-hours polls only attempt close finalization, including stopped symbols that still have an unfinalized session, and close finalization removes stale current-price comments before preserving the close comment
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`

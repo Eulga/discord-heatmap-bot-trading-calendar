@@ -1,5 +1,48 @@
 # Development Log
 
+## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that current-price comment recreation could abort when deleting the old current-price comment hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats old current-price comment delete failures during force-recreate as best-effort cleanup failures, logs them, clears the stale current comment ID, and still attempts to send the replacement current-price comment after the band comment.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving a band poll still creates the replacement current-price comment and advances the successful band checkpoint when old current-comment delete fails.
+3. Watch docs now state that current-price recreate cleanup failures do not block replacement current-price comment sends.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_poll_forum_scheduler.py -k "recreates_current_comment_when_old_current_delete_fails"`
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that close finalization could still abort when current-price comment cleanup hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats close-finalization current-price comment cleanup as best-effort for `Forbidden`/`HTTPException`, logs the cleanup failure, clears the stored current comment ID, and continues close finalization.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving close comment creation and `last_finalized_session_date` persistence still happen when current-comment delete fails.
+3. Watch docs now state that finalization current-price comment cleanup is best-effort.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: PR #21 Codex review reported that current-price comments had become coupled to band comment success, and `/watch stop` could fail when best-effort current-comment cleanup hit Discord errors.
+- Change:
+1. `bot/features/intel_scheduler.py` now keeps band comment send and current-price comment upsert in separate failure boundaries.
+2. Failed band comment sends increment `comment_failures` but do not advance band checkpoints and do not block current-price updates.
+3. `/watch stop` now treats current-price comment cleanup `Forbidden`/`HTTPException` as best-effort failures, logs them, clears the stored current comment ID, and still persists inactive status.
+4. Regression tests cover both PR review findings.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: 사용자가 `watch_poll`의 현재가 표시를 포럼 게시글 본문 수정에서 thread 하단 comment 수정 방식으로 옮기고, starter 본문은 이번 범위에서 비워두길 요청했다.
+- Change:
+1. `watch_poll`은 이제 regular session poll에서 starter를 blank 상태로 유지하고 `current_comment_id`로 추적되는 현재가 comment를 생성/수정한다.
+2. 같은 poll에서 band comment가 새로 생성되면 기존 현재가 comment를 삭제 후 다시 보내, thread 하단에 최신 현재가 정보가 남도록 했다.
+3. close finalization과 `/watch stop`은 stale 현재가 comment를 삭제하고 `current_comment_id`를 정리하며, close comment 누적 기록은 기존 세션별 방식으로 유지한다.
+4. 관련 state type/repository helper, command/thread upsert 경로, scheduler job detail(`updated_current_comments`)과 watch 기능 문서를 함께 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
 ## 2026-05-03
 - Context: PR #20 follow-up review found remaining validation wrapper issues: current Python with only global `pytest` could bypass the repo `.venv`, fallback `.venv` and bootstrap-reused `.venv` Python versions were not checked, explicit pytest targets still ran the full unit/integration suite, and path-valued, unknown, or alias pytest options could be mistaken for explicit target parsing.
 - Change:

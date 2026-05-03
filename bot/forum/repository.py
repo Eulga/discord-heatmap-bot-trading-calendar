@@ -515,6 +515,8 @@ def get_watch_session_alert(state: AppState, guild_id: int, symbol: str) -> Watc
         entry["highest_up_band"] = 0
     if "highest_down_band" not in entry:
         entry["highest_down_band"] = 0
+    if "current_comment_id" in entry and not isinstance(entry.get("current_comment_id"), int):
+        entry.pop("current_comment_id", None)
     if "intraday_comment_ids" not in entry or not isinstance(entry.get("intraday_comment_ids"), list):
         entry["intraday_comment_ids"] = []
     if "close_comment_ids_by_session" not in entry or not isinstance(entry.get("close_comment_ids_by_session"), dict):
@@ -550,6 +552,18 @@ def update_watch_session_alert(
         entry["last_finalized_session_date"] = last_finalized_session_date
     if updated_at is not None:
         entry["updated_at"] = updated_at
+    return entry
+
+
+def set_watch_current_comment_id(state: AppState, guild_id: int, symbol: str, message_id: int) -> WatchSessionAlertEntry:
+    entry = get_watch_session_alert(state, guild_id, symbol)
+    entry["current_comment_id"] = int(message_id)
+    return entry
+
+
+def clear_watch_current_comment_id(state: AppState, guild_id: int, symbol: str) -> WatchSessionAlertEntry:
+    entry = get_watch_session_alert(state, guild_id, symbol)
+    entry.pop("current_comment_id", None)
     return entry
 
 
