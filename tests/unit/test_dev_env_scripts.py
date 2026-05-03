@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts import dev_env_utils, run_repo_checks
+from scripts import bootstrap_dev_env, dev_env_utils, run_repo_checks
 from scripts.dev_env_utils import VenvInspection
 
 
@@ -225,6 +225,30 @@ def test_choose_pytest_interpreter_mentions_python_version_when_current_python_i
     assert failure is not None
     assert "Python 3.10+" in failure
     assert "docker compose run --rm --build -v ${PWD}:/app discord-bot" in failure
+
+
+def test_bootstrap_rejects_old_existing_venv_before_installing(tmp_path, monkeypatch, capsys):
+    inspection = _inspection(tmp_path, "ok")
+    inspection.expected_python.parent.mkdir(parents=True)
+    inspection.expected_python.write_text("", encoding="utf-8")
+
+    def fail_if_called(command: list[str]) -> None:
+        raise AssertionError(f"bootstrap should not install into an old venv: {command}")
+
+    monkeypatch.setattr(bootstrap_dev_env, "inspect_venv", lambda: inspection)
+    monkeypatch.setattr(bootstrap_dev_env, "VENV_DIR", inspection.venv_dir)
+    monkeypatch.setattr(bootstrap_dev_env, "_can_run_python", lambda executable: True)
+    monkeypatch.setattr(bootstrap_dev_env, "_python_version_info", lambda executable: (3, 9, 6))
+    monkeypatch.setattr(bootstrap_dev_env, "_run", fail_if_called)
+    monkeypatch.setattr(bootstrap_dev_env.sys, "argv", ["bootstrap_dev_env.py"])
+    monkeypatch.setattr(bootstrap_dev_env.sys, "version_info", (3, 11, 0))
+
+    result = bootstrap_dev_env.main()
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert "existing .venv uses Python 3.9.6" in captured.out
+    assert "bootstrap_dev_env.py --recreate" in captured.out
 
 
 def test_build_pytest_args_keeps_default_suite_without_explicit_target():
