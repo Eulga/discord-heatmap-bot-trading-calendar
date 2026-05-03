@@ -15,10 +15,11 @@
 - Verification:
 1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
 2. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
-3. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
-4. `python3 scripts/run_repo_checks.py unit`
-5. `python3 scripts/run_repo_checks.py collect`
-6. `python3 scripts/run_repo_checks.py integration`
+3. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
+4. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+5. `python3 scripts/run_repo_checks.py unit`
+6. `python3 scripts/run_repo_checks.py collect`
+7. `python3 scripts/run_repo_checks.py integration`
 - Status: done
 
 ## 2026-05-03

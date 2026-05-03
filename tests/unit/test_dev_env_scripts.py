@@ -265,6 +265,26 @@ def test_build_pytest_args_keeps_default_suite_for_path_valued_option():
     assert "tests/unit" in args
 
 
+def test_build_pytest_args_keeps_default_suite_for_ignored_test_path_option():
+    args = run_repo_checks.build_pytest_args(
+        "integration",
+        include_live=False,
+        passthrough_args=["--ignore", "tests/integration/test_intel_scheduler_logic.py"],
+    )
+
+    assert "tests/integration" in args
+
+
+def test_build_pytest_args_keeps_default_suite_for_absolute_path_option_value():
+    args = run_repo_checks.build_pytest_args(
+        "integration",
+        include_live=False,
+        passthrough_args=["--rootdir", "/tmp"],
+    )
+
+    assert "tests/integration" in args
+
+
 def test_build_pytest_args_still_detects_target_after_option_value():
     args = run_repo_checks.build_pytest_args(
         "unit",

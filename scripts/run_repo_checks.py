@@ -38,6 +38,8 @@ PYTEST_OPTIONS_WITH_VALUES = {
     "--cov",
     "--cov-report",
     "--durations",
+    "--ignore",
+    "--ignore-glob",
     "--junit-prefix",
     "--junit-xml",
     "--junitxml",
@@ -213,7 +215,14 @@ def _has_explicit_pytest_target(passthrough_args: list[str]) -> bool:
             if "=" not in arg and option_name in PYTEST_OPTIONS_WITH_VALUES:
                 skip_option_value = True
             continue
-        if arg.startswith("tests") or "/" in arg or "\\" in arg or "::" in arg or arg.endswith(".py"):
+        normalized_target = arg.split("::", 1)[0].replace("\\", "/")
+        if normalized_target.startswith("./"):
+            normalized_target = normalized_target[2:]
+        if (
+            normalized_target == "tests"
+            or normalized_target.startswith("tests/")
+            or "/tests/" in normalized_target
+        ):
             return True
     return False
 
