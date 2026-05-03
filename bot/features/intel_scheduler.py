@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 
@@ -116,6 +117,13 @@ NEWS_BRIEFING_COMMAND_KEY = "newsbriefing"
 NEWS_BRIEFING_DOMESTIC_COMMAND_KEY = "newsbriefing-domestic"
 NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
+WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
+WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
+    "KRX": (16, 0),
+    "NAS": (7, 0),
+    "NYS": (7, 0),
+    "AMS": (7, 0),
+}
 
 
 def _build_news_provider() -> NewsProvider:
@@ -748,6 +756,19 @@ def _has_unfinalized_watch_session(alert_entry: dict[str, object]) -> bool:
     return active_session_date != last_finalized_session_date
 
 
+def _watch_close_finalization_due_time(symbol: str) -> tuple[int, int] | None:
+    market_prefix = symbol.split(":", maxsplit=1)[0].upper()
+    return WATCH_CLOSE_FINALIZATION_DUE_TIMES.get(market_prefix)
+
+
+def _is_watch_close_finalization_due(symbol: str, now: datetime) -> bool:
+    due_time = _watch_close_finalization_due_time(symbol)
+    if due_time is None:
+        return False
+    kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
+    return (kst_now.hour, kst_now.minute) == due_time
+
+
 def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], list[str]]:
     active_symbols = list_active_watch_symbols(state, guild_id)
     tracked_symbols = list_watch_tracked_symbols(state, guild_id)
@@ -1015,7 +1036,21 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     exc,
                 )
                 continue
-            if market_session.is_regular_session_open or _has_unfinalized_watch_session(get_watch_session_alert(state, guild_id, symbol)):
+            alert_entry = get_watch_session_alert(state, guild_id, symbol)
+            needs_finalization = _has_unfinalized_watch_session(alert_entry)
+            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
+            reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+            reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
+            stale_prior_session = bool(
+                needs_finalization
+                and reference_session_date
+                and reference_session_date < market_session.session_date
+            )
+            if market_session.is_regular_session_open and symbol in active_symbols and not (
+                stale_prior_session and not close_finalization_due
+            ):
+                warm_symbols.add(symbol)
+            elif needs_finalization and close_finalization_due:
                 warm_symbols.add(symbol)
 
     warm_watch_snapshots = getattr(quote_provider, "warm_watch_snapshots", None)
@@ -1042,8 +1077,23 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 continue
             alert_entry = get_watch_session_alert(state, guild_id, symbol)
             needs_finalization = _has_unfinalized_watch_session(alert_entry)
-            if not market_session.is_regular_session_open and not needs_finalization:
-                continue
+            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
+            if not market_session.is_regular_session_open:
+                if not needs_finalization or not close_finalization_due:
+                    continue
+            elif symbol not in active_symbols:
+                if not needs_finalization or not close_finalization_due:
+                    continue
+            else:
+                reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+                reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
+                if (
+                    needs_finalization
+                    and reference_session_date
+                    and reference_session_date < market_session.session_date
+                    and not close_finalization_due
+                ):
+                    continue
 
             try:
                 snapshot = await quote_provider.get_watch_snapshot(symbol, now)
@@ -1061,6 +1111,8 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     active_session_date = str(alert_entry.get("active_session_date") or "")
                     reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
                     if needs_finalization and reference_session_date and reference_session_date < snapshot.session_date:
+                        if not close_finalization_due:
+                            continue
                         finalized = await _finalize_watch_session(
                             client,
                             state,
@@ -1227,6 +1279,8 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 continue
 
             if needs_finalization:
+                if not close_finalization_due:
+                    continue
                 try:
                     finalized = await _finalize_watch_session(
                         client,

@@ -1,5 +1,21 @@
 # Development Log
 
+## 2026-05-04
+- Context: 사용자가 watch `마감가 알림`을 시장별 한국시간 고정 정각에만 생성하도록 변경해 달라고 요청했다. 합의된 동작은 KRX KST `16:00`, NAS/NYS/AMS KST `07:00`, env/state 설정 없음, missed due minute catch-up 없음이다.
+- Change:
+1. `bot/features/intel_scheduler.py`에 market prefix별 KST close-finalization due helper를 추가했다.
+2. `watch_poll`은 off-hours unfinalized symbol을 due minute이 아니면 warm-up, snapshot fetch, close comment 생성 경로에서 제외한다.
+3. 다음 regular session open에서 prior session이 아직 unfinalized이면 due minute 전에는 snapshot fetch와 session rotation을 보류해 기존 session state를 유지한다.
+4. KRX/US exact-minute helper unit tests와 KRX/US close-finalization due gate integration regressions를 추가했고, 기존 close-price-missing / inactive-finalization / prior-session carry-forward expectations를 새 정책에 맞게 조정했다.
+5. Current-truth docs and integration inventory now describe KST `16:00`/`07:00` exact-minute finalization and the no catch-up consequence.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py`
+2. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+3. `python3 scripts/run_repo_checks.py collect`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
 ## 2026-04-24
 - Context: PR #21 follow-up Codex review reported that current-price comment recreation could abort when deleting the old current-price comment hit `Forbidden` or `HTTPException`.
 - Change:

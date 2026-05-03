@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from bot.features import intel_scheduler
 from bot.features.watch import service
 from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
 
@@ -137,3 +138,34 @@ def test_watch_session_adjacency_uses_trading_calendar():
         previous_session_date="2026-03-24",
         next_session_date="2026-03-27",
     ) is False
+
+
+def test_watch_close_finalization_due_time_is_exact_kst_minute_for_krx():
+    assert intel_scheduler._is_watch_close_finalization_due(
+        "KRX:005930",
+        datetime(2026, 3, 26, 15, 59, tzinfo=KST),
+    ) is False
+    assert intel_scheduler._is_watch_close_finalization_due(
+        "KRX:005930",
+        datetime(2026, 3, 26, 16, 0, tzinfo=KST),
+    ) is True
+    assert intel_scheduler._is_watch_close_finalization_due(
+        "KRX:005930",
+        datetime(2026, 3, 26, 16, 1, tzinfo=KST),
+    ) is False
+
+
+def test_watch_close_finalization_due_time_is_exact_kst_minute_for_us_markets():
+    for symbol in ("NAS:AAPL", "NYS:IBM", "AMS:SPY"):
+        assert intel_scheduler._is_watch_close_finalization_due(
+            symbol,
+            datetime(2026, 3, 27, 6, 59, tzinfo=KST),
+        ) is False
+        assert intel_scheduler._is_watch_close_finalization_due(
+            symbol,
+            datetime(2026, 3, 27, 7, 0, tzinfo=KST),
+        ) is True
+        assert intel_scheduler._is_watch_close_finalization_due(
+            symbol,
+            datetime(2026, 3, 27, 7, 1, tzinfo=KST),
+        ) is False

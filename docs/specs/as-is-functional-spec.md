@@ -749,7 +749,7 @@
 ## Feature: Watch poll and per-symbol forum-thread alerting
 
 ### 4.1 Purpose
-- Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and finalizes the session with a close comment after hours.
+- Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and finalizes the session with a close comment only at market-specific KST due minutes.
 
 ### 4.2 Trigger
 - `intel_scheduler()` interval check when `WATCH_POLL_ENABLED` is true
@@ -778,9 +778,9 @@
 1. `_run_watch_poll()` loads state and scans all guilds.
 2. Target symbols are the union of active watchlist entries and inactive symbols that still have an unfinalized session in `system.watch_session_alerts`.
 3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
-4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set across pending guilds.
+4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set that is eligible for regular-session updates or KST-due close finalization across pending guilds.
 5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
-6. For each guild and symbol, `_run_watch_poll()` resolves or recreates the persistent symbol thread, then calls `quote_provider.get_watch_snapshot()`.
+6. For each guild and symbol, `_run_watch_poll()` calls `quote_provider.get_watch_snapshot()` only when the symbol is eligible for a regular-session active update or a close-finalization due minute.
 7. During market regular-session hours:
    - the current-price comment is updated from the latest snapshot
    - when a band comment is created, the current-price comment is recreated after it so the latest watch state remains at the bottom of the thread
@@ -793,6 +793,9 @@
    - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
 8. Outside regular-session hours:
    - current-price and intraday updates are skipped
+   - close finalization is attempted only when the poll tick is in the configured KST due minute
+   - `KRX:*` close finalization is due only at KST `16:00`, while `NAS:*`, `NYS:*`, and `AMS:*` close finalization is due only at KST `07:00`
+   - due-minute matching uses the KST hour and minute; if the scheduler misses that minute, the session remains unfinalized until the next due minute
    - the latest unfinalized session is finalized by deleting the tracked current-price comment plus tracked intraday comments, then reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
@@ -821,7 +824,8 @@
 - Current-price comment recreate cleanup failures are best-effort and do not block replacement current-price comment sends.
 - `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
 - Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
-- Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.
+- Close finalization remains pending when `session_close_price` is unavailable and is retried on a later KST due-minute poll.
+- If a prior session is still unfinalized at the next regular-session open and the current tick is not the market-specific KST due minute, the bot leaves that prior session and reference snapshot intact instead of rotating to the new session.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints

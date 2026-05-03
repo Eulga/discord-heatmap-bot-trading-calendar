@@ -13,7 +13,10 @@
 - `/watch delete`는 admin command로 동작하며 symbol을 watchlist와 thread/state에서 완전히 제거한다.
 - poll은 regular session open 중 active symbol의 현재가 전용 comment를 갱신하고, `previous_close` 기준 `3% band ladder` 최고 신규 구간에 대해서만 intraday comment를 남긴다.
 - band comment가 새로 생긴 poll에서는 현재가 comment를 삭제 후 다시 보내 thread 하단에 유지한다.
-- regular session close 후 off-hours poll은 현재가 갱신이나 신규 intraday comment 없이 close finalization만 시도한다.
+- regular session close 후 close finalization은 KST exact-minute due time에만 시도한다.
+  - KRX symbol은 KST `16:00` minute에만 시도한다.
+  - NAS/NYS/AMS symbol은 KST `07:00` minute에만 시도한다.
+  - due minute을 놓치면 같은 날 catch-up하지 않고 다음 due minute까지 unfinalized 상태로 남는다.
 - close finalization은 현재가 comment와 intraday comment를 삭제하고 same-session `마감가 알림` comment 1건을 남긴다.
 - 과거 text watch route (`WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id`)는 hard cut 되었고, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`만 legacy cleanup/read 호환 대상으로 남아 있다.
 
@@ -180,6 +183,10 @@
 - `NAS`, `NYS`, `AMS` symbol은 `XNYS`, `America/New_York`, `09:30-16:00` regular session을 사용한다.
 - open session일 때만 현재가 comment 갱신과 intraday band detection을 수행한다.
 - off-hours poll은 현재가 갱신이나 신규 intraday comment를 만들지 않는다.
+- close finalization은 한국시간 기준 exact-minute gate를 통과해야 한다.
+  - `KRX:*`: KST `16:00`
+  - `NAS:*`, `NYS:*`, `AMS:*`: KST `07:00`
+  - 초 단위 exact match가 아니라 해당 KST minute 안의 poll tick이면 due로 본다.
 
 ### Target discovery
 - active tracked symbol은 항상 poll 대상 후보가 된다.
@@ -187,16 +194,18 @@
 - watch forum route가 없는 guild는 `missing_forum_guilds`로 집계된다.
 
 ### Warm-up
-- provider가 `warm_watch_snapshots()`를 구현하면 target symbol의 unique canonical set에 대해 poll cycle당 1회 호출한다.
+- provider가 `warm_watch_snapshots()`를 구현하면 regular-session update 대상과 close-finalization due 대상의 unique canonical set에 대해 poll cycle당 1회 호출한다.
+- off-hours unfinalized symbol이라도 due minute이 아니면 warm-up과 snapshot fetch 대상에서 제외된다.
 - warm-up 실패는 로그만 남기고 poll 전체를 중단시키지 않는다.
 - malformed/unsupported persisted symbol은 warm-up에서 건너뛰고, 개별 symbol 처리 단계에서 `snapshot_failures`로 집계된다.
 
 ### Open-session update
 1. scheduler가 snapshot을 조회한다.
 2. `previous_close`와 `session_date`가 같지 않으면 provider failure로 본다.
-3. 이전 session이 아직 finalization되지 않은 상태에서 더 늦은 `session_date` snapshot이 오면, current session 현재가 comment로 넘어가기 전에 prior session close finalization을 먼저 시도한다.
+3. 이전 session이 아직 finalization되지 않은 상태에서 더 늦은 `session_date` snapshot이 오면, due minute일 때만 current session 현재가 comment로 넘어가기 전에 prior session close finalization을 먼저 시도한다.
    - `snapshot.previous_close` fallback으로 close를 확정하는 경우는 새 snapshot이 target session의 바로 다음 trading session일 때만 허용한다.
    - 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 old session은 그대로 unfinalized로 남는다.
+   - due minute이 아니면 snapshot fetch와 current-session rotation을 건너뛰고 old session을 unfinalized 상태로 유지한다.
 4. session이 바뀌면 `watch_reference_snapshots`를 새 `previous_close/session_date`로 교체한다.
 5. session change 시 `highest_up_band`, `highest_down_band`, `intraday_comment_ids`는 reset된다.
 6. starter message는 blank 상태로 유지되고, 현재가 comment는 아래 정보를 포함해 매 성공 poll마다 edit된다.
@@ -224,23 +233,27 @@
 
 ### Off-hours close finalization
 1. unfinalized session이 있는 symbol만 대상이다.
-2. `session_close_price`가 아직 없으면 session은 그대로 unfinalized로 남는다.
+2. KST exact-minute due gate를 통과한 poll tick에서만 warm-up, snapshot fetch, close comment 생성/수정을 시도한다.
+   - `KRX:*`: KST `16:00`
+   - `NAS:*`, `NYS:*`, `AMS:*`: KST `07:00`
+   - due minute이 아니면 session은 그대로 unfinalized로 남고 provider/Discord 호출을 하지 않는다.
+3. `session_close_price`가 아직 없으면 session은 그대로 unfinalized로 남는다.
    - market 구분 없이 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, last-trade 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
-3. finalization 순서:
+4. finalization 순서:
    - current-price comment delete
    - intraday comment delete
    - same-session close comment reuse or create
    - `close_comment_ids_by_session[session_date]` checkpoint save
    - `last_finalized_session_date` save
    - current-price comment delete의 `Forbidden`/`HTTPException`은 best-effort cleanup failure로 보고 finalization을 계속 진행한다.
-4. close comment는 아래 내용을 담는다.
+5. close comment는 아래 내용을 담는다.
    - marker: `[watch-close:{symbol}:{session_date}]`
    - 날짜
    - 전일 종가
    - 마감가
    - 최종 변동률
-5. 기존 close comment ID가 state에 없더라도 thread history에서 같은 marker를 찾으면 재사용한다.
-6. delete/create/checkpoint/finalization 중간 실패가 있으면 session은 unfinalized 상태로 남고 이후 off-hours poll에서 재시도된다.
+6. 기존 close comment ID가 state에 없더라도 thread history에서 같은 marker를 찾으면 재사용한다.
+7. delete/create/checkpoint/finalization 중간 실패가 있으면 session은 unfinalized 상태로 남고 이후 due minute poll에서 재시도된다.
 
 ## 7. Provider Wiring
 - `MARKET_DATA_PROVIDER_KIND = "mock"`
