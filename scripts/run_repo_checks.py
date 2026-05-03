@@ -50,6 +50,43 @@ PYTEST_OPTIONS_WITH_VALUES = {
     "--rootdir",
     "--tb",
 }
+PYTEST_OPTIONS_WITHOUT_VALUES = {
+    "--cache-clear",
+    "--co",
+    "--collect-only",
+    "--continue-on-collection-errors",
+    "--debug",
+    "--disable-warnings",
+    "--exitfirst",
+    "--failed-first",
+    "--fixtures",
+    "--fixtures-per-test",
+    "--full-trace",
+    "--help",
+    "--keep-duplicates",
+    "--last-failed",
+    "--markers",
+    "--new-first",
+    "--no-header",
+    "--no-summary",
+    "--noconftest",
+    "--pdb",
+    "--quiet",
+    "--setup-only",
+    "--setup-plan",
+    "--setup-show",
+    "--showlocals",
+    "--strict-config",
+    "--strict-markers",
+    "--trace",
+    "--verbose",
+    "--version",
+    "-q",
+    "-s",
+    "-v",
+    "-vv",
+    "-x",
+}
 
 
 def _same_path(left: Path, right: Path) -> bool:
@@ -204,15 +241,20 @@ def choose_pytest_interpreter(
 
 def _has_explicit_pytest_target(passthrough_args: list[str]) -> bool:
     skip_option_value = False
+    after_separator = False
     for arg in passthrough_args:
         if skip_option_value:
             skip_option_value = False
             continue
         if arg == "--":
+            after_separator = True
             continue
-        if arg.startswith("-"):
+        if not after_separator and arg.startswith("-"):
             option_name = arg.split("=", 1)[0]
-            if "=" not in arg and option_name in PYTEST_OPTIONS_WITH_VALUES:
+            if "=" not in arg and (
+                option_name in PYTEST_OPTIONS_WITH_VALUES
+                or option_name not in PYTEST_OPTIONS_WITHOUT_VALUES
+            ):
                 skip_option_value = True
             continue
         normalized_target = arg.split("::", 1)[0].replace("\\", "/")

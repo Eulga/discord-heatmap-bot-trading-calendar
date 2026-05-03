@@ -275,6 +275,27 @@ def test_build_pytest_args_keeps_default_suite_for_ignored_test_path_option():
     assert "tests/integration" in args
 
 
+def test_build_pytest_args_keeps_default_suite_for_unknown_path_valued_option():
+    args = run_repo_checks.build_pytest_args(
+        "integration",
+        include_live=False,
+        passthrough_args=["--confcutdir", "tests"],
+    )
+
+    assert "tests/integration" in args
+
+
+def test_build_pytest_args_detects_target_after_known_flag_without_value():
+    args = run_repo_checks.build_pytest_args(
+        "unit",
+        include_live=False,
+        passthrough_args=["--verbose", "tests/unit/test_dev_env_scripts.py"],
+    )
+
+    assert "tests/unit" not in args
+    assert args == ["-m", "pytest", "-q", "-m", "not live"]
+
+
 def test_build_pytest_args_keeps_default_suite_for_absolute_path_option_value():
     args = run_repo_checks.build_pytest_args(
         "integration",
