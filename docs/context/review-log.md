@@ -1,6 +1,24 @@
 # Review Log
 
 ## 2026-05-03
+- Context: PR #20 follow-up review found additional issues in `scripts/run_repo_checks.py` after the first review fix.
+- Finding:
+1. A current interpreter with global `pytest` but missing repo dependencies could still be selected before the healthy repo `.venv`.
+2. The fallback repo `.venv` interpreter was accepted without checking its Python version.
+3. Explicit pytest targets passed through `scripts/run_repo_checks.py` still ran the full suite because suite default paths were always injected.
+- Resolution:
+1. Interpreter selection now validates the Python version and required test/runtime imports before accepting a candidate, preferring a usable repo `.venv` before the current interpreter.
+2. Stale same-OS `.venv` Python versions now produce rebuild guidance instead of being selected.
+3. Suite default paths are skipped when explicit pytest targets are passed.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+3. `python3 scripts/run_repo_checks.py unit`
+4. `python3 scripts/run_repo_checks.py collect`
+5. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-05-03
 - Context: PR #20 review found two follow-up issues in the standardized validation/bootstrap changes.
 - Finding:
 1. `scripts/run_repo_checks.py` could still select an unsupported current Python if that interpreter happened to have `pytest`, bypassing the documented Python `3.10+` boundary and repo `.venv` fallback.

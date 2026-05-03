@@ -1,6 +1,23 @@
 # Development Log
 
 ## 2026-05-03
+- Context: PR #20 follow-up review found three remaining validation wrapper issues: current Python with only global `pytest` could bypass the repo `.venv`, fallback `.venv` Python version was not checked, and explicit pytest targets still ran the full unit/integration suite.
+- Change:
+1. `scripts/run_repo_checks.py` now treats an interpreter as usable only when it satisfies the repo Python `3.10+` boundary and can import the required test/runtime modules: `pytest`, `pytest_asyncio`, `discord`, and `dotenv`.
+2. Interpreter resolution now tries a usable repo `.venv` before accepting the current interpreter, and stale same-OS `.venv` Python versions return explicit rebuild guidance.
+3. `build_pytest_args(...)` now omits default `tests/unit` or `tests/integration` paths when the caller supplies an explicit pytest target, including after a `--` separator.
+4. `tests/unit/test_dev_env_scripts.py` adds regressions for global-pytest current Python, old fallback `.venv`, and explicit target argument construction.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 -c "import ast, pathlib; paths=['scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+3. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py collect`
+6. `python3 scripts/run_repo_checks.py integration`
+7. `git diff --check`
+- Status: done
+
+## 2026-05-03
 - Context: PR #20 review found that `scripts/run_repo_checks.py` could still select an unsupported current Python when that interpreter happened to have `pytest`, and that `docs/specs/integration-test-cases.md` had stale integration inventory counts.
 - Change:
 1. `choose_pytest_interpreter(...)` now rejects the current interpreter when it is below the repository's Python `3.10+` boundary before checking whether it can import `pytest`, allowing the repo `.venv` fallback or bootstrap guidance to remain authoritative.
