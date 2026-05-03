@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-05-04
+- Context: PR #22 Codex follow-up review found that `pending_close_sessions` entries could remain forever after they aged beyond the adjacent-session `previous_close` fallback window.
+- Change:
+1. `watch_poll` now drops a pending old close target on a KST due-minute poll when the current snapshot session is no longer the immediately adjacent trading session for that target.
+2. Dropping a stale pending target removes only the retry state; it does not create a close comment or delete old intraday comments.
+3. The watch poll regression now covers stale pending close cleanup instead of keeping an unresolvable pending target open forever.
+4. Current-truth docs were updated to describe the stale pending cleanup boundary.
+- Verification:
+1. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-05-04
 - Context: PR #22 Codex review found that the KST due-minute gate also suppressed regular-session polling after a missed close due minute.
 - Change:
 1. `watch_poll` now preserves missed prior-session close targets under `pending_close_sessions` while still rotating to the new regular session and continuing current-price comments plus band alerts.

@@ -779,10 +779,14 @@ def _pending_watch_close_sessions(alert_entry: dict[str, object]) -> dict[str, d
             for message_id in raw_entry.get("intraday_comment_ids", [])
             if isinstance(message_id, int)
         ]
-        pending[date_text] = {
+        pending_entry: dict[str, object] = {
             "reference_price": reference_price,
             "intraday_comment_ids": intraday_comment_ids,
         }
+        updated_at = raw_entry.get("updated_at")
+        if isinstance(updated_at, str) and updated_at.strip():
+            pending_entry["updated_at"] = updated_at
+        pending[date_text] = pending_entry
     return pending
 
 
@@ -815,7 +819,14 @@ def _store_pending_watch_close_session(
     alert_entry[WATCH_PENDING_CLOSE_SESSIONS_KEY] = pending
 
 
-def _clear_pending_watch_close_session(state: dict, guild_id: int, symbol: str, session_date: str) -> None:
+def _clear_pending_watch_close_session(
+    state: dict,
+    guild_id: int,
+    symbol: str,
+    session_date: str,
+    *,
+    updated_at: str | None = None,
+) -> None:
     alert_entry = get_watch_session_alert(state, guild_id, symbol)
     pending = _pending_watch_close_sessions(alert_entry)
     pending.pop(session_date, None)
@@ -823,6 +834,18 @@ def _clear_pending_watch_close_session(state: dict, guild_id: int, symbol: str, 
         alert_entry[WATCH_PENDING_CLOSE_SESSIONS_KEY] = pending
     else:
         alert_entry.pop(WATCH_PENDING_CLOSE_SESSIONS_KEY, None)
+    if updated_at is not None:
+        alert_entry["updated_at"] = updated_at
+
+
+def _is_stale_pending_watch_close_session(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> bool:
+    if snapshot.session_date <= target_session_date:
+        return False
+    return not is_adjacent_watch_session_date(
+        symbol,
+        previous_session_date=target_session_date,
+        next_session_date=snapshot.session_date,
+    )
 
 
 def _current_watch_close_target(
@@ -1406,6 +1429,23 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 try:
                     pending_close_sessions = _pending_watch_close_sessions(alert_entry)
                     for target_session_date, pending_entry in sorted(pending_close_sessions.items()):
+                        if _is_stale_pending_watch_close_session(symbol, snapshot, target_session_date):
+                            logger.warning(
+                                "[intel] watch pending close dropped after adjacency lost guild=%s symbol=%s target_session=%s snapshot_session=%s",
+                                guild_id,
+                                symbol,
+                                target_session_date,
+                                snapshot.session_date,
+                            )
+                            _clear_pending_watch_close_session(
+                                state,
+                                guild_id,
+                                symbol,
+                                target_session_date,
+                                updated_at=now.isoformat(),
+                            )
+                            save_state(state)
+                            continue
                         finalized = await _finalize_watch_session(
                             client,
                             state,

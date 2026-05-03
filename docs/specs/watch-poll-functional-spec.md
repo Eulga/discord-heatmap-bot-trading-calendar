@@ -17,6 +17,7 @@
   - KRX symbol은 KST `16:00` minute에만 시도한다.
   - NAS/NYS/AMS symbol은 KST `07:00` minute에만 시도한다.
   - due minute을 놓치면 close finalization만 pending으로 남고, 이후 정규장 current-price comment와 band alert는 계속 수행한다.
+  - pending close target이 바로 다음 trading session을 지나 더 이상 `previous_close` fallback으로 해소될 수 없으면 retry state에서 제거한다.
 - close finalization은 현재가 comment와 intraday comment를 삭제하고 same-session `마감가 알림` comment 1건을 남긴다.
 - 과거 text watch route (`WATCH_ALERT_CHANNEL_ID` / `watch_alert_channel_id`)는 hard cut 되었고, `watch_alert_cooldowns`, `watch_alert_latches`, `system.watch_baselines`만 legacy cleanup/read 호환 대상으로 남아 있다.
 
@@ -248,6 +249,7 @@
    - market 구분 없이 off-hours poll에서 `session_close_price`가 있고 `session_date`가 현재 off-hours session과 맞으면, last-trade 기반 old `asof`만으로 stale-quote 실패 처리하지 않는다.
    - missed due 뒤 다음 regular session이 시작된 경우, old session의 reference price와 intraday comment IDs는 `pending_close_sessions`에 보존되고 다음 due minute에 close finalization을 재시도한다.
    - 같은 due minute에 pending old session과 current active session이 모두 close 가능한 경우, scheduler는 pending old session close comment를 먼저 만들고 current session close comment를 이어서 만든다.
+   - pending old session이 현재 snapshot의 바로 이전 trading session이 아니면 close comment를 만들지 않고 해당 pending entry를 retry state에서 제거한다.
 4. finalization 순서:
    - current-price comment delete
    - intraday comment delete

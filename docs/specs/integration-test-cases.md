@@ -837,17 +837,17 @@
 - 기대 status/detail/log: close comment는 최종 2건이다.
 - 회귀 방지 포인트: due minute을 놓친 뒤 다음 정규장 전체가 current-price/band update 없이 멈추는 문제를 막는다.
 
-### WP-07 인접하지 않은 더 늦은 snapshot만 있을 때 old session은 finalize하지 않음
+### WP-07 인접하지 않은 pending close target은 retry state에서 제거
 - 테스트 ID: `WP-07`
-- 기능/보호 계약: 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 `snapshot.previous_close`를 old session close로 오인해 finalize하면 안 된다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_keeps_non_adjacent_unfinalized_session_open`
-- 사전 상태: reference/session state는 `2026-03-24`에 고정돼 있고 intraday comment 1건이 남아 있다.
+- 기능/보호 계약: 여러 trading session을 건너뛴 pending close target은 `snapshot.previous_close`를 old session close로 오인해 finalize하지 않고, 더 이상 해소할 수 없는 retry state도 남기지 않아야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_drops_non_adjacent_pending_close_session`
+- 사전 상태: current reference/session state는 `2026-03-27`로 finalization되어 있고 `pending_close_sessions.2026-03-24`와 intraday comment ID 1건이 남아 있다.
 - 입력/트리거: KST `16:00` due-minute snapshot은 `session_date="2026-03-27"`, `previous_close=98.0`, `session_close_price=None`을 반환한다.
 - mock/stub 전제: provider는 이 non-adjacent newer snapshot만 반환한다.
-- 기대 동작: old session close finalization은 수행되지 않고 intraday comment도 그대로 남는다.
-- 기대 상태 저장 변화: `last_finalized_session_date`와 current `watch_reference_snapshots`는 기존 old session 값 그대로 유지된다.
+- 기대 동작: old session close finalization은 수행되지 않고 intraday comment도 그대로 남지만 stale pending entry는 제거된다.
+- 기대 상태 저장 변화: `last_finalized_session_date="2026-03-27"`와 current `watch_reference_snapshots.session_date="2026-03-27"`는 유지되고 `pending_close_sessions`는 제거된다.
 - 기대 status/detail/log: `watch_poll.status="ok"`이며 detail에 `finalized_sessions=0`이 포함된다.
-- 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하고, 이후 올바른 보정 기회를 영구히 잃는 문제를 막는다.
+- 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하거나, 해소 불가능한 pending close retry를 영구히 반복하는 문제를 막는다.
 
 ### WP-08 malformed symbol은 다른 watch symbol 처리를 중단시키지 않음
 - 테스트 ID: `WP-08`

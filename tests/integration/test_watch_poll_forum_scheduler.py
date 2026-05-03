@@ -925,7 +925,7 @@ async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_mi
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatch):
+async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -948,19 +948,27 @@ async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatc
                 "1": {
                     "KRX:005930": {
                         "basis": "previous_close",
-                        "reference_price": 100.0,
-                        "session_date": "2026-03-24",
-                        "checked_at": "2026-03-24T15:30:00+09:00",
+                        "reference_price": 98.0,
+                        "session_date": "2026-03-27",
+                        "checked_at": "2026-03-27T15:30:00+09:00",
                     }
                 }
             },
             "watch_session_alerts": {
                 "1": {
                     "KRX:005930": {
-                        "active_session_date": "2026-03-24",
-                        "highest_up_band": 1,
+                        "active_session_date": "2026-03-27",
+                        "last_finalized_session_date": "2026-03-27",
+                        "highest_up_band": 0,
                         "highest_down_band": 0,
-                        "intraday_comment_ids": [3002],
+                        "intraday_comment_ids": [],
+                        "pending_close_sessions": {
+                            "2026-03-24": {
+                                "reference_price": 100.0,
+                                "intraday_comment_ids": [3002],
+                                "updated_at": "2026-03-26T16:00:00+09:00",
+                            }
+                        },
                         "close_comment_ids_by_session": {},
                     }
                 }
@@ -990,9 +998,10 @@ async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatc
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
 
     assert intraday.deleted is False
-    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
-    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-24"
-    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-24"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-27"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-27"
+    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
+    assert "pending_close_sessions" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert thread.sent_contents == []
     run = state["system"]["job_last_runs"]["watch_poll"]
     assert run["status"] == "ok"
