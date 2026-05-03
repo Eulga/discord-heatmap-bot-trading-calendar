@@ -1,5 +1,20 @@
 # Development Log
 
+## 2026-05-03
+- Context: PR #20 review found that `scripts/run_repo_checks.py` could still select an unsupported current Python when that interpreter happened to have `pytest`, and that `docs/specs/integration-test-cases.md` had stale integration inventory counts.
+- Change:
+1. `choose_pytest_interpreter(...)` now rejects the current interpreter when it is below the repository's Python `3.10+` boundary before checking whether it can import `pytest`, allowing the repo `.venv` fallback or bootstrap guidance to remain authoritative.
+2. `tests/unit/test_dev_env_scripts.py` adds a regression for an old current Python with `pytest` installed.
+3. `docs/specs/integration-test-cases.md` now matches the collected non-live integration inventory: 90 total cases, including 40 Intel scheduler and 19 Watch forum flow cases.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 -c "import ast, pathlib; paths=['scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+6. `git diff --check`
+- Status: done
+
 ## 2026-04-16
 - Context: PR #20의 첫 GitHub Actions run이 collect/unit/integration 전부에서 실패했다. 원인은 workflow가 `bot.app.settings` import에 필요한 `DISCORD_BOT_TOKEN`을 주지 않아 test collection 자체가 막힌 것이었다.
 - Change:

@@ -1,5 +1,21 @@
 # Review Log
 
+## 2026-05-03
+- Context: PR #20 review found two follow-up issues in the standardized validation/bootstrap changes.
+- Finding:
+1. `scripts/run_repo_checks.py` could still select an unsupported current Python if that interpreter happened to have `pytest`, bypassing the documented Python `3.10+` boundary and repo `.venv` fallback.
+2. `docs/specs/integration-test-cases.md` had stale non-live integration inventory counts after the PR's test additions.
+- Resolution:
+1. `choose_pytest_interpreter(...)` now checks the repository Python version boundary before accepting the current interpreter.
+2. A unit regression covers old current Python plus available `pytest`.
+3. The integration inventory document now matches collect output: 90 non-live integration cases, with 40 Intel scheduler and 19 Watch forum flow cases.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+4. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
 ## 2026-04-03
 - Context: PR #19의 후속 Codex review가 scheduler catch-up과 `/watch add` canonical symbol validation을 다시 지적했다.
 - Finding:

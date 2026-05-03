@@ -79,6 +79,28 @@ def test_choose_pytest_interpreter_falls_back_to_repo_venv(tmp_path, monkeypatch
     assert failure is None
 
 
+def test_choose_pytest_interpreter_rejects_old_current_python_even_when_pytest_is_present(
+    tmp_path,
+    monkeypatch,
+):
+    current_python = tmp_path / "python3"
+    current_python.write_text("", encoding="utf-8")
+    inspection = _inspection(tmp_path, "ok")
+    inspection.expected_python.parent.mkdir(parents=True)
+    inspection.expected_python.write_text("", encoding="utf-8")
+
+    def fake_can_import_module(executable: Path, module_name: str) -> bool:
+        return executable in {current_python, inspection.expected_python} and module_name == "pytest"
+
+    monkeypatch.setattr(run_repo_checks, "_can_import_module", fake_can_import_module)
+    monkeypatch.setattr(run_repo_checks.sys, "version_info", (3, 9, 6))
+
+    resolved, failure = run_repo_checks.choose_pytest_interpreter(current_python=current_python, inspection=inspection)
+
+    assert resolved == inspection.expected_python
+    assert failure is None
+
+
 def test_choose_pytest_interpreter_reports_recreate_for_cross_platform_venv(tmp_path, monkeypatch):
     current_python = tmp_path / "python3"
     current_python.write_text("", encoding="utf-8")

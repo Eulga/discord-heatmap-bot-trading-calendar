@@ -20,7 +20,7 @@
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 기본 integration 경로는 live marker가 붙은 캡처 테스트 2건을 deselect하고, non-live 84건만 실행한다.
+- 따라서 기본 integration 경로는 live marker가 붙은 캡처 테스트 2건을 deselect하고, non-live 90건만 실행한다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법
@@ -45,12 +45,12 @@
 | --- | --- | ---: | --- | --- | --- |
 | Auto scheduler | `tests/integration/test_auto_scheduler_logic.py` | 10 | 아니오 | 포함 | 거래일 판정, 중복 실행 방지, state overwrite |
 | Forum upsert / runner | `tests/integration/test_forum_upsert_flow.py` | 9 | 아니오 | 포함 | 기존 thread 수정, content message sync, partial failure body/state |
-| Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 35 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
-| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 18 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
+| Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 40 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
+| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 19 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
 | Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 12 | 아니오 | 포함 | active-only starter update, stop-after-close finalization, missing forum/provider failure |
 | Live capture | `tests/integration/test_capture_korea_live.py`, `tests/integration/test_capture_us_live.py` | 2 | 예 | 제외 | 외부 사이트 렌더, 파일 생성, flaky 네트워크 |
 
-- 기본 문서 범위 합계: 84건
+- 기본 문서 범위 합계: 90건
 - live 문서 범위 합계: 2건
 - 참고: 최초 계획안의 `NB-01~NB-13`, `EO-01~EO-07` 분할은 현재 소스 테스트 수와 1건씩 어긋난다.
 - 이 문서의 exact file/count inventory는 위 표와 collect 결과를 source of truth로 삼고, 상세 계약은 기능별 핵심 회귀를 대표하는 케이스 중심으로 정리한다.

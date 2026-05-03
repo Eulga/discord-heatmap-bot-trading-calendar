@@ -111,7 +111,7 @@ def choose_pytest_interpreter(
     resolved_current_python = current_python or Path(sys.executable)
     resolved_inspection = inspection or inspect_venv()
 
-    if _can_import_module(resolved_current_python, "pytest"):
+    if not _current_python_too_old() and _can_import_module(resolved_current_python, "pytest"):
         return resolved_current_python, None
 
     if (
