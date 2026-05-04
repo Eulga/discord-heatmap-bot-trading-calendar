@@ -1,5 +1,31 @@
 # Design Decisions
 
+## 2026-05-04
+- Context: PostgreSQL 도입 요구는 Discord 게시 후 봇이 다시 찾아야 하는 route/thread/message ID와 scheduler/watch checkpoint를 보존하는 목적이었고, 현재 구현은 이 값을 모두 `AppState` JSON 문서 형태로 `data/state/state.json`에 저장한다.
+- Decision: PostgreSQL v1은 기존 `AppState` 문서를 그대로 `bot_app_state.state JSONB` 한 row에 저장한다. feature별 relational schema로 분해하지 않는다.
+- Why:
+1. 현재 기능들은 이미 `load_state()` / `save_state()`를 중심으로 같은 문서 구조를 공유한다.
+2. v1 목표는 persistence continuity이므로 schema 분해보다 backend 교체가 더 작고 안전하다.
+3. route/thread/message ID, watch session alert checkpoint, provider/job status를 동시에 relational model로 재설계하면 migration, locking, query contract가 새 작업 범위가 된다.
+- Impact:
+1. `STATE_BACKEND=file`은 기존 JSON 파일 동작을 유지한다.
+2. `STATE_BACKEND=postgres`는 같은 문서를 PostgreSQL JSONB row로 저장하고, 첫 row 생성 시 기존 file state를 seed로 사용할 수 있다.
+3. 여러 bot process가 동시에 같은 row를 load-mutate-save하는 lost update 문제는 v1에서 완전히 해결하지 않는다.
+- Status: accepted
+
+## 2026-05-04
+- Context: `/Users/jaeik/.codex-harness`는 staged Codex workflow를 파일 상태와 role reports로 운영하지만, 원본처럼 `requirements.md`, `state.json`, reports를 그대로 추적하면 실제 사용 때마다 repo diff가 생긴다.
+- Decision: 현재 저장소에서는 `.codex-harness`의 템플릿, 프롬프트, helper, README만 추적하고, 실행 중 변하는 `requirements.md`, `state.json`, `reports/*.md`는 git ignore 대상 runtime 파일로 둔다.
+- Why:
+1. 하네스는 agent 운영 도구이지 봇 런타임 truth가 아니다.
+2. 실행 상태가 diff에 섞이면 제품 변경 리뷰와 agent handoff artifact가 혼재된다.
+3. tracked template을 유지하면 새 staged run은 재현 가능하면서도 작업트리는 깨끗하게 유지된다.
+- Impact:
+1. 새 run은 `.codex-harness/bin/harness.py init`으로 runtime 파일을 생성한다.
+2. role report는 다음 role의 source of truth로 쓰지만 커밋 대상은 아니다.
+3. current behavior나 operator truth가 바뀐 경우에는 기존 canonical docs/logs를 별도로 갱신해야 한다.
+- Status: accepted
+
 ## 2026-04-24
 - Context: watch symbol threads had accumulated close comments, so the latest current price in the starter body was no longer the easiest item to inspect after scrolling to the bottom of a long thread.
 - Decision: watch symbol thread starters stay blank for now, while regular-session current price/status is maintained in a tracked current-price comment. Normal polls edit the same comment; when the bot creates a newer band/close-adjacent comment in the same flow, it recreates the current-price comment afterward so the latest watch state remains at the bottom. Future fundamental fields such as market cap, PER, and PBR are deferred.

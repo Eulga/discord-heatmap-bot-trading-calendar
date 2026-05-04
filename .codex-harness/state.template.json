@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "phase": "intake",
+  "status": "ready",
+  "active_role": null,
+  "heartbeat_at": null,
+  "last_report": null,
+  "next_report": ".codex-harness/reports/01-analysis.md",
+  "blocked_reason": null
+}

@@ -24,7 +24,9 @@
 
 ## Current System Snapshot
 - The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news, trend, watch-poll, and instrument-registry-refresh flows.
-- Per-guild mutable routing and runtime state are stored in `data/state/state.json`.
+- Per-guild mutable routing and runtime state use a selectable app-state backend:
+  - default `STATE_BACKEND=file` stores `data/state/state.json`
+  - `STATE_BACKEND=postgres` stores the same app-state document in PostgreSQL table `bot_app_state` as JSONB
 - `watch_poll` is now code-confirmed as a session-aware forum-thread flow:
   - route source of truth is `watch_forum_channel_id`
   - `/setwatchforum` configures the route
@@ -49,15 +51,18 @@
 - Agent-operating baseline uplift:
   - standardized local bootstrap via `scripts/bootstrap_dev_env.py`
   - standardized repo validation via `scripts/run_repo_checks.py` through the active interpreter for the current OS
-  - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
+  - repo-local Codex skills for staged harness operation, PR review, CI triage, docs sync, and scheduler/watch review
+  - repo-local staged workflow templates and state helper under `.codex-harness/`, with run-specific state and reports ignored by git
   - GitHub PR template plus CI workflow under `.github/`
   - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
   - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
+- PostgreSQL app-state persistence is now available as an opt-in backend for preserving Discord route/thread/message IDs and scheduler/watch checkpoints beyond the local JSON state file.
 
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
 - State writes are not visibly serialized across commands, schedulers, and startup paths.
+- PostgreSQL backend failures are intended to fail closed, but the v1 backend still stores the whole `AppState` document as one JSONB row and does not solve cross-process lost updates.
 - Heatmap, news, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
@@ -88,4 +93,6 @@
   - `../README.md`
   - `../../scripts/bootstrap_dev_env.py`
   - `../../.github/workflows/pr-checks.yml`
+  - `../../.codex-harness/README.md`
+  - `../../bot/forum/repository.py`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

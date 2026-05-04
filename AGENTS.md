@@ -59,6 +59,9 @@
 ## 5) Repo-Specific Boundaries
 - `README.md`:
   - onboarding only
+- `.codex-harness/`:
+  - staged Codex workflow tool and templates only
+  - ignored runtime `requirements.md`, `state.json`, and role reports are not project runtime truth
 - `docs/context/CURRENT_STATE.md`:
   - short current-state summary
 - `docs/specs/as-is-functional-spec.md`:
@@ -87,6 +90,8 @@
   - `scripts/bootstrap_dev_env.py`
 - Standardized validation:
   - `scripts/run_repo_checks.py`
+- Staged Codex harness:
+  - `.codex-harness/README.md`
 - Runtime operations:
   - `docs/operations/runtime-runbook.md`
 - Config/env/state boundary:

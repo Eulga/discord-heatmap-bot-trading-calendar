@@ -41,13 +41,33 @@
 ## Docker Run
 - Start:
   - `docker compose up -d --build`
+- Start with PostgreSQL state backend:
+  - set `STATE_BACKEND=postgres`
+  - set `DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap`
+  - run `docker compose up -d --build`
 - View logs:
   - `docker compose logs -f discord-bot`
+- View PostgreSQL logs:
+  - `docker compose logs -f postgres`
 - Stop:
   - `docker compose down`
 - Docker-specific note:
   - mounted `data/` directories are used so logs, state, and cached artifacts can survive container recreation
+  - the local PostgreSQL service uses the named Docker volume `postgres-data`
   - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
+
+## State Backend
+- Default state backend:
+  - `STATE_BACKEND=file`
+  - runtime state is `data/state/state.json`
+- PostgreSQL state backend:
+  - `STATE_BACKEND=postgres`
+  - `DATABASE_URL` is required
+  - `POSTGRES_STATE_KEY` defaults to `default`
+  - the bot creates table `bot_app_state` on first use
+  - the full app-state document is stored in `state JSONB`
+  - when no database row exists, first load seeds from `data/state/state.json` if present
+- PostgreSQL failures are fail-closed. If the backend is selected and the database is unavailable, the bot raises instead of silently replacing state with an empty document.
 
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
@@ -66,8 +86,10 @@
   - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 
 ## Logs and State Paths
-- Main mutable state:
+- Main mutable state, file backend:
   - `data/state/state.json`
+- Main mutable state, PostgreSQL backend:
+  - `bot_app_state.state` JSONB row identified by `POSTGRES_STATE_KEY`
 - Optional runtime registry override:
   - `data/state/instrument_registry.json`
 - Runtime logs:
@@ -94,9 +116,9 @@
 - Forum posting or watch-thread delivery fails:
   - verify the relevant guild route is configured
   - verify the bot can post/send in the target resource
-  - inspect `data/logs/bot.log` and `data/state/state.json`
+  - inspect `data/logs/bot.log` and the configured app-state backend
 - Watch thread behavior looks wrong:
-  - verify `watch_forum_channel_id` exists in `data/state/state.json`
+  - verify `watch_forum_channel_id` exists in the configured app-state backend
   - check `commands.watchpoll.symbol_threads_by_guild` and `system.watch_session_alerts`
   - confirm the bot can create forum threads and send/edit thread comments in the configured watch forum
 - Render or capture problems:
@@ -104,10 +126,12 @@
   - verify Playwright/browser setup
 - Unexpected scheduler behavior:
   - inspect latest run state via status commands or `data/state/state.json`
+  - when using PostgreSQL, inspect `bot_app_state` for the selected `POSTGRES_STATE_KEY`
   - check whether multiple bot instances are running
   - use `../specs/as-is-functional-spec.md` as the current deep reference for exact scheduler semantics
 
 ## Shutdown / Cleanup
 - Stop local or Docker bot processes before starting another instance with the same token.
 - Check for duplicate local/background sessions when debugging repeated or unexpected behavior.
-- Keep `data/state/`, `data/logs/`, and `data/heatmaps/` if you need continuity across restarts.
+- Keep `data/state/`, `data/logs/`, and `data/heatmaps/` if you need file-backend continuity across restarts.
+- Keep the `postgres-data` Docker volume if you need PostgreSQL-backend continuity across container recreation.

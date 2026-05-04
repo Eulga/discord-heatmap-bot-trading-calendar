@@ -1,6 +1,39 @@
 # Development Log
 
 ## 2026-05-04
+- Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
+- Change:
+1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.
+2. `bot/forum/repository.py`의 `load_state()` / `save_state()` 표면은 유지하면서, `STATE_BACKEND=postgres`일 때 PostgreSQL `bot_app_state(state_key, state JSONB, updated_at)` row에 기존 `AppState` 문서를 저장하도록 했다.
+3. PostgreSQL 첫 load에서 row가 없으면 현재 file state를 seed로 사용하고, PostgreSQL 선택 후 DB/query failure는 empty state fallback 없이 RuntimeError로 실패하게 했다.
+4. `requirements.txt`에 `psycopg[binary]`를 추가하고, `docker-compose.yml`에 local `postgres:16-alpine` service와 named volume을 추가했다.
+5. `.env.example`, `README.md`, `docs/operations/config-reference.md`, `docs/operations/runtime-runbook.md`, `docs/specs/as-is-functional-spec.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 새 state backend boundary에 맞게 갱신했다.
+6. `tests/unit/test_state_atomic.py`에 file default 보존, PostgreSQL URL requirement, seed/upsert/fail-closed behavior 테스트를 추가했다.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py`
+2. `PYTHONPYCACHEPREFIX=/private/tmp/postgres-state-pycache python3 -m py_compile bot/forum/repository.py bot/app/settings.py tests/unit/test_state_atomic.py`
+3. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py tests/unit/test_watchlist_repository.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-05-04
+- Context: 사용자가 `/Users/jaeik/.codex-harness`의 file-based staged Codex workflow를 현재 저장소의 agent 운영 체계에 녹여 달라고 요청했다.
+- Change:
+1. `.codex-harness/`를 추가해 tracked template/prompt/helper 기반의 analysis -> implementation -> code-review -> test -> final-review workflow를 repo-local로 편입했다.
+2. `.codex-harness/bin/harness.py`에 `init` 명령을 추가해 ignored runtime `requirements.md`와 `state.json`을 템플릿에서 생성하도록 했다.
+3. `.gitignore`에 run-specific harness state/report 파일을 추가하고, tracked template/README/prompt/helper는 보존했다.
+4. repo-local skill `.agents/skills/codex-harness`를 추가해 긴 작업에서 staged harness를 명시적으로 호출할 수 있게 했다.
+5. `tests/unit/test_codex_harness.py`를 추가해 init, overwrite protection, prompt/heartbeat/complete/block, outside-report rejection을 고정했다.
+6. `README.md`, `AGENTS.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 최소 갱신해 새 agent 운영 도구의 문서 경계를 반영했다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/codex-harness`
+2. `PYTHONPYCACHEPREFIX=/private/tmp/codex-harness-pycache python3 -m py_compile .codex-harness/bin/harness.py tests/unit/test_codex_harness.py`
+3. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_codex_harness.py`
+4. `python3 scripts/run_repo_checks.py unit`
+- Status: done
+
+## 2026-05-04
 - Context: PR #22 Codex follow-up review found that `pending_close_sessions` entries could remain forever after they aged beyond the adjacent-session `previous_close` fallback window.
 - Change:
 1. `watch_poll` now drops a pending old close target on a KST due-minute poll when the current snapshot session is no longer the immediately adjacent trading session for that target.

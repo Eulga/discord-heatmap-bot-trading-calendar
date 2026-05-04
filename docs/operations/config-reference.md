@@ -7,7 +7,8 @@
 
 ## Secret vs Non-Secret Boundary
 - Secrets, tokens, and credentials belong in env.
-- Mutable per-guild routing and other operational state belong in `data/state/state.json`.
+- Mutable per-guild routing and other operational state belong in the configured app-state backend.
+- The default app-state backend is `data/state/state.json`; `STATE_BACKEND=postgres` stores the same state document in PostgreSQL.
 - Bootstrap/default channel IDs may exist in env, but they are not the primary runtime source of truth in the inspected runtime paths.
 
 ## Required Secrets
@@ -22,6 +23,8 @@
     - required when `MARKET_DATA_PROVIDER_KIND` is `kis`
   - `DART_API_KEY`
     - required only when instrument registry refresh actually runs a live rebuild
+  - `DATABASE_URL`
+    - required only when `STATE_BACKEND` is `postgres` or `postgresql`
 - Optional provider/status envs with narrower current roles:
   - `MASSIVE_API_KEY` or legacy `POLYGON_API_KEY`
     - optional US quote fallback only when `MARKET_DATA_PROVIDER_KIND` is `kis`
@@ -38,7 +41,7 @@
   - `NEWS_TARGET_FORUM_ID`
   - `EOD_TARGET_FORUM_ID`
 - Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
-- Runtime routing should be checked in `data/state/state.json` when validating actual behavior.
+- Runtime routing should be checked in the configured app-state backend when validating actual behavior.
 - Watch routing no longer has an env bootstrap/default channel; current code requires per-guild `watch_forum_channel_id` in state.
 
 ## Active Runtime Request Knobs
@@ -68,6 +71,10 @@
   - `LOG_FILE_PATH`
   - `LOG_RETENTION_DAYS`
   - `LOG_CONSOLE_ENABLED`
+- State persistence:
+  - `STATE_BACKEND`
+  - `DATABASE_URL`
+  - `POSTGRES_STATE_KEY`
 
 ## Code-Confirmed Defaults
 - Shared live-provider request behavior:
@@ -95,6 +102,10 @@
 - Logging:
   - `LOG_RETENTION_DAYS = 7`
   - `LOG_CONSOLE_ENABLED = True`
+- State persistence:
+  - `STATE_BACKEND = "file"`
+  - `POSTGRES_STATE_KEY = "default"`
+  - `DATABASE_URL` has no default and is required only for the PostgreSQL backend
 
 ## Code-Confirmed Provider Wiring
 - News provider selection:
@@ -113,8 +124,12 @@
   - `twelvedata_reference` and `openfigi_mapping` are currently status rows, not active runtime providers in the inspected bot code
 
 ## Runtime State Paths
-- Main mutable app state:
+- Main mutable app state when `STATE_BACKEND=file`:
   - `data/state/state.json`
+- Main mutable app state when `STATE_BACKEND=postgres` or `postgresql`:
+  - PostgreSQL table `bot_app_state`
+  - row key from `POSTGRES_STATE_KEY`
+  - full `AppState` document stored in `state JSONB`
 - Optional runtime registry artifact:
   - `data/state/instrument_registry.json`
 - Logs:

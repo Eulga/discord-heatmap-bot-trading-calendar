@@ -52,6 +52,26 @@ docker compose logs -f discord-bot
 docker compose down
 ```
 
+## State Persistence
+
+Default runtime state uses `data/state/state.json`.
+
+PostgreSQL can be enabled by setting:
+
+```bash
+STATE_BACKEND=postgres
+DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap
+POSTGRES_STATE_KEY=default
+```
+
+The PostgreSQL backend stores the existing app-state document in the
+`bot_app_state` JSONB table. On first load it seeds from `data/state/state.json`
+when no database row exists.
+
+The compose file includes a local `postgres` service for `STATE_BACKEND=postgres`
+development, but the bot still uses file state unless `.env` selects the
+PostgreSQL backend.
+
 ## Minimal Architecture
 
 - `bot/app`: bootstrap, settings, command sync
@@ -129,8 +149,12 @@ Live-only:
 - Bootstrap helper is `scripts/bootstrap_dev_env.py`
 - Standardized validation entrypoint is `scripts/run_repo_checks.py`, invoked with the active interpreter for the current OS
 - Repo-local Codex skills now include:
+  - `codex-harness`
   - `pr-review`
   - `ci-triage`
   - `docs-sync`
   - `scheduler-watch-review`
+- Staged Codex workflow templates and state helper live in `.codex-harness/`;
+  run-specific `requirements.md`, `state.json`, and role reports are ignored
+  runtime files created from tracked templates.
 - GitHub PRs now have a default template and CI workflow under `.github/`
