@@ -1,11 +1,10 @@
-model = "gpt-5.4"
-model_reasoning_effort = "medium"
 model_verbosity = "low"
 personality = "pragmatic"
 plan_mode_reasoning_effort = "high"
 web_search = "cached"
 project_doc_max_bytes = 16384
 
+sandbox_mode = "workspace-write"
 [agents]
 max_threads = 4
 max_depth = 1
