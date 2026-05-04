@@ -49,7 +49,8 @@
 - Agent-operating baseline uplift:
   - standardized local bootstrap via `scripts/bootstrap_dev_env.py`
   - standardized repo validation via `scripts/run_repo_checks.py` through the active interpreter for the current OS
-  - repo-local Codex skills for PR review, CI triage, docs sync, and scheduler/watch review
+  - repo-local Codex skills for staged harness operation, PR review, CI triage, docs sync, and scheduler/watch review
+  - repo-local staged workflow templates and state helper under `.codex-harness/`, with run-specific state and reports ignored by git
   - GitHub PR template plus CI workflow under `.github/`
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
 
@@ -74,7 +75,7 @@
 - Do not assume the host system Python is new enough for local bootstrap; the current dependency set requires Python `3.10+`.
 
 ## Last Verified
-- This summary was last updated on 2026-04-16 from:
+- This summary was last updated on 2026-05-04 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`
@@ -84,4 +85,5 @@
   - `../README.md`
   - `../../scripts/bootstrap_dev_env.py`
   - `../../.github/workflows/pr-checks.yml`
+  - `../../.codex-harness/README.md`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

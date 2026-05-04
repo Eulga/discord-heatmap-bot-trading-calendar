@@ -1,5 +1,18 @@
 # Design Decisions
 
+## 2026-05-04
+- Context: `/Users/jaeik/.codex-harness`는 staged Codex workflow를 파일 상태와 role reports로 운영하지만, 원본처럼 `requirements.md`, `state.json`, reports를 그대로 추적하면 실제 사용 때마다 repo diff가 생긴다.
+- Decision: 현재 저장소에서는 `.codex-harness`의 템플릿, 프롬프트, helper, README만 추적하고, 실행 중 변하는 `requirements.md`, `state.json`, `reports/*.md`는 git ignore 대상 runtime 파일로 둔다.
+- Why:
+1. 하네스는 agent 운영 도구이지 봇 런타임 truth가 아니다.
+2. 실행 상태가 diff에 섞이면 제품 변경 리뷰와 agent handoff artifact가 혼재된다.
+3. tracked template을 유지하면 새 staged run은 재현 가능하면서도 작업트리는 깨끗하게 유지된다.
+- Impact:
+1. 새 run은 `.codex-harness/bin/harness.py init`으로 runtime 파일을 생성한다.
+2. role report는 다음 role의 source of truth로 쓰지만 커밋 대상은 아니다.
+3. current behavior나 operator truth가 바뀐 경우에는 기존 canonical docs/logs를 별도로 갱신해야 한다.
+- Status: accepted
+
 ## 2026-04-16
 - Context: 첫 agent 운영 기본선 도입 후에도 current-truth 문서와 skill 일부가 여전히 `.\.venv\Scripts\python.exe -m pytest` 또는 `python ...`처럼 OS 의존적인 명령을 섞어 쓰고 있었고, 실제 macOS 세션에서는 `python` 명령 자체가 존재하지 않았다.
 - Decision: 현재 truth 문서와 active skill은 raw `.venv` interpreter path를 기본 명령으로 쓰지 않는다. 로컬 bootstrap은 `scripts/bootstrap_dev_env.py`, 검증은 `scripts/run_repo_checks.py`를 기준으로 고정하고, 호출은 OS별 active interpreter(`py -3` on Windows, `python3` on macOS/Linux)로 표현한다. 또한 local bootstrap 최소 버전은 Python `3.10+`로 명시하고, 그보다 낮은 시스템 Python에서는 Docker fallback을 안내한다.

@@ -20,6 +20,10 @@ data/heatmaps/
 data/state/
 data/logs/
 output/
+.codex-harness/requirements.md
+.codex-harness/state.json
+.codex-harness/reports/*.md
+!.codex-harness/reports/README.md
 docs/references/external/*
 !docs/references/external/README.md
 

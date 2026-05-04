@@ -1,5 +1,9 @@
 # Session Handoff
 
+- Active carry-forward as of 2026-05-04:
+  - Repo agent 운영 기본선에 `.codex-harness/` staged workflow가 추가됐다. 추적 대상은 템플릿/프롬프트/helper이고, 실행 중 변하는 `.codex-harness/requirements.md`, `.codex-harness/state.json`, `.codex-harness/reports/*.md`는 git ignore 대상이다.
+  - 새 repo-local skill `codex-harness`는 긴 작업을 analysis -> implementation -> code-review -> test -> final-review 세션으로 나눠 운영할 때 사용한다.
+  - 하네스는 봇 런타임 truth가 아니라 agent 운영 도구다. 현재 구현/운영 truth는 계속 `docs/context/CURRENT_STATE.md`, `docs/specs/as-is-functional-spec.md`, `docs/operations/*`를 기준으로 확인해야 한다.
 - Active carry-forward as of 2026-04-16:
   - Repo agent 운영 기본선이 올라갔다. 로컬 bootstrap은 이제 `scripts/bootstrap_dev_env.py`, 검증은 `scripts/run_repo_checks.py`를 현재 OS의 인터프리터로 호출하는 방식으로 정리됐고, `.github/workflows/pr-checks.yml`이 `collect`, `unit`, `integration` non-live 검증을 PR/push에 실행한다.
   - repo-local Codex skill이 4개 추가됐다: `pr-review`, `ci-triage`, `docs-sync`, `scheduler-watch-review`. 구현보다 review/triage/docs 동작을 repo 규칙에 맞게 반복시키는 용도다.

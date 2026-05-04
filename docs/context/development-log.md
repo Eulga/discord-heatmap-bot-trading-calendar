@@ -1,5 +1,21 @@
 # Development Log
 
+## 2026-05-04
+- Context: 사용자가 `/Users/jaeik/.codex-harness`의 file-based staged Codex workflow를 현재 저장소의 agent 운영 체계에 녹여 달라고 요청했다.
+- Change:
+1. `.codex-harness/`를 추가해 tracked template/prompt/helper 기반의 analysis -> implementation -> code-review -> test -> final-review workflow를 repo-local로 편입했다.
+2. `.codex-harness/bin/harness.py`에 `init` 명령을 추가해 ignored runtime `requirements.md`와 `state.json`을 템플릿에서 생성하도록 했다.
+3. `.gitignore`에 run-specific harness state/report 파일을 추가하고, tracked template/README/prompt/helper는 보존했다.
+4. repo-local skill `.agents/skills/codex-harness`를 추가해 긴 작업에서 staged harness를 명시적으로 호출할 수 있게 했다.
+5. `tests/unit/test_codex_harness.py`를 추가해 init, overwrite protection, prompt/heartbeat/complete/block, outside-report rejection을 고정했다.
+6. `README.md`, `AGENTS.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 최소 갱신해 새 agent 운영 도구의 문서 경계를 반영했다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/codex-harness`
+2. `PYTHONPYCACHEPREFIX=/private/tmp/codex-harness-pycache python3 -m py_compile .codex-harness/bin/harness.py tests/unit/test_codex_harness.py`
+3. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_codex_harness.py`
+4. `python3 scripts/run_repo_checks.py unit`
+- Status: done
+
 ## 2026-04-16
 - Context: 이전 agent baseline 변경 후에도 `.venv`가 Windows 전용 artifact로 남아 있었고, current-truth 문서 일부가 여전히 raw `.venv\Scripts\python.exe` 또는 `python ...` 경로를 섞어 써서 macOS/Linux local validation이 실제로 복원되지 않았다.
 - Change:

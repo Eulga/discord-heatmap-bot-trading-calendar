@@ -122,8 +122,12 @@ Live-only:
 - Bootstrap helper is `scripts/bootstrap_dev_env.py`
 - Standardized validation entrypoint is `scripts/run_repo_checks.py`, invoked with the active interpreter for the current OS
 - Repo-local Codex skills now include:
+  - `codex-harness`
   - `pr-review`
   - `ci-triage`
   - `docs-sync`
   - `scheduler-watch-review`
+- Staged Codex workflow templates and state helper live in `.codex-harness/`;
+  run-specific `requirements.md`, `state.json`, and role reports are ignored
+  runtime files created from tracked templates.
 - GitHub PRs now have a default template and CI workflow under `.github/`

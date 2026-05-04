@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex Harness"
+  short_description: "Run staged repo-local Codex workflows"
+  default_prompt: "Use $codex-harness to initialize or continue the staged Codex workflow for this repo."
+policy:
+  allow_implicit_invocation: true
