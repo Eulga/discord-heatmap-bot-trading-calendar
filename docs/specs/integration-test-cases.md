@@ -846,7 +846,7 @@
 - mock/stub 전제: provider는 이 non-adjacent newer snapshot만 반환한다.
 - 기대 동작: old session close finalization은 수행되지 않고 intraday comment도 그대로 남지만 stale pending entry는 제거된다.
 - 기대 상태 저장 변화: `last_finalized_session_date="2026-03-27"`와 current `watch_reference_snapshots.session_date="2026-03-27"`는 유지되고 `pending_close_sessions`는 제거된다.
-- 기대 status/detail/log: `watch_poll.status="ok"`이며 detail에 `finalized_sessions=0`이 포함된다.
+- 기대 status/detail/log: `watch_poll.status="ok"`이며 detail에 `finalized_sessions=0`과 `dropped_pending_close_sessions=1`이 포함된다.
 - 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하거나, 해소 불가능한 pending close retry를 영구히 반복하는 문제를 막는다.
 
 ### WP-08 malformed symbol은 다른 watch symbol 처리를 중단시키지 않음

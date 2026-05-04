@@ -5,10 +5,16 @@
 - Change:
 1. `watch_poll` now drops a pending old close target on a KST due-minute poll when the current snapshot session is no longer the immediately adjacent trading session for that target.
 2. Dropping a stale pending target removes only the retry state; it does not create a close comment or delete old intraday comments.
-3. The watch poll regression now covers stale pending close cleanup instead of keeping an unresolvable pending target open forever.
-4. Current-truth docs were updated to describe the stale pending cleanup boundary.
+3. The watch poll job detail now reports `dropped_pending_close_sessions` so this cleanup is visible without treating it as a failure.
+4. Pending close cleanup is handled in a dedicated helper that returns finalized and dropped counts separately.
+5. The watch poll regression now covers stale pending close cleanup instead of keeping an unresolvable pending target open forever.
+6. Current-truth docs were updated to describe the stale pending cleanup boundary.
 - Verification:
 1. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+2. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py`
+3. `python3 scripts/run_repo_checks.py integration`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py collect`
 - Status: done
 
 ## 2026-05-04

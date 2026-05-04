@@ -1006,6 +1006,7 @@ async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
     run = state["system"]["job_last_runs"]["watch_poll"]
     assert run["status"] == "ok"
     assert "finalized_sessions=0" in run["detail"]
+    assert "dropped_pending_close_sessions=1" in run["detail"]
 
 
 @pytest.mark.asyncio

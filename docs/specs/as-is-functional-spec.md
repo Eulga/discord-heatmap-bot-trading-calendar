@@ -803,7 +803,7 @@
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
    - band-label `%` text follows the same effective-threshold rule even when the configured threshold is fractional or below `1.0`; the trailing signed percent remains the exact `change_pct`
-9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `updated_current_comments`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
+9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `updated_current_comments`, `finalized_sessions`, `dropped_pending_close_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs
 - Blank starter updates and thread comments in per-symbol watch forum threads

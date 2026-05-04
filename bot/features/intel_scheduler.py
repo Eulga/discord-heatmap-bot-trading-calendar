@@ -1150,12 +1150,70 @@ async def _finalize_watch_session(
     return True
 
 
+async def _finalize_pending_watch_close_sessions(
+    client: discord.Client,
+    state: dict,
+    *,
+    now: datetime,
+    guild_id: int,
+    forum_channel_id: int,
+    symbol: str,
+    snapshot: WatchSnapshot,
+    active: bool,
+    alert_entry: dict[str, object],
+) -> tuple[int, int]:
+    finalized_count = 0
+    dropped_count = 0
+    pending_close_sessions = _pending_watch_close_sessions(alert_entry)
+    for target_session_date, pending_entry in sorted(pending_close_sessions.items()):
+        if _is_stale_pending_watch_close_session(symbol, snapshot, target_session_date):
+            logger.warning(
+                "[intel] watch pending close dropped after adjacency lost guild=%s symbol=%s target_session=%s snapshot_session=%s",
+                guild_id,
+                symbol,
+                target_session_date,
+                snapshot.session_date,
+            )
+            _clear_pending_watch_close_session(
+                state,
+                guild_id,
+                symbol,
+                target_session_date,
+                updated_at=now.isoformat(),
+            )
+            save_state(state)
+            dropped_count += 1
+            continue
+        if await _finalize_watch_session(
+            client,
+            state,
+            now=now,
+            guild_id=guild_id,
+            forum_channel_id=forum_channel_id,
+            symbol=symbol,
+            snapshot=snapshot,
+            active=active,
+            target_session_date=target_session_date,
+            reference_price=float(pending_entry.get("reference_price") or 0.0),
+            intraday_comment_ids=[
+                int(message_id)
+                for message_id in pending_entry.get("intraday_comment_ids", [])
+                if isinstance(message_id, int)
+            ],
+            delete_current_comment=False,
+            clear_current_intraday_ids=False,
+        ):
+            finalized_count += 1
+    return finalized_count, dropped_count
+
+
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
     active_symbols_count = 0
     updated_threads = 0
     updated_current_comments = 0
     finalized_sessions = 0
+    dropped_pending_close_sessions = 0
     missing_forum_guilds = 0
     thread_failures = 0
     snapshot_failures = 0
@@ -1427,46 +1485,19 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 if not close_finalization_due:
                     continue
                 try:
-                    pending_close_sessions = _pending_watch_close_sessions(alert_entry)
-                    for target_session_date, pending_entry in sorted(pending_close_sessions.items()):
-                        if _is_stale_pending_watch_close_session(symbol, snapshot, target_session_date):
-                            logger.warning(
-                                "[intel] watch pending close dropped after adjacency lost guild=%s symbol=%s target_session=%s snapshot_session=%s",
-                                guild_id,
-                                symbol,
-                                target_session_date,
-                                snapshot.session_date,
-                            )
-                            _clear_pending_watch_close_session(
-                                state,
-                                guild_id,
-                                symbol,
-                                target_session_date,
-                                updated_at=now.isoformat(),
-                            )
-                            save_state(state)
-                            continue
-                        finalized = await _finalize_watch_session(
-                            client,
-                            state,
-                            now=now,
-                            guild_id=guild_id,
-                            forum_channel_id=forum_channel_id,
-                            symbol=symbol,
-                            snapshot=snapshot,
-                            active=symbol in active_symbols,
-                            target_session_date=target_session_date,
-                            reference_price=float(pending_entry.get("reference_price") or 0.0),
-                            intraday_comment_ids=[
-                                int(message_id)
-                                for message_id in pending_entry.get("intraday_comment_ids", [])
-                                if isinstance(message_id, int)
-                            ],
-                            delete_current_comment=False,
-                            clear_current_intraday_ids=False,
-                        )
-                        if finalized:
-                            finalized_sessions += 1
+                    pending_finalized, pending_dropped = await _finalize_pending_watch_close_sessions(
+                        client,
+                        state,
+                        now=now,
+                        guild_id=guild_id,
+                        forum_channel_id=forum_channel_id,
+                        symbol=symbol,
+                        snapshot=snapshot,
+                        active=symbol in active_symbols,
+                        alert_entry=alert_entry,
+                    )
+                    finalized_sessions += pending_finalized
+                    dropped_pending_close_sessions += pending_dropped
                     alert_entry = get_watch_session_alert(state, guild_id, symbol)
                     current_target = _current_watch_close_target(state, guild_id, symbol, alert_entry)
                     if current_target is None:
@@ -1495,6 +1526,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     detail = (
         f"active_symbols={active_symbols_count} updated_threads={updated_threads} "
         f"updated_current_comments={updated_current_comments} finalized_sessions={finalized_sessions} "
+        f"dropped_pending_close_sessions={dropped_pending_close_sessions} "
         f"missing_forum_guilds={missing_forum_guilds} thread_failures={thread_failures} "
         f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
     )
