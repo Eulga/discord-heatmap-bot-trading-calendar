@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-05-04
+- Context: PR #23 Codex review가 GitHub Actions test jobs에서 `DISCORD_BOT_TOKEN`이 없어 clean runner collection이 실패할 수 있다고 지적했다.
+- Change:
+1. `.github/workflows/pr-checks.yml`에 non-secret dummy `DISCORD_BOT_TOKEN=ci-dummy-token` 전역 env를 추가했다.
+2. `docs/context/review-log.md`에 review finding과 resolution을 기록했다.
+- Verification:
+1. `git diff --check`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
 - Change:
 1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.

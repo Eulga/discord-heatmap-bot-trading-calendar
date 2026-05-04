@@ -1,5 +1,17 @@
 # Review Log
 
+## 2026-05-04
+- Context: PR #23 Codex review가 CI workflow collection failure 가능성을 지적했다.
+- Finding:
+1. `.github/workflows/pr-checks.yml`의 test jobs가 `DISCORD_BOT_TOKEN` 없이 `scripts/run_repo_checks.py`를 실행해, clean GitHub Actions runner에서 `bot.app.settings` import 시 `RuntimeError`로 collection이 실패할 수 있었다.
+- Resolution:
+1. PR checks workflow에 non-secret dummy `DISCORD_BOT_TOKEN=ci-dummy-token`을 전역 env로 추가해 collect/unit/integration jobs가 settings import를 통과하도록 했다.
+- Verification:
+1. `git diff --check`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+- Status: resolved
+
 ## 2026-04-03
 - Context: PR #19의 후속 Codex review가 scheduler catch-up과 `/watch add` canonical symbol validation을 다시 지적했다.
 - Finding:

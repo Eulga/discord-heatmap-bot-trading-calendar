@@ -1,5 +1,8 @@
 name: PR Checks
 
+env:
+  DISCORD_BOT_TOKEN: ci-dummy-token
+
 on:
   pull_request:
   push:
