@@ -1,6 +1,10 @@
 # Session Handoff
 
 - Active carry-forward as of 2026-05-04:
+  - PostgreSQL app-state backend이 opt-in으로 추가됐다. 기본은 계속 `STATE_BACKEND=file` / `data/state/state.json`이고, `STATE_BACKEND=postgres`와 `DATABASE_URL`을 설정하면 `bot_app_state` 테이블의 `state JSONB` row에 기존 `AppState` 문서를 저장한다.
+  - PostgreSQL 첫 load에서 row가 없으면 현재 `data/state/state.json`을 seed로 사용하되 파일은 삭제/수정하지 않는다. PostgreSQL backend 선택 후 DB 오류는 empty state fallback이 아니라 RuntimeError로 fail-closed 처리한다.
+  - v1은 Discord route/thread/message ID와 watch/session/job checkpoint 보존을 목표로 한 JSONB document store다. 여러 프로세스의 load-mutate-save lost update까지 해결하는 transactional repository redesign은 아직 남은 리스크다.
+- Active carry-forward as of 2026-05-04:
   - Repo agent 운영 기본선에 `.codex-harness/` staged workflow가 추가됐다. 추적 대상은 템플릿/프롬프트/helper이고, 실행 중 변하는 `.codex-harness/requirements.md`, `.codex-harness/state.json`, `.codex-harness/reports/*.md`는 git ignore 대상이다.
   - 새 repo-local skill `codex-harness`는 긴 작업을 analysis -> implementation -> code-review -> test -> final-review 세션으로 나눠 운영할 때 사용한다.
   - 하네스는 봇 런타임 truth가 아니라 agent 운영 도구다. 현재 구현/운영 truth는 계속 `docs/context/CURRENT_STATE.md`, `docs/specs/as-is-functional-spec.md`, `docs/operations/*`를 기준으로 확인해야 한다.

@@ -1,6 +1,23 @@
 # Development Log
 
 ## 2026-05-04
+- Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
+- Change:
+1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.
+2. `bot/forum/repository.py`의 `load_state()` / `save_state()` 표면은 유지하면서, `STATE_BACKEND=postgres`일 때 PostgreSQL `bot_app_state(state_key, state JSONB, updated_at)` row에 기존 `AppState` 문서를 저장하도록 했다.
+3. PostgreSQL 첫 load에서 row가 없으면 현재 file state를 seed로 사용하고, PostgreSQL 선택 후 DB/query failure는 empty state fallback 없이 RuntimeError로 실패하게 했다.
+4. `requirements.txt`에 `psycopg[binary]`를 추가하고, `docker-compose.yml`에 local `postgres:16-alpine` service와 named volume을 추가했다.
+5. `.env.example`, `README.md`, `docs/operations/config-reference.md`, `docs/operations/runtime-runbook.md`, `docs/specs/as-is-functional-spec.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`, `docs/context/design-decisions.md`를 새 state backend boundary에 맞게 갱신했다.
+6. `tests/unit/test_state_atomic.py`에 file default 보존, PostgreSQL URL requirement, seed/upsert/fail-closed behavior 테스트를 추가했다.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py`
+2. `PYTHONPYCACHEPREFIX=/private/tmp/postgres-state-pycache python3 -m py_compile bot/forum/repository.py bot/app/settings.py tests/unit/test_state_atomic.py`
+3. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py tests/unit/test_watchlist_repository.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 `/Users/jaeik/.codex-harness`의 file-based staged Codex workflow를 현재 저장소의 agent 운영 체계에 녹여 달라고 요청했다.
 - Change:
 1. `.codex-harness/`를 추가해 tracked template/prompt/helper 기반의 analysis -> implementation -> code-review -> test -> final-review workflow를 repo-local로 편입했다.

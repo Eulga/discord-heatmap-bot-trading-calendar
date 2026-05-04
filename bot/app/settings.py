@@ -71,6 +71,9 @@ except Exception:
 DATA_ROOT = Path("data/heatmaps")
 STATE_FILE = Path("data/state/state.json")
 LEGACY_STATE_FILE = DATA_ROOT / "state.json"
+STATE_BACKEND = os.getenv("STATE_BACKEND", "file").strip().lower() or "file"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+POSTGRES_STATE_KEY = os.getenv("POSTGRES_STATE_KEY", "default").strip() or "default"
 LOG_FILE_PATH = _env_path("LOG_FILE_PATH", Path("data/logs/bot.log"))
 LOG_RETENTION_DAYS = _env_int("LOG_RETENTION_DAYS", 7)
 LOG_CONSOLE_ENABLED = _env_bool("LOG_CONSOLE_ENABLED", True)

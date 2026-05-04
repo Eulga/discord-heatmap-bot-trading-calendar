@@ -1,7 +1,7 @@
 import json
 from typing import Any, cast
 
-from bot.app.settings import LEGACY_STATE_FILE, STATE_FILE
+from bot.app.settings import DATABASE_URL, LEGACY_STATE_FILE, POSTGRES_STATE_KEY, STATE_BACKEND, STATE_FILE
 from bot.app.types import (
     AppState,
     CommandState,
@@ -18,6 +18,20 @@ WATCH_POLL_COMMAND_KEY = "watchpoll"
 
 def _empty_state() -> AppState:
     return {"commands": {}, "guilds": {}}
+
+
+def _normalize_state(data: Any) -> AppState:
+    if not isinstance(data, dict):
+        return _empty_state()
+
+    commands = data.get("commands")
+    if not isinstance(commands, dict):
+        data["commands"] = {}
+    guilds = data.get("guilds")
+    if not isinstance(guilds, dict):
+        data["guilds"] = {}
+
+    return cast(AppState, data)
 
 
 def _migrate_legacy_state_file() -> None:
@@ -41,8 +55,16 @@ def _get_state_file_for_read() -> Any:
     return STATE_FILE
 
 
-def load_state() -> AppState:
-    state_file = _get_state_file_for_read()
+def _get_state_file_for_seed() -> Any:
+    if STATE_FILE.exists():
+        return STATE_FILE
+    if LEGACY_STATE_FILE.exists():
+        return LEGACY_STATE_FILE
+    return STATE_FILE
+
+
+def _load_file_state(*, migrate_legacy: bool) -> AppState:
+    state_file = _get_state_file_for_read() if migrate_legacy else _get_state_file_for_seed()
     if not state_file.exists():
         return _empty_state()
     try:
@@ -51,26 +73,125 @@ def load_state() -> AppState:
     except (json.JSONDecodeError, OSError):
         return _empty_state()
 
-    if not isinstance(data, dict):
-        return _empty_state()
-
-    commands = data.get("commands")
-    if not isinstance(commands, dict):
-        data["commands"] = {}
-    guilds = data.get("guilds")
-    if not isinstance(guilds, dict):
-        data["guilds"] = {}
-
-    return cast(AppState, data)
+    return _normalize_state(data)
 
 
-def save_state(state: AppState) -> None:
+def _save_file_state(state: AppState) -> None:
     atomic_write_json(STATE_FILE, state)
     if LEGACY_STATE_FILE != STATE_FILE and LEGACY_STATE_FILE.exists():
         try:
             LEGACY_STATE_FILE.unlink()
         except OSError:
             pass
+
+
+def _state_backend() -> str:
+    backend = (STATE_BACKEND or "file").strip().lower()
+    if backend == "postgresql":
+        return "postgres"
+    if backend in {"file", "postgres"}:
+        return backend
+    raise RuntimeError(f"Unsupported STATE_BACKEND: {STATE_BACKEND!r}. Expected 'file' or 'postgres'.")
+
+
+def _postgres_database_url() -> str:
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is required when STATE_BACKEND=postgres.")
+    return DATABASE_URL
+
+
+def _import_psycopg() -> Any:
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise RuntimeError("psycopg is required when STATE_BACKEND=postgres. Install project dependencies first.") from exc
+    return psycopg
+
+
+def _connect_postgres() -> Any:
+    database_url = _postgres_database_url()
+    psycopg = _import_psycopg()
+    try:
+        return psycopg.connect(database_url)
+    except Exception as exc:
+        raise RuntimeError("PostgreSQL state backend connection failed.") from exc
+
+
+def _ensure_postgres_table(cursor: Any) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bot_app_state (
+            state_key TEXT PRIMARY KEY,
+            state JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
+def _coerce_postgres_state(value: Any) -> AppState:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("PostgreSQL state row contains invalid JSON.") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("PostgreSQL state row is not a JSON object.")
+    return _normalize_state(value)
+
+
+def _upsert_postgres_state(cursor: Any, state: AppState) -> None:
+    cursor.execute(
+        """
+        INSERT INTO bot_app_state (state_key, state, updated_at)
+        VALUES (%s, %s::jsonb, now())
+        ON CONFLICT (state_key)
+        DO UPDATE SET state = EXCLUDED.state, updated_at = now()
+        """,
+        (POSTGRES_STATE_KEY, json.dumps(state, ensure_ascii=False)),
+    )
+
+
+def _load_postgres_state() -> AppState:
+    _postgres_database_url()
+    try:
+        with _connect_postgres() as conn:
+            with conn.cursor() as cursor:
+                _ensure_postgres_table(cursor)
+                cursor.execute("SELECT state FROM bot_app_state WHERE state_key = %s", (POSTGRES_STATE_KEY,))
+                row = cursor.fetchone()
+                if row is not None:
+                    return _coerce_postgres_state(row[0])
+
+                seeded_state = _load_file_state(migrate_legacy=False)
+                _upsert_postgres_state(cursor, seeded_state)
+                return seeded_state
+    except Exception as exc:
+        raise RuntimeError("PostgreSQL state backend load failed.") from exc
+
+
+def _save_postgres_state(state: AppState) -> None:
+    _postgres_database_url()
+    try:
+        with _connect_postgres() as conn:
+            with conn.cursor() as cursor:
+                _ensure_postgres_table(cursor)
+                _upsert_postgres_state(cursor, _normalize_state(state))
+    except Exception as exc:
+        raise RuntimeError("PostgreSQL state backend save failed.") from exc
+
+
+def load_state() -> AppState:
+    if _state_backend() == "postgres":
+        return _load_postgres_state()
+    return _load_file_state(migrate_legacy=True)
+
+
+def save_state(state: AppState) -> None:
+    if _state_backend() == "postgres":
+        _save_postgres_state(state)
+        return
+    _save_file_state(state)
 
 
 def get_command_state(state: AppState, command_key: str) -> CommandState:

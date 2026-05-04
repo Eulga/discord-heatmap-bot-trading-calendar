@@ -31,7 +31,9 @@
   - This is confirmed by `requirements.txt`, `bot/markets/providers/*.py`, `bot/markets/trading_calendar.py`, `bot/intel/providers/*.py`, and `bot/intel/instrument_registry.py`.
 - The main persisted state/config mechanisms are:
   - `.env` loaded at import time by `bot/app/settings.py`
-  - `data/state/state.json` as the main mutable app state
+  - selectable app-state backend through `STATE_BACKEND`
+  - `data/state/state.json` as the default mutable app state when `STATE_BACKEND=file`
+  - PostgreSQL table `bot_app_state` as the optional mutable app state when `STATE_BACKEND=postgres` or `postgresql`
   - `data/state/instrument_registry.json` as an optional runtime registry override
   - `bot/intel/data/instrument_registry.json` and seed JSON as bundled registry artifacts
   - `data/heatmaps/...` as local image cache
@@ -971,9 +973,13 @@
 - News posting uses two separate threads for domestic/global plus an optional separate trend thread.
 
 ## 5.5 State persistence behavior
-- `data/state/state.json` is the main mutable store for guild routing, image cache metadata, daily post mappings, auto-run metadata, watch runtime state, and job/provider status.
-- `load_state()` returns an empty state on missing file, invalid JSON, non-dict payload, `JSONDecodeError`, or `OSError`.
-- `save_state()` uses atomic temp-file replacement.
+- The configured app-state backend is the main mutable store for guild routing, image cache metadata, daily post mappings, auto-run metadata, watch runtime state, and job/provider status.
+- Default `STATE_BACKEND=file` reads/writes `data/state/state.json`.
+- File backend `load_state()` returns an empty state on missing file, invalid JSON, non-dict payload, `JSONDecodeError`, or `OSError`.
+- File backend `save_state()` uses atomic temp-file replacement.
+- `STATE_BACKEND=postgres` or `postgresql` reads/writes PostgreSQL table `bot_app_state`, keyed by `POSTGRES_STATE_KEY`, with the full app-state document stored in `state JSONB`.
+- PostgreSQL backend creates the table on first use and seeds the row from the current file state if no row exists.
+- PostgreSQL backend failures raise runtime errors instead of returning empty state.
 - Runtime registry is a separate JSON file under `data/state/instrument_registry.json`.
 
 ## 5.6 Failure behavior
@@ -1116,10 +1122,15 @@
 
 ## Local state files
 - Name: `data/state/state.json`
-  - Purpose: mutable application state
-  - Required vs optional: optional at first run, central after initialization
-  - Observed usage: nearly all feature modules
-  - Risk if missing: bot starts with empty state; routes/watchlists/status history absent
+  - Purpose: default mutable application state and PostgreSQL seed source
+  - Required vs optional: optional at first run, central after initialization when `STATE_BACKEND=file`
+  - Observed usage: nearly all feature modules through `load_state()` / `save_state()` in file backend
+  - Risk if missing: file backend starts with empty state; PostgreSQL backend seeds an empty row if no database row exists
+- Name: PostgreSQL `bot_app_state`
+  - Purpose: optional mutable application state backend
+  - Required vs optional: required only when `STATE_BACKEND=postgres` or `postgresql`
+  - Observed usage: `bot/forum/repository.py` stores the full `AppState` document in `state JSONB`
+  - Risk if missing: table is created on first use; if the database is unreachable, selected PostgreSQL backend fails closed
 - Name: `data/state/instrument_registry.json`
   - Purpose: runtime registry override artifact
   - Required vs optional: optional

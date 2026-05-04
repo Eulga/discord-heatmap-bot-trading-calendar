@@ -1,6 +1,7 @@
 # Discord bot runtime dependencies
 discord.py>=2.4,<3.0
 python-dotenv>=1.0,<2.0
+psycopg[binary]>=3.2,<4.0
 playwright>=1.55,<2.0
 exchange_calendars>=4.7,<5.0
 tzdata>=2025.1,<2026.0

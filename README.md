@@ -34,6 +34,22 @@ Docker fallback for validation when a suitable local Python is unavailable:
 docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect
 ```
 
+## State Persistence
+
+Default runtime state uses `data/state/state.json`.
+
+PostgreSQL can be enabled by setting:
+
+```bash
+STATE_BACKEND=postgres
+DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap
+POSTGRES_STATE_KEY=default
+```
+
+The PostgreSQL backend stores the existing app-state document in the
+`bot_app_state` JSONB table. On first load it seeds from `data/state/state.json`
+when no database row exists.
+
 ## Run
 
 Local:
@@ -49,6 +65,10 @@ docker compose up -d --build
 docker compose logs -f discord-bot
 docker compose down
 ```
+
+The compose file includes a local `postgres` service for `STATE_BACKEND=postgres`
+development, but the bot still uses file state unless `.env` selects the
+PostgreSQL backend.
 
 ## Minimal Architecture
 
