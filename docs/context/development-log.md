@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-05-04
+- Context: 사용자가 repo-local Codex 설정의 모든 명시 모델을 최신 고성능 기본값으로 고정해 달라고 요청했다.
+- Change:
+1. `.codex/config.toml`의 기본 모델을 `gpt-5.5`, reasoning effort를 `xhigh`, plan-mode reasoning effort를 `xhigh`로 올렸다.
+2. `.codex/config.toml`에 `service_tier = "fast"`를 추가해 repo 설정도 fast service tier를 명시하도록 했다.
+3. `repo_explorer`, `reviewer`, `docs_researcher`, `integration_tester` custom agent 모델을 모두 `gpt-5.5`와 `xhigh` reasoning effort로 정렬했다.
+- Verification:
+1. `.venv/bin/python -c "import pathlib, tomllib; [tomllib.loads(path.read_text()) for path in [pathlib.Path('.codex/config.toml'), *pathlib.Path('.codex/agents').glob('*.toml')]]; print('toml ok')"`
+2. `rg -n "model\\s*=|model_reasoning_effort\\s*=|plan_mode_reasoning_effort\\s*=|service_tier\\s*=" .codex .agents -g '*.*'`
+3. `.venv/bin/python scripts/run_repo_checks.py collect`
+4. `git diff --check`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
 - Change:
 1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.

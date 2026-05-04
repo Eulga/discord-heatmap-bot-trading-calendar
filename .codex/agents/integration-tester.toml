@@ -1,7 +1,7 @@
 name = "integration_tester"
 description = "Workspace-write integration test runner for this Discord bot. Use to execute the full feature-level integration suite and summarize failures or regressions."
-model = "gpt-5.4-mini"
-model_reasoning_effort = "medium"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
 developer_instructions = '''
 Own integration verification for this repository.
