@@ -1,17 +1,6 @@
 # Development Log
 
 ## 2026-05-04
-- Context: PR #23 Codex review가 GitHub Actions test jobs에서 `DISCORD_BOT_TOKEN`이 없어 clean runner collection이 실패할 수 있다고 지적했다.
-- Change:
-1. `.github/workflows/pr-checks.yml`에 non-secret dummy `DISCORD_BOT_TOKEN=ci-dummy-token` 전역 env를 추가했다.
-2. `docs/context/review-log.md`에 review finding과 resolution을 기록했다.
-- Verification:
-1. `git diff --check`
-2. `python3 scripts/run_repo_checks.py collect`
-3. `python3 scripts/run_repo_checks.py unit`
-- Status: done
-
-## 2026-05-04
 - Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
 - Change:
 1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.
@@ -44,6 +33,147 @@
 4. `python3 scripts/run_repo_checks.py unit`
 - Status: done
 
+## 2026-05-04
+- Context: PR #22 Codex follow-up review found that `pending_close_sessions` entries could remain forever after they aged beyond the adjacent-session `previous_close` fallback window.
+- Change:
+1. `watch_poll` now drops a pending old close target on a KST due-minute poll when the current snapshot session is no longer the immediately adjacent trading session for that target.
+2. Dropping a stale pending target removes only the retry state; it does not create a close comment or delete old intraday comments.
+3. The watch poll job detail now reports `dropped_pending_close_sessions` so this cleanup is visible without treating it as a failure.
+4. Pending close cleanup is handled in a dedicated helper that returns finalized and dropped counts separately.
+5. The watch poll regression now covers stale pending close cleanup instead of keeping an unresolvable pending target open forever.
+6. Current-truth docs were updated to describe the stale pending cleanup boundary.
+- Verification:
+1. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+2. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py`
+3. `python3 scripts/run_repo_checks.py integration`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py collect`
+- Status: done
+
+## 2026-05-04
+- Context: PR #22 Codex review found that the KST due-minute gate also suppressed regular-session polling after a missed close due minute.
+- Change:
+1. `watch_poll` now preserves missed prior-session close targets under `pending_close_sessions` while still rotating to the new regular session and continuing current-price comments plus band alerts.
+2. Due-minute finalization now processes pending old close targets before the current active session close target when the same snapshot can close both.
+3. Regression coverage now proves a missed KRX close due minute does not stop the next regular-session update, and that the next KST `16:00` tick clears both the pending old close and current close.
+4. Watch current-truth docs were updated to describe pending close targets instead of blocking regular-session rotation.
+- Verification:
+1. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+2. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py`
+- Status: done
+
+## 2026-05-04
+- Context: 사용자가 watch `마감가 알림`을 시장별 한국시간 고정 정각에만 생성하도록 변경해 달라고 요청했다. 합의된 동작은 KRX KST `16:00`, NAS/NYS/AMS KST `07:00`, env/state 설정 없음, missed due minute catch-up 없음이다.
+- Change:
+1. `bot/features/intel_scheduler.py`에 market prefix별 KST close-finalization due helper를 추가했다.
+2. `watch_poll`은 off-hours unfinalized symbol을 due minute이 아니면 warm-up, snapshot fetch, close comment 생성 경로에서 제외한다.
+3. 다음 regular session open에서 prior session이 아직 unfinalized이면 due minute 전에는 close finalization만 보류한다.
+4. KRX/US exact-minute helper unit tests와 KRX/US close-finalization due gate integration regressions를 추가했고, 기존 close-price-missing / inactive-finalization / prior-session carry-forward expectations를 새 정책에 맞게 조정했다.
+5. Current-truth docs and integration inventory now describe KST `16:00`/`07:00` exact-minute finalization and the no catch-up consequence.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_watch_cooldown.py`
+2. `python3 scripts/run_repo_checks.py integration tests/integration/test_watch_poll_forum_scheduler.py`
+3. `python3 scripts/run_repo_checks.py collect`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+- Status: done
+
+## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that current-price comment recreation could abort when deleting the old current-price comment hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats old current-price comment delete failures during force-recreate as best-effort cleanup failures, logs them, clears the stale current comment ID, and still attempts to send the replacement current-price comment after the band comment.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving a band poll still creates the replacement current-price comment and advances the successful band checkpoint when old current-comment delete fails.
+3. Watch docs now state that current-price recreate cleanup failures do not block replacement current-price comment sends.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/integration/test_watch_poll_forum_scheduler.py -k "recreates_current_comment_when_old_current_delete_fails"`
+2. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: PR #21 follow-up Codex review reported that close finalization could still abort when current-price comment cleanup hit `Forbidden` or `HTTPException`.
+- Change:
+1. `bot/features/intel_scheduler.py` now treats close-finalization current-price comment cleanup as best-effort for `Forbidden`/`HTTPException`, logs the cleanup failure, clears the stored current comment ID, and continues close finalization.
+2. `tests/integration/test_watch_poll_forum_scheduler.py` adds a regression proving close comment creation and `last_finalized_session_date` persistence still happen when current-comment delete fails.
+3. Watch docs now state that finalization current-price comment cleanup is best-effort.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: PR #21 Codex review reported that current-price comments had become coupled to band comment success, and `/watch stop` could fail when best-effort current-comment cleanup hit Discord errors.
+- Change:
+1. `bot/features/intel_scheduler.py` now keeps band comment send and current-price comment upsert in separate failure boundaries.
+2. Failed band comment sends increment `comment_failures` but do not advance band checkpoints and do not block current-price updates.
+3. `/watch stop` now treats current-price comment cleanup `Forbidden`/`HTTPException` as best-effort failures, logs them, clears the stored current comment ID, and still persists inactive status.
+4. Regression tests cover both PR review findings.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-04-24
+- Context: 사용자가 `watch_poll`의 현재가 표시를 포럼 게시글 본문 수정에서 thread 하단 comment 수정 방식으로 옮기고, starter 본문은 이번 범위에서 비워두길 요청했다.
+- Change:
+1. `watch_poll`은 이제 regular session poll에서 starter를 blank 상태로 유지하고 `current_comment_id`로 추적되는 현재가 comment를 생성/수정한다.
+2. 같은 poll에서 band comment가 새로 생성되면 기존 현재가 comment를 삭제 후 다시 보내, thread 하단에 최신 현재가 정보가 남도록 했다.
+3. close finalization과 `/watch stop`은 stale 현재가 comment를 삭제하고 `current_comment_id`를 정리하며, close comment 누적 기록은 기존 세션별 방식으로 유지한다.
+4. 관련 state type/repository helper, command/thread upsert 경로, scheduler job detail(`updated_current_comments`)과 watch 기능 문서를 함께 갱신했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/unit/test_watchlist_repository.py tests/integration/test_watch_forum_flow.py tests/integration/test_watch_poll_forum_scheduler.py`
+- Status: done
+
+## 2026-05-03
+- Context: PR #20 follow-up review found remaining validation wrapper issues: current Python with only global `pytest` could bypass the repo `.venv`, fallback `.venv` and bootstrap-reused `.venv` Python versions were not checked, explicit pytest targets still ran the full unit/integration suite, and path-valued, unknown, or alias pytest options could be mistaken for explicit target parsing.
+- Change:
+1. `scripts/run_repo_checks.py` now treats an interpreter as usable only when it satisfies the repo Python `3.10+` boundary and can import the required test/runtime modules: `pytest`, `pytest_asyncio`, `discord`, and `dotenv`.
+2. Interpreter resolution now tries a usable repo `.venv` before accepting the current interpreter, and stale same-OS `.venv` Python versions return explicit rebuild guidance.
+3. `build_pytest_args(...)` now omits default `tests/unit` or `tests/integration` paths when the caller supplies an explicit pytest target, including after a `--` separator.
+4. Explicit-target detection now skips values for known value-taking pytest options and unknown options, while still recognizing targets after known no-value flags and after a `--` separator.
+5. `tests/unit/test_dev_env_scripts.py` adds regressions for global-pytest current Python, old fallback `.venv`, explicit target argument construction, path-valued pytest options, and unknown value-taking options.
+6. `scripts/bootstrap_dev_env.py` now rejects an existing same-OS `.venv` when its interpreter is below Python `3.10+`, before installing dependencies into that stale environment.
+7. `tests/unit/test_dev_env_scripts.py` adds a bootstrap regression for an old existing `.venv` to ensure rebuild guidance is emitted and install commands are not run.
+8. Pytest no-value aliases and flags such as `--lf`, `--ff`, `--nf`, `--sw`, `--pyargs`, `--collect-in-virtualenv`, and `--stepwise-reset` are now recognized before target detection decides whether to inject default suite paths.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py unit --lf tests/unit/test_dev_env_scripts.py`
+3. `python3 scripts/run_repo_checks.py unit --collect-in-virtualenv tests/unit/test_dev_env_scripts.py`
+4. `python3 -c "import ast, pathlib; paths=['scripts/bootstrap_dev_env.py','scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+5. `python3 scripts/run_repo_checks.py unit --junitxml reports/unit.xml tests/unit/test_dev_env_scripts.py`
+6. `python3 scripts/run_repo_checks.py integration --ignore tests/integration/test_intel_scheduler_logic.py`
+7. `python3 scripts/run_repo_checks.py integration --confcutdir tests`
+8. `python3 scripts/run_repo_checks.py integration tests/integration/test_intel_scheduler_logic.py`
+9. `python3 scripts/run_repo_checks.py unit`
+10. `python3 scripts/run_repo_checks.py collect`
+11. `python3 scripts/run_repo_checks.py integration`
+12. `git diff --check`
+- Status: done
+
+## 2026-05-03
+- Context: PR #20 review found that `scripts/run_repo_checks.py` could still select an unsupported current Python when that interpreter happened to have `pytest`, and that `docs/specs/integration-test-cases.md` had stale integration inventory counts.
+- Change:
+1. `choose_pytest_interpreter(...)` now rejects the current interpreter when it is below the repository's Python `3.10+` boundary before checking whether it can import `pytest`, allowing the repo `.venv` fallback or bootstrap guidance to remain authoritative.
+2. `tests/unit/test_dev_env_scripts.py` adds a regression for an old current Python with `pytest` installed.
+3. `docs/specs/integration-test-cases.md` now matches the collected non-live integration inventory: 90 total cases, including 40 Intel scheduler and 19 Watch forum flow cases.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit tests/unit/test_dev_env_scripts.py`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 -c "import ast, pathlib; paths=['scripts/run_repo_checks.py','tests/unit/test_dev_env_scripts.py']; [ast.parse(pathlib.Path(p).read_text()) for p in paths]; print('syntax ok')"`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+6. `git diff --check`
+- Status: done
+
+## 2026-04-16
+- Context: PR #20의 첫 GitHub Actions run이 collect/unit/integration 전부에서 실패했다. 원인은 workflow가 `bot.app.settings` import에 필요한 `DISCORD_BOT_TOKEN`을 주지 않아 test collection 자체가 막힌 것이었다.
+- Change:
+1. `.github/workflows/pr-checks.yml`에 workflow-level placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token`을 추가해 non-live pytest collect/unit/integration job이 import-time settings guard 때문에 중단되지 않도록 했다.
+2. `docs/operations/runtime-runbook.md`, `docs/context/CURRENT_STATE.md`, `docs/context/session-handoff.md`를 업데이트해 PR CI가 placeholder token으로 import-time validation만 우회한다는 경계를 현재 문서에 반영했다.
+- Verification:
+1. `gh run view 24511040944 --log-failed`
+2. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py collect`
+3. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py unit`
+4. `DISCORD_BOT_TOKEN=ci-placeholder-token python3 scripts/run_repo_checks.py integration`
+- Status: done
+
 ## 2026-04-16
 - Context: 이전 agent baseline 변경 후에도 `.venv`가 Windows 전용 artifact로 남아 있었고, current-truth 문서 일부가 여전히 raw `.venv\Scripts\python.exe` 또는 `python ...` 경로를 섞어 써서 macOS/Linux local validation이 실제로 복원되지 않았다.
 - Change:
@@ -59,8 +189,13 @@
 4. `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 5. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py unit`
 6. `docker compose run --rm -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py integration`
+- Follow-up:
+1. `/opt/homebrew/bin/python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `python3 scripts/run_repo_checks.py unit`
+4. `python3 scripts/run_repo_checks.py integration`
 - Note:
-1. 실제 macOS host의 `python3`는 `3.9.6`이라 `bootstrap_dev_env.py`는 Python `3.10+` requirement를 안내한 뒤 중단하도록 보강했고, 이후 검증은 Docker fallback으로 진행한다.
+1. 실제 macOS host의 `python3`는 여전히 `3.9.6`이지만, Homebrew `python3.11` 설치 후 `.venv`를 `3.11.15`로 재생성했고, `run_repo_checks.py`는 이 `.venv`를 fallback interpreter로 사용해 로컬 collect/unit/integration을 통과했다.
 - Status: done
 
 ## 2026-04-16

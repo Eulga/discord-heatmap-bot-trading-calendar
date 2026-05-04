@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 
@@ -50,12 +51,14 @@ from bot.features.watch.service import (
     calculate_change_pct,
     evaluate_band_event,
     render_band_comment,
+    render_blank_watch_starter,
     render_close_comment,
-    render_watch_starter,
+    render_watch_current_comment,
 )
 from bot.features.watch.session import get_watch_market_session, is_adjacent_watch_session_date
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
+    clear_watch_current_comment_id,
     get_daily_posts_for_guild,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
@@ -75,6 +78,7 @@ from bot.forum.repository import (
     set_guild_last_auto_run_date,
     set_job_last_run,
     set_provider_status,
+    set_watch_current_comment_id,
     set_watch_reference_snapshot,
     update_watch_session_alert,
 )
@@ -113,6 +117,14 @@ NEWS_BRIEFING_COMMAND_KEY = "newsbriefing"
 NEWS_BRIEFING_DOMESTIC_COMMAND_KEY = "newsbriefing-domestic"
 NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
+WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
+WATCH_PENDING_CLOSE_SESSIONS_KEY = "pending_close_sessions"
+WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
+    "KRX": (16, 0),
+    "NAS": (7, 0),
+    "NYS": (7, 0),
+    "AMS": (7, 0),
+}
 
 
 def _build_news_provider() -> NewsProvider:
@@ -738,11 +750,142 @@ async def _run_eod_job(client: discord.Client, now: datetime) -> None:
 
 
 def _has_unfinalized_watch_session(alert_entry: dict[str, object]) -> bool:
+    if _pending_watch_close_sessions(alert_entry):
+        return True
     active_session_date = str(alert_entry.get("active_session_date") or "").strip()
     if not active_session_date:
         return False
     last_finalized_session_date = str(alert_entry.get("last_finalized_session_date") or "").strip()
     return active_session_date != last_finalized_session_date
+
+
+def _pending_watch_close_sessions(alert_entry: dict[str, object]) -> dict[str, dict[str, object]]:
+    raw_pending = alert_entry.get(WATCH_PENDING_CLOSE_SESSIONS_KEY)
+    if not isinstance(raw_pending, dict):
+        return {}
+    pending: dict[str, dict[str, object]] = {}
+    for session_date, raw_entry in raw_pending.items():
+        date_text = str(session_date or "").strip()
+        if not date_text or not isinstance(raw_entry, dict):
+            continue
+        try:
+            reference_price = float(raw_entry.get("reference_price") or 0.0)
+        except (TypeError, ValueError):
+            reference_price = 0.0
+        if reference_price <= 0:
+            continue
+        intraday_comment_ids = [
+            int(message_id)
+            for message_id in raw_entry.get("intraday_comment_ids", [])
+            if isinstance(message_id, int)
+        ]
+        pending_entry: dict[str, object] = {
+            "reference_price": reference_price,
+            "intraday_comment_ids": intraday_comment_ids,
+        }
+        updated_at = raw_entry.get("updated_at")
+        if isinstance(updated_at, str) and updated_at.strip():
+            pending_entry["updated_at"] = updated_at
+        pending[date_text] = pending_entry
+    return pending
+
+
+def _store_pending_watch_close_session(
+    state: dict,
+    guild_id: int,
+    symbol: str,
+    *,
+    session_date: str,
+    reference_price: float,
+    intraday_comment_ids: list[int],
+    updated_at: str,
+) -> None:
+    if reference_price <= 0 or not session_date:
+        return
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    pending = _pending_watch_close_sessions(alert_entry)
+    existing_entry = pending.get(session_date, {})
+    existing_intraday_ids = {
+        int(message_id)
+        for message_id in existing_entry.get("intraday_comment_ids", [])
+        if isinstance(message_id, int)
+    }
+    merged_intraday_ids = sorted(existing_intraday_ids | {int(message_id) for message_id in intraday_comment_ids})
+    pending[session_date] = {
+        "reference_price": float(reference_price),
+        "intraday_comment_ids": merged_intraday_ids,
+        "updated_at": updated_at,
+    }
+    alert_entry[WATCH_PENDING_CLOSE_SESSIONS_KEY] = pending
+
+
+def _clear_pending_watch_close_session(
+    state: dict,
+    guild_id: int,
+    symbol: str,
+    session_date: str,
+    *,
+    updated_at: str | None = None,
+) -> None:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    pending = _pending_watch_close_sessions(alert_entry)
+    pending.pop(session_date, None)
+    if pending:
+        alert_entry[WATCH_PENDING_CLOSE_SESSIONS_KEY] = pending
+    else:
+        alert_entry.pop(WATCH_PENDING_CLOSE_SESSIONS_KEY, None)
+    if updated_at is not None:
+        alert_entry["updated_at"] = updated_at
+
+
+def _is_stale_pending_watch_close_session(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> bool:
+    if snapshot.session_date <= target_session_date:
+        return False
+    return not is_adjacent_watch_session_date(
+        symbol,
+        previous_session_date=target_session_date,
+        next_session_date=snapshot.session_date,
+    )
+
+
+def _current_watch_close_target(
+    state: dict,
+    guild_id: int,
+    symbol: str,
+    alert_entry: dict[str, object],
+) -> tuple[str, float, list[int]] | None:
+    active_session_date = str(alert_entry.get("active_session_date") or "").strip()
+    last_finalized_session_date = str(alert_entry.get("last_finalized_session_date") or "").strip()
+    if not active_session_date or active_session_date == last_finalized_session_date:
+        return None
+    reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+    if reference_snapshot is None:
+        return None
+    target_session_date = str(reference_snapshot.get("session_date") or "")
+    if target_session_date != active_session_date:
+        return None
+    reference_price = float(reference_snapshot.get("reference_price") or 0.0)
+    if reference_price <= 0:
+        return None
+    intraday_comment_ids = [
+        int(message_id)
+        for message_id in alert_entry.get("intraday_comment_ids", [])
+        if isinstance(message_id, int)
+    ]
+    return active_session_date, reference_price, intraday_comment_ids
+
+
+def _watch_close_finalization_due_time(symbol: str) -> tuple[int, int] | None:
+    market_prefix = symbol.split(":", maxsplit=1)[0].upper()
+    return WATCH_CLOSE_FINALIZATION_DUE_TIMES.get(market_prefix)
+
+
+def _is_watch_close_finalization_due(symbol: str, now: datetime) -> bool:
+    due_time = _watch_close_finalization_due_time(symbol)
+    if due_time is None:
+        return False
+    kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
+    return (kst_now.hour, kst_now.minute) == due_time
 
 
 def _watch_poll_target_symbols(state: dict, guild_id: int) -> tuple[list[str], list[str]]:
@@ -799,6 +942,78 @@ async def _find_existing_close_comment(
     return None
 
 
+async def _delete_watch_current_comment(
+    thread: discord.Thread,
+    state: dict,
+    *,
+    guild_id: int,
+    symbol: str,
+) -> None:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    current_comment_id = alert_entry.get("current_comment_id")
+    if not isinstance(current_comment_id, int):
+        return
+    try:
+        current_comment = await thread.fetch_message(current_comment_id)
+        await current_comment.delete()
+    except discord.NotFound:
+        pass
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning(
+            "[intel] watch current comment cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+            guild_id,
+            symbol,
+            current_comment_id,
+            exc,
+        )
+    clear_watch_current_comment_id(state, guild_id, symbol)
+
+
+async def _upsert_watch_current_comment(
+    thread: discord.Thread,
+    state: dict,
+    *,
+    guild_id: int,
+    symbol: str,
+    content: str,
+    force_recreate: bool,
+) -> discord.Message:
+    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+    current_comment_id = alert_entry.get("current_comment_id")
+    current_comment = None
+
+    if isinstance(current_comment_id, int):
+        try:
+            current_comment = await thread.fetch_message(current_comment_id)
+        except discord.NotFound:
+            clear_watch_current_comment_id(state, guild_id, symbol)
+            current_comment = None
+
+    if current_comment is not None and force_recreate:
+        try:
+            await current_comment.delete()
+        except discord.NotFound:
+            pass
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning(
+                "[intel] watch current comment recreate cleanup skipped guild=%s symbol=%s message_id=%s detail=%s",
+                guild_id,
+                symbol,
+                current_comment_id,
+                exc,
+            )
+        clear_watch_current_comment_id(state, guild_id, symbol)
+        current_comment = None
+
+    if current_comment is None:
+        current_comment = await thread.send(content)
+    else:
+        await current_comment.edit(content=content)
+
+    set_watch_current_comment_id(state, guild_id, symbol, current_comment.id)
+    return current_comment
+
+
 async def _finalize_watch_session(
     client: discord.Client,
     state: dict,
@@ -809,12 +1024,18 @@ async def _finalize_watch_session(
     symbol: str,
     snapshot: WatchSnapshot,
     active: bool,
+    target_session_date: str | None = None,
+    reference_price: float | None = None,
+    intraday_comment_ids: list[int] | None = None,
+    delete_current_comment: bool = True,
+    clear_current_intraday_ids: bool = True,
 ) -> bool:
-    reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
-    if reference_snapshot is None:
-        return False
-    reference_price = float(reference_snapshot.get("reference_price") or 0.0)
-    target_session_date = str(reference_snapshot.get("session_date") or "")
+    if target_session_date is None or reference_price is None:
+        reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+        if reference_snapshot is None:
+            return False
+        reference_price = float(reference_snapshot.get("reference_price") or 0.0)
+        target_session_date = str(reference_snapshot.get("session_date") or "")
     if reference_price <= 0 or not target_session_date:
         return False
 
@@ -829,10 +1050,17 @@ async def _finalize_watch_session(
         forum_channel_id=forum_channel_id,
         symbol=symbol,
         active=active,
-        starter_text=None,
+        starter_text=render_blank_watch_starter(),
     )
+    if delete_current_comment:
+        await _delete_watch_current_comment(handle.thread, state, guild_id=guild_id, symbol=symbol)
     alert_entry = get_watch_session_alert(state, guild_id, symbol)
-    intraday_comment_ids = [message_id for message_id in alert_entry.get("intraday_comment_ids", []) if isinstance(message_id, int)]
+    if intraday_comment_ids is None:
+        intraday_comment_ids = [
+            message_id
+            for message_id in alert_entry.get("intraday_comment_ids", [])
+            if isinstance(message_id, int)
+        ]
     remaining_intraday_comment_ids: list[int] = []
 
     for message_id in intraday_comment_ids:
@@ -845,13 +1073,24 @@ async def _finalize_watch_session(
             remaining_intraday_comment_ids.append(message_id)
 
     if remaining_intraday_comment_ids:
-        update_watch_session_alert(
-            state,
-            guild_id,
-            symbol,
-            intraday_comment_ids=remaining_intraday_comment_ids,
-            updated_at=now.isoformat(),
-        )
+        if clear_current_intraday_ids:
+            update_watch_session_alert(
+                state,
+                guild_id,
+                symbol,
+                intraday_comment_ids=remaining_intraday_comment_ids,
+                updated_at=now.isoformat(),
+            )
+        else:
+            _store_pending_watch_close_session(
+                state,
+                guild_id,
+                symbol,
+                session_date=target_session_date,
+                reference_price=reference_price,
+                intraday_comment_ids=remaining_intraday_comment_ids,
+                updated_at=now.isoformat(),
+            )
         return False
 
     close_comment_ids_by_session = {
@@ -881,14 +1120,24 @@ async def _finalize_watch_session(
         await close_comment.edit(content=close_text)
 
     close_comment_ids_by_session[target_session_date] = close_comment.id
-    update_watch_session_alert(
-        state,
-        guild_id,
-        symbol,
-        intraday_comment_ids=[],
-        close_comment_ids_by_session=close_comment_ids_by_session,
-        updated_at=now.isoformat(),
-    )
+    if clear_current_intraday_ids:
+        update_watch_session_alert(
+            state,
+            guild_id,
+            symbol,
+            intraday_comment_ids=[],
+            close_comment_ids_by_session=close_comment_ids_by_session,
+            updated_at=now.isoformat(),
+        )
+    else:
+        update_watch_session_alert(
+            state,
+            guild_id,
+            symbol,
+            close_comment_ids_by_session=close_comment_ids_by_session,
+            updated_at=now.isoformat(),
+        )
+        _clear_pending_watch_close_session(state, guild_id, symbol, target_session_date)
     save_state(state)
     update_watch_session_alert(
         state,
@@ -901,11 +1150,70 @@ async def _finalize_watch_session(
     return True
 
 
+async def _finalize_pending_watch_close_sessions(
+    client: discord.Client,
+    state: dict,
+    *,
+    now: datetime,
+    guild_id: int,
+    forum_channel_id: int,
+    symbol: str,
+    snapshot: WatchSnapshot,
+    active: bool,
+    alert_entry: dict[str, object],
+) -> tuple[int, int]:
+    finalized_count = 0
+    dropped_count = 0
+    pending_close_sessions = _pending_watch_close_sessions(alert_entry)
+    for target_session_date, pending_entry in sorted(pending_close_sessions.items()):
+        if _is_stale_pending_watch_close_session(symbol, snapshot, target_session_date):
+            logger.warning(
+                "[intel] watch pending close dropped after adjacency lost guild=%s symbol=%s target_session=%s snapshot_session=%s",
+                guild_id,
+                symbol,
+                target_session_date,
+                snapshot.session_date,
+            )
+            _clear_pending_watch_close_session(
+                state,
+                guild_id,
+                symbol,
+                target_session_date,
+                updated_at=now.isoformat(),
+            )
+            save_state(state)
+            dropped_count += 1
+            continue
+        if await _finalize_watch_session(
+            client,
+            state,
+            now=now,
+            guild_id=guild_id,
+            forum_channel_id=forum_channel_id,
+            symbol=symbol,
+            snapshot=snapshot,
+            active=active,
+            target_session_date=target_session_date,
+            reference_price=float(pending_entry.get("reference_price") or 0.0),
+            intraday_comment_ids=[
+                int(message_id)
+                for message_id in pending_entry.get("intraday_comment_ids", [])
+                if isinstance(message_id, int)
+            ],
+            delete_current_comment=False,
+            clear_current_intraday_ids=False,
+        ):
+            finalized_count += 1
+    return finalized_count, dropped_count
+
+
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     state = load_state()
     active_symbols_count = 0
     updated_threads = 0
+    updated_current_comments = 0
     finalized_sessions = 0
+    dropped_pending_close_sessions = 0
     missing_forum_guilds = 0
     thread_failures = 0
     snapshot_failures = 0
@@ -938,7 +1246,12 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     exc,
                 )
                 continue
-            if market_session.is_regular_session_open or _has_unfinalized_watch_session(get_watch_session_alert(state, guild_id, symbol)):
+            alert_entry = get_watch_session_alert(state, guild_id, symbol)
+            needs_finalization = _has_unfinalized_watch_session(alert_entry)
+            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
+            if market_session.is_regular_session_open and symbol in active_symbols:
+                warm_symbols.add(symbol)
+            elif needs_finalization and close_finalization_due:
                 warm_symbols.add(symbol)
 
     warm_watch_snapshots = getattr(quote_provider, "warm_watch_snapshots", None)
@@ -965,8 +1278,12 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 continue
             alert_entry = get_watch_session_alert(state, guild_id, symbol)
             needs_finalization = _has_unfinalized_watch_session(alert_entry)
-            if not market_session.is_regular_session_open and not needs_finalization:
-                continue
+            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
+            if market_session.is_regular_session_open and symbol in active_symbols:
+                pass
+            else:
+                if not needs_finalization or not close_finalization_due:
+                    continue
 
             try:
                 snapshot = await quote_provider.get_watch_snapshot(symbol, now)
@@ -984,30 +1301,45 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     active_session_date = str(alert_entry.get("active_session_date") or "")
                     reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
                     if needs_finalization and reference_session_date and reference_session_date < snapshot.session_date:
-                        finalized = await _finalize_watch_session(
-                            client,
-                            state,
-                            now=now,
-                            guild_id=guild_id,
-                            forum_channel_id=forum_channel_id,
-                            symbol=symbol,
-                            snapshot=snapshot,
-                            active=True,
-                        )
-                        if not finalized:
-                            comment_failures += 1
-                            logger.warning(
-                                "[intel] watch carry-forward finalization not completed guild=%s symbol=%s target_session=%s new_session=%s",
+                        if not close_finalization_due:
+                            _store_pending_watch_close_session(
+                                state,
                                 guild_id,
                                 symbol,
-                                reference_session_date,
-                                snapshot.session_date,
+                                session_date=reference_session_date,
+                                reference_price=float(reference_snapshot.get("reference_price") or 0.0),
+                                intraday_comment_ids=[
+                                    message_id
+                                    for message_id in alert_entry.get("intraday_comment_ids", [])
+                                    if isinstance(message_id, int)
+                                ],
+                                updated_at=now.isoformat(),
                             )
-                            continue
-                        finalized_sessions += 1
-                        alert_entry = get_watch_session_alert(state, guild_id, symbol)
-                        reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
-                        active_session_date = str(alert_entry.get("active_session_date") or "")
+                        else:
+                            finalized = await _finalize_watch_session(
+                                client,
+                                state,
+                                now=now,
+                                guild_id=guild_id,
+                                forum_channel_id=forum_channel_id,
+                                symbol=symbol,
+                                snapshot=snapshot,
+                                active=True,
+                            )
+                            if not finalized:
+                                comment_failures += 1
+                                logger.warning(
+                                    "[intel] watch carry-forward finalization not completed guild=%s symbol=%s target_session=%s new_session=%s",
+                                    guild_id,
+                                    symbol,
+                                    reference_session_date,
+                                    snapshot.session_date,
+                                )
+                                continue
+                            finalized_sessions += 1
+                            alert_entry = get_watch_session_alert(state, guild_id, symbol)
+                            reference_snapshot = get_watch_reference_snapshot(state, guild_id, symbol)
+                            active_session_date = str(alert_entry.get("active_session_date") or "")
                     if (
                         reference_snapshot is None
                         or str(reference_snapshot.get("session_date") or "") != snapshot.session_date
@@ -1060,7 +1392,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         else:
                             highest_down_band = event.band
 
-                    starter_text = render_watch_starter(
+                    current_comment_text = render_watch_current_comment(
                         symbol,
                         reference_price=snapshot.previous_close,
                         current_price=snapshot.current_price,
@@ -1074,7 +1406,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         forum_channel_id=forum_channel_id,
                         symbol=symbol,
                         active=True,
-                        starter_text=starter_text,
+                        starter_text=render_blank_watch_starter(),
                     )
                     updated_threads += 1
                 except Exception as exc:
@@ -1088,34 +1420,89 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         for message_id in alert_entry.get("intraday_comment_ids", [])
                         if isinstance(message_id, int)
                     ]
+                    persisted_highest_up_band = current_highest_up_band
+                    persisted_highest_down_band = current_highest_down_band
+                    band_comment_posted = False
                     if event is not None:
-                        comment = await handle.thread.send(
-                            render_band_comment(
-                                symbol,
-                                direction=event.direction,
-                                band=event.band,
-                                change_pct=event.change_pct,
-                                updated_at=snapshot.asof,
+                        try:
+                            comment = await handle.thread.send(
+                                render_band_comment(
+                                    symbol,
+                                    direction=event.direction,
+                                    band=event.band,
+                                    change_pct=event.change_pct,
+                                    updated_at=snapshot.asof,
+                                )
                             )
+                        except Exception as exc:
+                            logger.exception("[intel] watch band comment failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                            comment_failures += 1
+                        else:
+                            intraday_comment_ids.append(comment.id)
+                            persisted_highest_up_band = highest_up_band
+                            persisted_highest_down_band = highest_down_band
+                            band_comment_posted = True
+                            update_watch_session_alert(
+                                state,
+                                guild_id,
+                                symbol,
+                                highest_up_band=persisted_highest_up_band,
+                                highest_down_band=persisted_highest_down_band,
+                                intraday_comment_ids=intraday_comment_ids,
+                                updated_at=now.isoformat(),
+                            )
+                            save_state(state)
+                    try:
+                        await _upsert_watch_current_comment(
+                            handle.thread,
+                            state,
+                            guild_id=guild_id,
+                            symbol=symbol,
+                            content=current_comment_text,
+                            force_recreate=band_comment_posted,
                         )
-                        intraday_comment_ids.append(comment.id)
-                    update_watch_session_alert(
-                        state,
-                        guild_id,
-                        symbol,
-                        highest_up_band=highest_up_band,
-                        highest_down_band=highest_down_band,
-                        intraday_comment_ids=intraday_comment_ids,
-                        updated_at=now.isoformat(),
-                    )
-                    save_state(state)
+                    except Exception as exc:
+                        logger.exception("[intel] watch current comment update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
+                        comment_failures += 1
+                    else:
+                        updated_current_comments += 1
+                        update_watch_session_alert(
+                            state,
+                            guild_id,
+                            symbol,
+                            highest_up_band=persisted_highest_up_band,
+                            highest_down_band=persisted_highest_down_band,
+                            intraday_comment_ids=intraday_comment_ids,
+                            updated_at=now.isoformat(),
+                        )
+                        save_state(state)
                 except Exception as exc:
                     logger.exception("[intel] watch comment/state update failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
                     comment_failures += 1
                 continue
 
             if needs_finalization:
+                if not close_finalization_due:
+                    continue
                 try:
+                    pending_finalized, pending_dropped = await _finalize_pending_watch_close_sessions(
+                        client,
+                        state,
+                        now=now,
+                        guild_id=guild_id,
+                        forum_channel_id=forum_channel_id,
+                        symbol=symbol,
+                        snapshot=snapshot,
+                        active=symbol in active_symbols,
+                        alert_entry=alert_entry,
+                    )
+                    finalized_sessions += pending_finalized
+                    dropped_pending_close_sessions += pending_dropped
+                    alert_entry = get_watch_session_alert(state, guild_id, symbol)
+                    current_target = _current_watch_close_target(state, guild_id, symbol, alert_entry)
+                    if current_target is None:
+                        continue
+                    target_session_date, reference_price, intraday_comment_ids = current_target
                     finalized = await _finalize_watch_session(
                         client,
                         state,
@@ -1125,6 +1512,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                         symbol=symbol,
                         snapshot=snapshot,
                         active=symbol in active_symbols,
+                        target_session_date=target_session_date,
+                        reference_price=reference_price,
+                        intraday_comment_ids=intraday_comment_ids,
                     )
                 except Exception as exc:
                     logger.exception("[intel] watch finalization failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
@@ -1134,7 +1524,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     finalized_sessions += 1
 
     detail = (
-        f"active_symbols={active_symbols_count} updated_threads={updated_threads} finalized_sessions={finalized_sessions} "
+        f"active_symbols={active_symbols_count} updated_threads={updated_threads} "
+        f"updated_current_comments={updated_current_comments} finalized_sessions={finalized_sessions} "
+        f"dropped_pending_close_sessions={dropped_pending_close_sessions} "
         f"missing_forum_guilds={missing_forum_guilds} thread_failures={thread_failures} "
         f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
     )

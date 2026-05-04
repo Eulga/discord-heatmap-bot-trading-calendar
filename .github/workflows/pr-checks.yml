@@ -1,8 +1,5 @@
 name: PR Checks
 
-env:
-  DISCORD_BOT_TOKEN: ci-dummy-token
-
 on:
   pull_request:
   push:
@@ -13,6 +10,10 @@ on:
 concurrency:
   group: pr-checks-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # pytest collection imports bot.app.settings, which requires a token at import time.
+  DISCORD_BOT_TOKEN: ci-placeholder-token
 
 jobs:
   collect:

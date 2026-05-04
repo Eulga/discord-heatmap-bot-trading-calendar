@@ -16,6 +16,9 @@ class WatchBandEvent:
     change_pct: float
 
 
+BLANK_WATCH_STARTER = "\u200b"
+
+
 def calculate_change_pct(reference_price: float, current_price: float) -> float:
     if reference_price <= 0:
         return 0.0
@@ -57,6 +60,10 @@ def starter_status(*, highest_up_band: int, highest_down_band: int, active: bool
     return "idle"
 
 
+def render_blank_watch_starter() -> str:
+    return BLANK_WATCH_STARTER
+
+
 def render_watch_placeholder(symbol: str, *, active: bool) -> str:
     lines = [format_watch_symbol(symbol), f"상태: {'실시간 감시중' if active else '감시 중단됨'}"]
     if active:
@@ -90,7 +97,7 @@ def _format_band_threshold_pct(band: int) -> str:
     return text
 
 
-def render_watch_starter(
+def render_watch_current_comment(
     symbol: str,
     *,
     reference_price: float,
@@ -107,6 +114,23 @@ def render_watch_starter(
             f"변동률: {change_pct:+.2f}%",
             f"마지막 갱신: {timestamp_text(updated_at)}",
         ]
+    )
+
+
+def render_watch_starter(
+    symbol: str,
+    *,
+    reference_price: float,
+    current_price: float,
+    change_pct: float,
+    updated_at: datetime,
+) -> str:
+    return render_watch_current_comment(
+        symbol,
+        reference_price=reference_price,
+        current_price=current_price,
+        change_pct=change_pct,
+        updated_at=updated_at,
     )
 
 

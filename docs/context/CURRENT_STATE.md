@@ -32,8 +32,8 @@
   - `/setwatchforum` configures the route
   - `/watch add` only adds a new tracked symbol and creates its persistent thread
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
-  - regular session polls update starter/comment state for active symbols only
-  - off-hours polls only attempt close finalization, including stopped symbols that still have an unfinalized session
+  - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
+  - close finalization is now KST exact-minute gated: KRX symbols only attempt `마감가 알림` at 16:00 KST, and NAS/NYS/AMS symbols only attempt it at 07:00 KST; missed due minutes leave close finalization pending until the next due minute without blocking later regular-session current-price/band updates, but pending close targets are dropped from retry state once a later snapshot is no longer the immediately adjacent trading session
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
@@ -54,7 +54,9 @@
   - repo-local Codex skills for staged harness operation, PR review, CI triage, docs sync, and scheduler/watch review
   - repo-local staged workflow templates and state helper under `.codex-harness/`, with run-specific state and reports ignored by git
   - GitHub PR template plus CI workflow under `.github/`
+  - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
+  - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
 - PostgreSQL app-state persistence is now available as an opt-in backend for preserving Discord route/thread/message IDs and scheduler/watch checkpoints beyond the local JSON state file.
 
 ## Code-Confirmed Current Behavior Concerns
@@ -75,8 +77,10 @@
 - Do not assume live EOD behavior, robust daily catch-up beyond the current heatmap auto scheduler, operator-only watch/status access, or session-aware watch polling unless the current code or `../specs/as-is-functional-spec.md` confirms it.
 - Key defaults and core provider/env wiring are now summarized in `../operations/config-reference.md`; do not assume more than that file or the code currently confirms.
 - The presence of `.github/workflows/pr-checks.yml` does not prove secrets-backed Codex/GitHub automation beyond test collection and pytest execution.
+- The placeholder `DISCORD_BOT_TOKEN` used by PR checks is only for import-time testability; it does not prove Discord connectivity or secret-backed CI validation.
 - Do not assume `python` exists as a shell command on macOS/Linux; current docs now treat `scripts/bootstrap_dev_env.py` and `scripts/run_repo_checks.py` as interpreter-driven entrypoints.
 - Do not assume the host system Python is new enough for local bootstrap; the current dependency set requires Python `3.10+`.
+- Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
 - This summary was last updated on 2026-05-04 from:

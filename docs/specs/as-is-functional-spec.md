@@ -428,11 +428,11 @@
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
 3. `/watch start`, `/watch stop`, `/watch delete` resolve against the current guild watchlist, including canonical and legacy representations.
-4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with an active placeholder starter for the newly added symbol.
+4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with a blank starter for the newly added symbol.
 5. Duplicate `/watch add` is a no-op; if the symbol is tracked but `inactive`, the command points the user to `/watch start` instead of reactivating inline.
-6. `/watch start` only applies to inactive tracked symbols. It reuses or recreates the symbol thread with an active placeholder, and same-session reactivation resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
-7. `/watch stop` does not remove the symbol from the guild watchlist. Instead it clears watch cooldown, latch, and baseline runtime state, records thread status as `inactive`, and attempts an update-only inactive placeholder starter write when a tracked thread exists.
-8. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch stop` does not create a new inactive thread. When a tracked thread/starter exists, stop state is committed only after the inactive placeholder update succeeds; otherwise the command fails and keeps the symbol active.
+6. `/watch start` only applies to inactive tracked symbols. It reuses or recreates the symbol thread with a blank starter, and same-session reactivation resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
+7. `/watch stop` does not remove the symbol from the guild watchlist. Instead it clears watch cooldown, latch, baseline runtime state, and any stored current-price comment ID, records thread status as `inactive`, and attempts an update-only blank starter write when a tracked thread exists.
+8. If no tracked symbol thread exists, or the stored thread/starter handle is stale, `/watch stop` does not create a new inactive thread. When a tracked thread/starter exists, stop state is committed only after the blank starter update succeeds; otherwise the command fails and keeps the symbol active.
 9. `/watch delete` is admin-gated. It deletes the tracked Discord thread when possible, then removes the symbol from the watchlist, thread registry, reference snapshots, and session alerts.
 10. Stored thread/starter recreation is only allowed for authoritative `discord.NotFound`; transient `discord.Forbidden` and generic `discord.HTTPException` bubble to the caller instead of creating a duplicate thread.
 11. `/watch list` formats all tracked symbols using registry display names plus per-symbol watch status labels.
@@ -441,7 +441,7 @@
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
 - Updated `guilds.{guild_id}.watchlist`
-- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and starter message when add/start/stop/delete touches a tracked thread
+- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and blank starter message when add/start/stop/delete touches a tracked thread
 - Updated `system.watch_reference_snapshots.{guild_id}.{symbol}` and `system.watch_session_alerts.{guild_id}.{symbol}` when delete clears tracked state
 - Autocomplete choices for symbol search
 
@@ -751,7 +751,7 @@
 ## Feature: Watch poll and per-symbol forum-thread alerting
 
 ### 4.1 Purpose
-- Current code polls watched symbols on an interval, updates a persistent per-symbol forum thread starter during regular session hours, emits band-crossing comments, and finalizes the session with a close comment after hours.
+- Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and finalizes the session with a close comment only at market-specific KST due minutes.
 
 ### 4.2 Trigger
 - `intel_scheduler()` interval check when `WATCH_POLL_ENABLED` is true
@@ -774,32 +774,41 @@
   - `quote_provider` module-level singleton
   - `get_watch_snapshot()` and optional `warm_watch_snapshots()` on the provider
 - Discord resource inputs:
-  - per-symbol forum threads and starter/comments in the configured watch forum
+  - per-symbol forum threads, blank starters, and comments in the configured watch forum
 
 ### 4.4 Processing flow
 1. `_run_watch_poll()` loads state and scans all guilds.
 2. Target symbols are the union of active watchlist entries and inactive symbols that still have an unfinalized session in `system.watch_session_alerts`.
 3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
-4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set across pending guilds.
+4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set that is eligible for regular-session updates or KST-due close finalization across pending guilds.
 5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
-6. For each guild and symbol, `_run_watch_poll()` resolves or recreates the persistent symbol thread, then calls `quote_provider.get_watch_snapshot()`.
+6. For each guild and symbol, `_run_watch_poll()` calls `quote_provider.get_watch_snapshot()` only when the symbol is eligible for a regular-session active update or a close-finalization due minute.
 7. During market regular-session hours:
-   - the starter message is updated from the latest snapshot
+   - the current-price comment is updated from the latest snapshot
+   - when a band comment is created, the current-price comment is recreated after it so the latest watch state remains at the bottom of the thread
+   - if deleting the old current-price comment during that recreate step fails with `Forbidden` or `HTTPException`, the bot logs the cleanup failure, clears the stale ID, and still attempts to send a replacement current-price comment
    - `previous_close` becomes the reference basis for percent-change rendering
    - same-session reactivation after `/watch add` resets stored highest-band checkpoints before fresh band detection resumes
    - the session state resets when `session_date` changes
    - at most one highest newly crossed `3%` band comment is created per poll
+   - band comment send failures do not block current-price comment updates, and failed band checkpoints are not advanced
    - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
 8. Outside regular-session hours:
-   - starter and intraday updates are skipped
-   - the latest unfinalized session is finalized by deleting tracked intraday comments and reusing or creating a same-session close comment
+   - current-price and intraday updates are skipped
+   - close finalization is attempted only when the poll tick is in the configured KST due minute
+   - `KRX:*` close finalization is due only at KST `16:00`, while `NAS:*`, `NYS:*`, and `AMS:*` close finalization is due only at KST `07:00`
+   - due-minute matching uses the KST hour and minute; if the scheduler misses that minute, close finalization remains pending until the next due minute
+   - when a later regular session starts before a missed close is finalized, the old close target is preserved under `pending_close_sessions` and regular-session current-price/band processing continues against the new session
+   - if a later due-minute snapshot can close both a pending old session and the current active session, pending close comments are created first and the current session close comment is created after them
+   - if a pending old close target is no longer the immediately adjacent previous trading session for the due-minute snapshot, the pending retry entry is dropped without creating a close comment
+   - the latest unfinalized session is finalized by deleting the tracked current-price comment plus tracked intraday comments, then reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
    - band-label `%` text follows the same effective-threshold rule even when the configured threshold is fractional or below `1.0`; the trailing signed percent remains the exact `change_pct`
-9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `finalized_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
+9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `updated_current_comments`, `finalized_sessions`, `dropped_pending_close_sessions`, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
 
 ### 4.5 Outputs
-- Starter message edits and thread comments in per-symbol watch forum threads
+- Blank starter updates and thread comments in per-symbol watch forum threads
 - `system.job_last_runs.watch_poll`
 - provider status updates keyed per snapshot fetch
 - watch reference/session state updates
@@ -813,10 +822,16 @@
 - Reads/writes provider/job status in `system`
 
 ### 4.7 Error / edge handling (As-Is)
-- Snapshot failures increment counters and skip starter/comment updates for that symbol.
+- Snapshot failures increment counters and skip current-price/comment updates for that symbol.
 - Missing or invalid watch forum/thread failures increment counters and skip that symbol.
-- Comment delete/create failures increment counters but the job continues for other symbols.
-- Close finalization remains pending when `session_close_price` is unavailable and is retried on later off-hours polls.
+- Band comment failures increment counters but do not block current-price comment updates for that symbol.
+- Current-price comment failures increment counters but the job continues for other symbols.
+- Current-price comment recreate cleanup failures are best-effort and do not block replacement current-price comment sends.
+- `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
+- Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
+- Close finalization remains pending when `session_close_price` is unavailable and is retried on a later KST due-minute poll.
+- If a prior session is still unfinalized at the next regular-session open and the current tick is not the market-specific KST due minute, the bot queues the old close target under `pending_close_sessions`, rotates current reference/session state, and keeps regular-session monitoring active.
+- Pending close targets that have aged beyond the adjacent-session `previous_close` fallback window are removed from retry state on a later KST due-minute poll.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints
@@ -1105,7 +1120,7 @@
   - Observed usage: stored in state and resolved before posting
   - Risk if missing: feature is skipped or command fails for that guild
 - Name: per-guild watch forums with persistent symbol threads
-  - Purpose: target for watch starter updates and band/close comments
+  - Purpose: target for blank watch starters plus current-price, band, and close comments
   - Required vs optional: required for watch delivery
   - Observed usage: resolved at watch-poll time and `/watch add`
   - Risk if missing: watch job counts missing-forum guilds and `/watch add` is rejected
@@ -1237,8 +1252,8 @@
   - Why this ambiguity matters: operational guidance and failure analysis differ sharply between single-writer and multi-writer assumptions.
 - Area: Watch polling market-hours semantics
   - Why ambiguous: detailed operator intent for thread-follow expectations and future notification-volume tuning still lives outside this document.
-  - What seems likely: current implementation intentionally uses market-session-aware starter/comment behavior with off-hours close finalization only.
-  - What cannot be confirmed: whether future rollout will add starter-update suppression or further forum-notification controls.
+  - What seems likely: current implementation intentionally uses market-session-aware current-price comment behavior with off-hours close finalization only.
+  - What cannot be confirmed: whether future rollout will add further forum-notification controls.
   - Why this ambiguity matters: operator expectations for Discord notification volume depend on these choices.
 - Area: Heatmap command response visibility
   - Why ambiguous: `run_heatmap_command()` uses `interaction.response.defer(thinking=True)` and `followup.send(message)` without `ephemeral=True`.

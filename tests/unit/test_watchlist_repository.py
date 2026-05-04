@@ -186,6 +186,7 @@ def test_watch_state_stores_reference_snapshot_and_session_alerts_without_seedin
         close_comment_ids_by_session={"2026-03-25": 1901},
         updated_at="2026-03-26T10:11:00+09:00",
     )
+    repository.set_watch_current_comment_id(state, 1, "KRX:005930", 2002)
 
     assert repository.get_watch_reference_snapshot(state, 1, "005930") == {
         "basis": "previous_close",
@@ -197,7 +198,10 @@ def test_watch_state_stores_reference_snapshot_and_session_alerts_without_seedin
         "active_session_date": "2026-03-26",
         "highest_up_band": 2,
         "highest_down_band": 0,
+        "current_comment_id": 2002,
         "intraday_comment_ids": [2001],
         "close_comment_ids_by_session": {"2026-03-25": 1901},
         "updated_at": "2026-03-26T10:11:00+09:00",
     }
+    repository.clear_watch_current_comment_id(state, 1, "005930")
+    assert "current_comment_id" not in repository.get_watch_session_alert(state, 1, "KRX:005930")

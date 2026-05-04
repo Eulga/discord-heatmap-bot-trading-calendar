@@ -30,6 +30,127 @@ except ImportError:
     )
 
 
+REQUIRED_TEST_MODULES = ("pytest", "pytest_asyncio", "discord", "dotenv")
+PYTEST_OPTIONS_WITH_VALUES = {
+    "-W",
+    "-c",
+    "-k",
+    "-m",
+    "-o",
+    "-p",
+    "-r",
+    "--assert",
+    "--asyncio-mode",
+    "--basetemp",
+    "--cache-show",
+    "--capture",
+    "--code-highlight",
+    "--color",
+    "--config-file",
+    "--confcutdir",
+    "--cov",
+    "--cov-report",
+    "--debug",
+    "--deselect",
+    "--doctest-glob",
+    "--doctest-report",
+    "--durations",
+    "--durations-min",
+    "--ignore",
+    "--ignore-glob",
+    "--import-mode",
+    "--junit-prefix",
+    "--junit-xml",
+    "--junitxml",
+    "--last-failed-no-failures",
+    "--lfnf",
+    "--log-auto-indent",
+    "--log-cli-date-format",
+    "--log-cli-format",
+    "--log-cli-level",
+    "--log-date-format",
+    "--log-file",
+    "--log-file-date-format",
+    "--log-file-format",
+    "--log-file-level",
+    "--log-file-mode",
+    "--log-format",
+    "--log-level",
+    "--maxfail",
+    "--override-ini",
+    "--pastebin",
+    "--pdbcls",
+    "--pythonwarnings",
+    "--rootdir",
+    "--show-capture",
+    "--tb",
+    "--verbosity",
+}
+PYTEST_OPTIONS_WITHOUT_VALUES = {
+    "-V",
+    "-h",
+    "-l",
+    "-q",
+    "-s",
+    "-v",
+    "-vv",
+    "-x",
+    "--cache-clear",
+    "--co",
+    "--collect-in-virtualenv",
+    "--collect-only",
+    "--continue-on-collection-errors",
+    "--disable-plugin-autoload",
+    "--disable-pytest-warnings",
+    "--disable-warnings",
+    "--doctest-continue-on-failure",
+    "--doctest-ignore-import-errors",
+    "--doctest-modules",
+    "--exitfirst",
+    "--failed-first",
+    "--ff",
+    "--force-short-summary",
+    "--funcargs",
+    "--fixtures",
+    "--fixtures-per-test",
+    "--full-trace",
+    "--help",
+    "--keep-duplicates",
+    "--last-failed",
+    "--lf",
+    "--markers",
+    "--new-first",
+    "--nf",
+    "--no-fold-skipped",
+    "--no-header",
+    "--no-showlocals",
+    "--no-summary",
+    "--noconftest",
+    "--pdb",
+    "--pyargs",
+    "--quiet",
+    "--runxfail",
+    "--setup-only",
+    "--setup-plan",
+    "--setup-show",
+    "--showlocals",
+    "--stepwise",
+    "--stepwise-skip",
+    "--stepwise-reset",
+    "--strict",
+    "--strict-config",
+    "--strict-markers",
+    "--sw",
+    "--sw-skip",
+    "--sw-reset",
+    "--trace",
+    "--trace-config",
+    "--verbose",
+    "--version",
+    "--xfail-tb",
+}
+
+
 def _same_path(left: Path, right: Path) -> bool:
     try:
         return left.resolve() == right.resolve()
@@ -54,6 +175,49 @@ def _can_import_module(executable: Path, module_name: str) -> bool:
     return completed.returncode == 0
 
 
+def _candidate_python_version(executable: Path) -> tuple[int, int, int] | None:
+    if _same_path(executable, Path(sys.executable)):
+        return sys.version_info[:3]
+
+    try:
+        completed = subprocess.run(
+            [
+                str(executable),
+                "-c",
+                "import sys; print('.'.join(str(part) for part in sys.version_info[:3]))",
+            ],
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+
+    raw_version = completed.stdout.strip()
+    try:
+        major, minor, patch = raw_version.split(".", 2)
+        return int(major), int(minor), int(patch)
+    except ValueError:
+        return None
+
+
+def _candidate_meets_python_requirement(executable: Path) -> bool:
+    version = _candidate_python_version(executable)
+    return version is not None and version[:2] >= MIN_SUPPORTED_PYTHON
+
+
+def _can_import_required_test_modules(executable: Path) -> bool:
+    return all(_can_import_module(executable, module_name) for module_name in REQUIRED_TEST_MODULES)
+
+
+def _is_usable_pytest_interpreter(executable: Path) -> bool:
+    return _candidate_meets_python_requirement(executable) and _can_import_required_test_modules(executable)
+
+
 def _bootstrap_hint(*extra_args: str) -> str:
     return format_script_invocation("scripts/bootstrap_dev_env.py", *extra_args)
 
@@ -69,6 +233,19 @@ def _current_python_too_old() -> bool:
 def _resolution_failure(inspection: VenvInspection) -> str:
     minimum = format_python_version(MIN_SUPPORTED_PYTHON)
     current = format_python_version(sys.version_info[:3])
+    venv_version = (
+        _candidate_python_version(inspection.expected_python)
+        if inspection.status == "ok"
+        else None
+    )
+
+    if venv_version is not None and venv_version[:2] < MIN_SUPPORTED_PYTHON:
+        return (
+            "[run_repo_checks] no usable pytest interpreter found.\n"
+            f"The repo-local .venv uses Python {format_python_version(venv_version)}, "
+            f"but this repository needs Python {minimum}+.\n"
+            f"Rebuild it with `{_bootstrap_hint('--recreate')}`."
+        )
 
     if _current_python_too_old():
         return (
@@ -111,30 +288,72 @@ def choose_pytest_interpreter(
     resolved_current_python = current_python or Path(sys.executable)
     resolved_inspection = inspection or inspect_venv()
 
-    if _can_import_module(resolved_current_python, "pytest"):
-        return resolved_current_python, None
-
     if (
         resolved_inspection.status == "ok"
         and not _same_path(resolved_current_python, resolved_inspection.expected_python)
-        and _can_import_module(resolved_inspection.expected_python, "pytest")
+        and _is_usable_pytest_interpreter(resolved_inspection.expected_python)
     ):
         return resolved_inspection.expected_python, None
+
+    if _is_usable_pytest_interpreter(resolved_current_python):
+        return resolved_current_python, None
 
     return None, _resolution_failure(resolved_inspection)
 
 
-def build_pytest_args(suite: str, include_live: bool) -> list[str]:
+def _has_explicit_pytest_target(passthrough_args: list[str]) -> bool:
+    skip_option_value = False
+    after_separator = False
+    for arg in passthrough_args:
+        if skip_option_value:
+            skip_option_value = False
+            continue
+        if arg == "--":
+            after_separator = True
+            continue
+        if not after_separator and arg.startswith("-"):
+            option_name = arg.split("=", 1)[0]
+            if "=" not in arg and (
+                option_name in PYTEST_OPTIONS_WITH_VALUES
+                or option_name not in PYTEST_OPTIONS_WITHOUT_VALUES
+            ):
+                skip_option_value = True
+            continue
+        normalized_target = arg.split("::", 1)[0].replace("\\", "/")
+        if normalized_target.startswith("./"):
+            normalized_target = normalized_target[2:]
+        if (
+            normalized_target == "tests"
+            or normalized_target.startswith("tests/")
+            or normalized_target.startswith("tests.")
+            or "/tests/" in normalized_target
+        ):
+            return True
+    return False
+
+
+def build_pytest_args(
+    suite: str,
+    include_live: bool,
+    passthrough_args: list[str] | None = None,
+) -> list[str]:
     args: list[str] = ["-m", "pytest"]
+    has_explicit_target = _has_explicit_pytest_target(passthrough_args or [])
 
     if suite == "collect":
         args.extend(["--collect-only", "-q"])
     elif suite == "unit":
-        args.extend(["tests/unit", "-q"])
+        if not has_explicit_target:
+            args.append("tests/unit")
+        args.append("-q")
     elif suite == "integration":
-        args.extend(["tests/integration", "-q"])
+        if not has_explicit_target:
+            args.append("tests/integration")
+        args.append("-q")
     elif suite == "full":
-        args.extend(["tests/unit", "tests/integration", "-q"])
+        if not has_explicit_target:
+            args.extend(["tests/unit", "tests/integration"])
+        args.append("-q")
     else:
         raise ValueError(f"unsupported suite: {suite}")
 
@@ -167,7 +386,7 @@ def main() -> int:
         print(failure, file=sys.stderr)
         return 1
 
-    pytest_args = [str(python_executable), *build_pytest_args(args.suite, args.include_live)]
+    pytest_args = [str(python_executable), *build_pytest_args(args.suite, args.include_live, unknown)]
     pytest_args.extend(unknown)
 
     print(f"[run_repo_checks] cwd={PROJECT_ROOT}")

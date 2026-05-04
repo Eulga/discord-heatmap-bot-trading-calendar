@@ -2,12 +2,15 @@
 
 ## Local Run
 - Local bootstrap currently requires Python `3.10+`.
+- On the current macOS host, `python3` is still `3.9.6`, so local bootstrap uses `/opt/homebrew/bin/python3.11`.
 - Bootstrap the virtual environment:
   - Windows: `py -3 scripts/bootstrap_dev_env.py --with-playwright`
-  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
 - If `.venv` was created on another OS or is no longer runnable:
   - Windows: `py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
-  - macOS/Linux: `python3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
+  - macOS/Linux alternate: any other `python3.10+` interpreter
 - Optional shell activation after bootstrap:
   - Windows: `.\.venv\Scripts\Activate.ps1`
   - macOS/Linux: `source .venv/bin/activate`
@@ -21,6 +24,9 @@
 - Default local and CI validation entrypoint:
   - Windows: `py -3 scripts/run_repo_checks.py`
   - macOS/Linux: `python3 scripts/run_repo_checks.py`
+- CI note:
+  - `.github/workflows/pr-checks.yml` exports placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token` because `bot.app.settings` requires a token at import time even for non-live test collection
+  - local validation still needs `.env` or an explicit `DISCORD_BOT_TOKEN` when no local env file is present
 - Narrower suites:
   - Windows: `py -3 scripts/run_repo_checks.py unit`
   - macOS/Linux: `python3 scripts/run_repo_checks.py unit`
@@ -75,6 +81,9 @@
 - Watch-specific operator note:
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
+  - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
+  - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
+  - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 
 ## Logs and State Paths
 - Main mutable state, file backend:
