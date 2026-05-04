@@ -406,7 +406,7 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
                 current_price=99.0,
                 previous_close=100.0,
                 session_close_price=None,
-                asof=datetime(2026, 3, 26, 16, 1, tzinfo=KST),
+                asof=datetime(2026, 3, 26, 16, 0, tzinfo=KST),
                 session_date="2026-03-26",
                 provider="kis_quote",
             ),
@@ -415,7 +415,7 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
                 current_price=99.0,
                 previous_close=100.0,
                 session_close_price=98.0,
-                asof=datetime(2026, 3, 26, 16, 2, tzinfo=KST),
+                asof=datetime(2026, 3, 26, 16, 0, 30, tzinfo=KST),
                 session_date="2026-03-26",
                 provider="kis_quote",
             ),
@@ -434,18 +434,186 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 1, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
     assert intraday_one.deleted is False
     assert intraday_two.deleted is False
     assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
 
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 2, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, 30, tzinfo=KST))
     assert intraday_one.deleted is True
     assert intraday_two.deleted is True
     assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
     assert "current_comment_id" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
+    assert len(close_comments) == 1
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_finalizes_krx_close_only_at_kst_1600(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    thread = FakeThread(2001, starter)
+    intraday = FakeMessage(3002, "band-1")
+    current_comment = FakeMessage(3003, "current")
+    thread.add_message(intraday)
+    thread.add_message(current_comment)
+    forum._threads[thread.id] = thread
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["KRX:005930"]}},
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "KRX:005930": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-03-26",
+                        "checked_at": "2026-03-26T10:00:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-03-26",
+                        "highest_up_band": 1,
+                        "highest_down_band": 0,
+                        "current_comment_id": 3003,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {},
+                    }
+                }
+            },
+        },
+    }
+    snapshot_calls: list[datetime] = []
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            snapshot_calls.append(now)
+            return market_provider.WatchSnapshot(
+                symbol=symbol,
+                current_price=99.0,
+                previous_close=100.0,
+                session_close_price=98.0,
+                asof=now,
+                session_date="2026-03-26",
+                provider="kis_quote",
+            )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    client = FakeClient({456: forum})
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 15, 59, tzinfo=KST))
+    assert snapshot_calls == []
+    assert intraday.deleted is False
+    assert current_comment.deleted is False
+    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
+    assert snapshot_calls == [datetime(2026, 3, 26, 16, 0, tzinfo=KST)]
+    assert intraday.deleted is True
+    assert current_comment.deleted is True
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
+    close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
+    assert len(close_comments) == 1
+
+
+@pytest.mark.asyncio
+async def test_watch_poll_finalizes_us_close_only_at_kst_0700(monkeypatch):
+    _patch_discord_types(monkeypatch)
+    forum = FakeForumChannel(456, 1)
+    starter = FakeMessage(3001, "starter")
+    thread = FakeThread(2001, starter)
+    intraday = FakeMessage(3002, "band-1")
+    current_comment = FakeMessage(3003, "current")
+    thread.add_message(intraday)
+    thread.add_message(current_comment)
+    forum._threads[thread.id] = thread
+
+    state = {
+        "commands": {
+            "watchpoll": {
+                "daily_posts_by_guild": {},
+                "last_images": {},
+                "symbol_threads_by_guild": {"1": {"NAS:AAPL": {"thread_id": 2001, "starter_message_id": 3001, "status": "active"}}},
+            }
+        },
+        "guilds": {"1": {"watch_forum_channel_id": 456, "watchlist": ["NAS:AAPL"]}},
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "NAS:AAPL": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-03-26",
+                        "checked_at": "2026-03-26T10:00:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "NAS:AAPL": {
+                        "active_session_date": "2026-03-26",
+                        "highest_up_band": 1,
+                        "highest_down_band": 0,
+                        "current_comment_id": 3003,
+                        "intraday_comment_ids": [3002],
+                        "close_comment_ids_by_session": {},
+                    }
+                }
+            },
+        },
+    }
+    snapshot_calls: list[datetime] = []
+
+    class Provider:
+        async def warm_watch_snapshots(self, symbols, now):
+            return None
+
+        async def get_watch_snapshot(self, symbol, now):
+            snapshot_calls.append(now)
+            return market_provider.WatchSnapshot(
+                symbol=symbol,
+                current_price=101.0,
+                previous_close=100.0,
+                session_close_price=102.0,
+                asof=now,
+                session_date="2026-03-26",
+                provider="kis_quote",
+            )
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
+
+    client = FakeClient({456: forum})
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 27, 6, 59, tzinfo=KST))
+    assert snapshot_calls == []
+    assert intraday.deleted is False
+    assert current_comment.deleted is False
+    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["NAS:AAPL"]
+
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 27, 7, 0, tzinfo=KST))
+    assert snapshot_calls == [datetime(2026, 3, 27, 7, 0, tzinfo=KST)]
+    assert intraday.deleted is True
+    assert current_comment.deleted is True
+    assert state["system"]["watch_session_alerts"]["1"]["NAS:AAPL"]["last_finalized_session_date"] == "2026-03-26"
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 1
 
@@ -522,7 +690,7 @@ async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_fail
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
 
     alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert current_comment.deleted is False
@@ -600,7 +768,7 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
 
     assert intraday.deleted is True
     assert current_comment.deleted is True
@@ -641,7 +809,7 @@ async def test_watch_poll_does_not_update_stopped_symbol_during_open_session(mon
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_session(monkeypatch):
+async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_minute(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -687,20 +855,37 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
         },
     }
 
+    snapshots = iter(
+        [
+            market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=98.4,
+                previous_close=98.0,
+                session_close_price=None,
+                asof=datetime(2026, 3, 27, 10, 0, tzinfo=KST),
+                session_date="2026-03-27",
+                provider="kis_quote",
+            ),
+            market_provider.WatchSnapshot(
+                symbol="KRX:005930",
+                current_price=99.0,
+                previous_close=98.0,
+                session_close_price=99.0,
+                asof=datetime(2026, 3, 27, 16, 0, tzinfo=KST),
+                session_date="2026-03-27",
+                provider="kis_quote",
+            ),
+        ]
+    )
+    snapshot_calls: list[datetime] = []
+
     class Provider:
         async def warm_watch_snapshots(self, symbols, now):
             return None
 
         async def get_watch_snapshot(self, symbol, now):
-            return market_provider.WatchSnapshot(
-                symbol="KRX:005930",
-                current_price=98.4,
-                previous_close=98.0,
-                session_close_price=None,
-                asof=now,
-                session_date="2026-03-27",
-                provider="kis_quote",
-            )
+            snapshot_calls.append(now)
+            return next(snapshots)
 
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
@@ -708,21 +893,39 @@ async def test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_se
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
 
-    assert intraday.deleted is True
-    assert current_comment.deleted is True
-    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
+    assert snapshot_calls == [datetime(2026, 3, 27, 10, 0, tzinfo=KST)]
+    assert intraday.deleted is False
+    assert current_comment.deleted is False
+    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-27"
     assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
-    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"] != 3003
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["current_comment_id"] == 3003
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["pending_close_sessions"] == {
+        "2026-03-26": {"reference_price": 100.0, "intraday_comment_ids": [3002], "updated_at": "2026-03-27T10:00:00+09:00"}
+    }
+    assert "현재가: ₩98.40" in current_comment.content
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
-    assert len(close_comments) == 1
-    assert thread.starter_message.content == intel_scheduler.render_blank_watch_starter()
-    assert "전일 종가: ₩98.00" in _visible_messages(thread)[-1].content
-    assert "현재가: ₩98.40" in _visible_messages(thread)[-1].content
+    assert len(close_comments) == 0
+    assert thread.sent_contents == []
+
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
+
+    assert snapshot_calls == [
+        datetime(2026, 3, 27, 10, 0, tzinfo=KST),
+        datetime(2026, 3, 27, 16, 0, tzinfo=KST),
+    ]
+    assert intraday.deleted is True
+    assert current_comment.deleted is True
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-27"
+    assert "pending_close_sessions" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
+    close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
+    assert len(close_comments) == 2
+    assert "[watch-close:KRX:005930:2026-03-26]" in close_comments[0]
+    assert "[watch-close:KRX:005930:2026-03-27]" in close_comments[1]
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatch):
+async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -745,19 +948,27 @@ async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatc
                 "1": {
                     "KRX:005930": {
                         "basis": "previous_close",
-                        "reference_price": 100.0,
-                        "session_date": "2026-03-24",
-                        "checked_at": "2026-03-24T15:30:00+09:00",
+                        "reference_price": 98.0,
+                        "session_date": "2026-03-27",
+                        "checked_at": "2026-03-27T15:30:00+09:00",
                     }
                 }
             },
             "watch_session_alerts": {
                 "1": {
                     "KRX:005930": {
-                        "active_session_date": "2026-03-24",
-                        "highest_up_band": 1,
+                        "active_session_date": "2026-03-27",
+                        "last_finalized_session_date": "2026-03-27",
+                        "highest_up_band": 0,
                         "highest_down_band": 0,
-                        "intraday_comment_ids": [3002],
+                        "intraday_comment_ids": [],
+                        "pending_close_sessions": {
+                            "2026-03-24": {
+                                "reference_price": 100.0,
+                                "intraday_comment_ids": [3002],
+                                "updated_at": "2026-03-26T16:00:00+09:00",
+                            }
+                        },
                         "close_comment_ids_by_session": {},
                     }
                 }
@@ -784,16 +995,18 @@ async def test_watch_poll_keeps_non_adjacent_unfinalized_session_open(monkeypatc
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
 
     assert intraday.deleted is False
-    assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
-    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-24"
-    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-24"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-27"
+    assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["active_session_date"] == "2026-03-27"
+    assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
+    assert "pending_close_sessions" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert thread.sent_contents == []
     run = state["system"]["job_last_runs"]["watch_poll"]
-    assert run["status"] == "failed"
-    assert "comment_failures=1" in run["detail"]
+    assert run["status"] == "ok"
+    assert "finalized_sessions=0" in run["detail"]
+    assert "dropped_pending_close_sessions=1" in run["detail"]
 
 
 @pytest.mark.asyncio

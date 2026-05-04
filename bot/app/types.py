@@ -36,6 +36,7 @@ class WatchSessionAlertEntry(TypedDict):
     highest_down_band: NotRequired[int]
     current_comment_id: NotRequired[int]
     intraday_comment_ids: NotRequired[list[int]]
+    pending_close_sessions: NotRequired[dict[str, dict[str, Any]]]
     close_comment_ids_by_session: NotRequired[dict[str, int]]
     last_finalized_session_date: NotRequired[str]
     updated_at: NotRequired[str]

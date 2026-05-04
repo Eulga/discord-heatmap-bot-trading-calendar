@@ -61,6 +61,9 @@
 - Watch-specific operator note:
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
+  - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
+  - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
+  - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 
 ## Logs and State Paths
 - Main mutable state:

@@ -31,7 +31,7 @@
   - `/watch add` only adds a new tracked symbol and creates its persistent thread
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
   - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
-  - off-hours polls only attempt close finalization, including stopped symbols that still have an unfinalized session, and close finalization removes stale current-price comments before preserving the close comment
+  - close finalization is now KST exact-minute gated: KRX symbols only attempt `마감가 알림` at 16:00 KST, and NAS/NYS/AMS symbols only attempt it at 07:00 KST; missed due minutes leave close finalization pending until the next due minute without blocking later regular-session current-price/band updates, but pending close targets are dropped from retry state once a later snapshot is no longer the immediately adjacent trading session
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
@@ -78,7 +78,7 @@
 - Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
-- This summary was last updated on 2026-04-16 from:
+- This summary was last updated on 2026-05-04 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`

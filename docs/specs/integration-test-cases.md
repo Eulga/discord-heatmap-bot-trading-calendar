@@ -20,7 +20,7 @@
 ```
 
 - 현재 `pytest.ini` 기본 옵션은 `-m "not live"`다.
-- 따라서 기본 integration 경로는 live marker가 붙은 캡처 테스트 2건을 deselect하고, non-live 90건만 실행한다.
+- 따라서 기본 integration 경로는 live marker가 붙은 캡처 테스트 2건을 deselect하고, non-live 96건만 실행한다.
 - live 캡처 테스트는 별도 문서 [integration-live-test-cases.md](./integration-live-test-cases.md)로 분리한다.
 
 ## 문서 읽는 법
@@ -46,11 +46,11 @@
 | Auto scheduler | `tests/integration/test_auto_scheduler_logic.py` | 10 | 아니오 | 포함 | 거래일 판정, 중복 실행 방지, state overwrite |
 | Forum upsert / runner | `tests/integration/test_forum_upsert_flow.py` | 9 | 아니오 | 포함 | 기존 thread 수정, content message sync, partial failure body/state |
 | Intel scheduler | `tests/integration/test_intel_scheduler_logic.py` | 40 | 아니오 | 포함 | news/trend/eod status truthfulness, guild isolation, retry 가능성 |
-| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 19 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
-| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 12 | 아니오 | 포함 | active-only starter update, stop-after-close finalization, missing forum/provider failure |
+| Watch forum flow | `tests/integration/test_watch_forum_flow.py` | 20 | 아니오 | 포함 | thread reuse/recreate, start/stop/delete lifecycle, transient fetch failure isolation, forum route gating |
+| Watch poll forum scheduler | `tests/integration/test_watch_poll_forum_scheduler.py` | 17 | 아니오 | 포함 | active-only current-price comment update, KST exact-minute close finalization, missing forum/provider failure |
 | Live capture | `tests/integration/test_capture_korea_live.py`, `tests/integration/test_capture_us_live.py` | 2 | 예 | 제외 | 외부 사이트 렌더, 파일 생성, flaky 네트워크 |
 
-- 기본 문서 범위 합계: 90건
+- 기본 문서 범위 합계: 96건
 - live 문서 범위 합계: 2건
 - 참고: 최초 계획안의 `NB-01~NB-13`, `EO-01~EO-07` 분할은 현재 소스 테스트 수와 1건씩 어긋난다.
 - 이 문서의 exact file/count inventory는 위 표와 collect 결과를 source of truth로 삼고, 상세 계약은 기능별 핵심 회귀를 대표하는 케이스 중심으로 정리한다.
@@ -765,14 +765,14 @@
 
 ## Watch Poll Forum Scheduler
 
-### WP-01 장중 poll은 active symbol starter를 갱신하고 최고 신규 band comment 1건만 남김
+### WP-01 장중 poll은 active symbol 현재가 comment를 갱신하고 최고 신규 band comment 1건만 남김
 - 테스트 ID: `WP-01`
-- 기능/보호 계약: 장중 watch poll은 active symbol starter를 snapshot 기준으로 갱신하고, 같은 tick에서 최고 신규 band comment 1건만 남겨야 한다.
+- 기능/보호 계약: 장중 watch poll은 active symbol current-price comment를 snapshot 기준으로 갱신하고, 같은 tick에서 최고 신규 band comment 1건만 남겨야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_updates_starter_and_posts_highest_new_band_comment`
 - 사전 상태: guild `1`은 watch forum `456`과 active watchlist `["KRX:005930"]`를 가진다.
 - 입력/트리거: 장중 snapshot이 `previous_close=100.0`, `current_price=107.1`로 반환된다.
 - mock/stub 전제: provider는 warm-up을 지원하고 forum/thread fake는 starter edit와 comment send를 지원한다.
-- 기대 동작: thread starter는 `상태/전일 종가/현재가/변동률/마지막 갱신`을 포함하도록 갱신된다.
+- 기대 동작: thread starter는 blank로 유지되고 current-price comment는 `상태/전일 종가/현재가/변동률/마지막 갱신`을 포함한다.
 - 기대 상태 저장 변화: provider status와 `watch_poll` job status가 `ok`로 저장된다.
 - 기대 status/detail/log: comment는 `+6% 이상 상승 : +7.10%` 한 건만 남는다.
 - 회귀 방지 포인트: 장중 starter가 갱신되지 않거나 한 tick에서 여러 band comment가 flood되는 문제를 막는다.
@@ -794,7 +794,7 @@
 - 기능/보호 계약: off-hours poll은 `session_close_price`가 없으면 intraday comment를 지우지 않고 finalization을 보류해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_defers_close_finalization_until_session_close_price_is_available`
 - 사전 상태: unfinalized session state와 intraday comments 2건이 존재한다.
-- 입력/트리거: 첫 off-hours snapshot은 `session_close_price=None`, 두 번째는 `session_close_price=98.0`을 반환한다.
+- 입력/트리거: 같은 KST `16:00` due minute 안에서 첫 snapshot은 `session_close_price=None`, 두 번째는 `session_close_price=98.0`을 반환한다.
 - mock/stub 전제: 같은 forum/thread를 두 번 재사용한다.
 - 기대 동작: 첫 poll에서는 아무 comment도 지우지 않고, 둘째 poll에서만 intraday comment를 정리하고 close comment 1건을 남긴다.
 - 기대 상태 저장 변화: `last_finalized_session_date`는 두 번째 poll 후에만 기록된다.
@@ -806,7 +806,7 @@
 - 기능/보호 계약: registry status가 `inactive`인 stopped symbol이라도 unfinalized session이 남아 있으면 off-hours poll에서 정확히 1회 finalization을 수행해야 한다.
 - 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_inactive_symbol_once_before_stopping`
 - 사전 상태: watchlist에는 symbol이 남아 있지만 thread registry status는 `inactive`이고 intraday comment 1건이 남아 있다.
-- 입력/트리거: off-hours snapshot이 `session_close_price=98.0`과 함께 들어온다.
+- 입력/트리거: KST `16:00` due-minute poll에서 off-hours snapshot이 `session_close_price=98.0`과 함께 들어온다.
 - mock/stub 전제: provider는 항상 같은 close snapshot을 반환한다.
 - 기대 동작: intraday comment는 삭제되고 session은 finalized 된다.
 - 기대 상태 저장 변화: `last_finalized_session_date="2026-03-26"`가 기록된다.
@@ -825,29 +825,29 @@
 - 기대 status/detail/log: detail은 정확히 `no-watch-symbols`다.
 - 회귀 방지 포인트: stop 이후에도 raw watchlist membership만 보고 장중 poll이 계속 도는 문제를 막는다.
 
-### WP-06 새 장 시작 전 prior session close를 먼저 마무리
+### WP-06 missed prior close가 있어도 regular update는 계속 수행
 - 테스트 ID: `WP-06`
-- 기능/보호 계약: 이전 session이 unfinalized인 상태에서 더 늦은 `session_date`의 장중 snapshot이 오면, current session starter로 넘어가기 전에 prior session close finalization을 먼저 해야 한다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_prior_session_before_rotating_to_new_open_session`
+- 기능/보호 계약: 이전 session이 unfinalized인 상태에서 다음 regular session open tick이 오면, prior close target은 pending으로 보존하되 current-price update와 band state는 새 session 기준으로 계속 진행해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_minute`
 - 사전 상태: reference/session state는 `2026-03-26`, intraday comment 1건이 남아 있다.
-- 입력/트리거: 다음 거래일 장중 snapshot이 `session_date="2026-03-27"`로 들어온다.
-- mock/stub 전제: provider는 새 세션 snapshot 1개를 반환한다.
-- 기대 동작: 이전 세션 close comment가 먼저 남고, 이후 reference/session state가 새 session으로 넘어간다.
-- 기대 상태 저장 변화: `last_finalized_session_date="2026-03-26"`와 새 `active_session_date="2026-03-27"`가 함께 기록된다.
-- 기대 status/detail/log: close comment는 1건, starter는 새 세션 `전일 종가`를 반영한다.
-- 회귀 방지 포인트: carry-forward finalization이 빠져 전날 intraday comment가 다음날까지 남거나 새 세션 state reset이 잘못되는 문제를 막는다.
+- 입력/트리거: 다음 거래일 KST `10:00` 장중 tick 후 KST `16:00` due-minute tick이 들어온다.
+- mock/stub 전제: provider는 첫 tick에 새 세션 snapshot, 둘째 tick에 close snapshot을 반환한다.
+- 기대 동작: 첫 tick은 이전 세션 close comment를 만들지 않지만 current-price comment를 새 session 가격으로 갱신한다. 둘째 tick은 pending old session close comment와 current session close comment를 순서대로 남긴다.
+- 기대 상태 저장 변화: 첫 tick 뒤 `pending_close_sessions.2026-03-26`이 생기고 `active_session_date`와 `watch_reference_snapshots`는 `2026-03-27`로 rotate된다. 둘째 tick 뒤 pending state는 제거되고 `last_finalized_session_date="2026-03-27"`가 기록된다.
+- 기대 status/detail/log: close comment는 최종 2건이다.
+- 회귀 방지 포인트: due minute을 놓친 뒤 다음 정규장 전체가 current-price/band update 없이 멈추는 문제를 막는다.
 
-### WP-07 인접하지 않은 더 늦은 snapshot만 있을 때 old session은 finalize하지 않음
+### WP-07 인접하지 않은 pending close target은 retry state에서 제거
 - 테스트 ID: `WP-07`
-- 기능/보호 계약: 여러 trading session을 건너뛴 더 늦은 snapshot만 있는 경우 `snapshot.previous_close`를 old session close로 오인해 finalize하면 안 된다.
-- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_keeps_non_adjacent_unfinalized_session_open`
-- 사전 상태: reference/session state는 `2026-03-24`에 고정돼 있고 intraday comment 1건이 남아 있다.
-- 입력/트리거: 장중 snapshot은 `session_date="2026-03-27"`, `previous_close=98.0`, `session_close_price=None`을 반환한다.
+- 기능/보호 계약: 여러 trading session을 건너뛴 pending close target은 `snapshot.previous_close`를 old session close로 오인해 finalize하지 않고, 더 이상 해소할 수 없는 retry state도 남기지 않아야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_drops_non_adjacent_pending_close_session`
+- 사전 상태: current reference/session state는 `2026-03-27`로 finalization되어 있고 `pending_close_sessions.2026-03-24`와 intraday comment ID 1건이 남아 있다.
+- 입력/트리거: KST `16:00` due-minute snapshot은 `session_date="2026-03-27"`, `previous_close=98.0`, `session_close_price=None`을 반환한다.
 - mock/stub 전제: provider는 이 non-adjacent newer snapshot만 반환한다.
-- 기대 동작: old session close finalization은 수행되지 않고 intraday comment도 그대로 남는다.
-- 기대 상태 저장 변화: `last_finalized_session_date`와 current `watch_reference_snapshots`는 기존 old session 값 그대로 유지된다.
-- 기대 status/detail/log: `watch_poll.status="failed"`이며 detail에 `comment_failures=1`이 포함된다.
-- 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하고, 이후 올바른 보정 기회를 영구히 잃는 문제를 막는다.
+- 기대 동작: old session close finalization은 수행되지 않고 intraday comment도 그대로 남지만 stale pending entry는 제거된다.
+- 기대 상태 저장 변화: `last_finalized_session_date="2026-03-27"`와 current `watch_reference_snapshots.session_date="2026-03-27"`는 유지되고 `pending_close_sessions`는 제거된다.
+- 기대 status/detail/log: `watch_poll.status="ok"`이며 detail에 `finalized_sessions=0`과 `dropped_pending_close_sessions=1`이 포함된다.
+- 회귀 방지 포인트: multi-session outage 뒤 복귀했을 때 잘못된 close price로 old session을 finalize하거나, 해소 불가능한 pending close retry를 영구히 반복하는 문제를 막는다.
 
 ### WP-08 malformed symbol은 다른 watch symbol 처리를 중단시키지 않음
 - 테스트 ID: `WP-08`
@@ -908,6 +908,30 @@
 - 기대 상태 저장 변화: 각 guild의 개별 snapshot fetch는 계속 수행된다.
 - 기대 status/detail/log: snapshot fetch 호출은 symbol별이 아니라 guild-symbol 처리 수만큼 남는다.
 - 회귀 방지 포인트: 같은 symbol을 guild 수만큼 warm-up 해 외부 API와 warm cache를 과도하게 소모하는 문제를 막는다.
+
+### WP-13 KRX close finalization은 KST 16:00에만 실행
+- 테스트 ID: `WP-13`
+- 기능/보호 계약: KRX unfinalized session은 KST `15:59` poll에서 provider/Discord close path를 건너뛰고, KST `16:00` poll에서만 close finalization을 수행해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_krx_close_only_at_kst_1600`
+- 사전 상태: `KRX:005930` active session state와 current/intraday comment가 남아 있다.
+- 입력/트리거: KST `15:59` poll 후 KST `16:00` poll을 순서대로 호출한다.
+- mock/stub 전제: provider는 호출 시 `session_close_price=98.0`을 반환한다.
+- 기대 동작: `15:59`에는 snapshot fetch가 없고, `16:00`에만 intraday/current comment cleanup과 close comment 생성이 일어난다.
+- 기대 상태 저장 변화: `last_finalized_session_date="2026-03-26"`는 `16:00` poll 뒤에만 기록된다.
+- 기대 status/detail/log: close comment는 1건만 남는다.
+- 회귀 방지 포인트: KRX 마감가 알림이 정각 전/후 임의 off-hours tick에서 생성되는 문제를 막는다.
+
+### WP-14 US close finalization은 KST 07:00에만 실행
+- 테스트 ID: `WP-14`
+- 기능/보호 계약: NAS/NYS/AMS unfinalized session은 KST `06:59` poll에서 provider/Discord close path를 건너뛰고, KST `07:00` poll에서만 close finalization을 수행해야 한다.
+- 원본 테스트 함수명: `tests/integration/test_watch_poll_forum_scheduler.py::test_watch_poll_finalizes_us_close_only_at_kst_0700`
+- 사전 상태: `NAS:AAPL` active session state와 current/intraday comment가 남아 있다.
+- 입력/트리거: KST `06:59` poll 후 KST `07:00` poll을 순서대로 호출한다.
+- mock/stub 전제: provider는 호출 시 `session_close_price=102.0`을 반환한다.
+- 기대 동작: `06:59`에는 snapshot fetch가 없고, `07:00`에만 intraday/current comment cleanup과 close comment 생성이 일어난다.
+- 기대 상태 저장 변화: `last_finalized_session_date="2026-03-26"`는 `07:00` poll 뒤에만 기록된다.
+- 기대 status/detail/log: close comment는 1건만 남는다.
+- 회귀 방지 포인트: 미국장 마감가 알림이 뉴욕 시간 close 직후 임의 tick에서 생성되거나 KST 기준 알림 시간이 흔들리는 문제를 막는다.
 
 ## 현재 누락된 고위험 케이스
 
