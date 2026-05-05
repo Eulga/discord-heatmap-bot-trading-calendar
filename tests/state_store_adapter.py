@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from copy import deepcopy
+from datetime import datetime, timedelta
 from typing import Any
 
 from bot.common.clock import date_key
@@ -67,6 +68,102 @@ def patch_legacy_state_store(
         mutator(current)
         save(state)
         return current
+
+    def _normalize_symbol(symbol: str) -> str:
+        return repository._normalize_watch_symbol_key(symbol)
+
+    def _watch_close_price_store(state: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+        return state.setdefault("system", {}).setdefault("watch_close_prices", {})
+
+    def _watch_close_price_attempt_store(state: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+        return state.setdefault("system", {}).setdefault("watch_close_price_attempts", {})
+
+    def _datetime_value(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    def upsert_watch_close_price(
+        symbol: str,
+        *,
+        session_date: str,
+        close_price: float,
+        reference_price: float,
+        snapshot_session_date: str,
+        snapshot_asof: datetime,
+        provider: str,
+        source: str,
+        collection_reason: str,
+        captured_at: datetime,
+    ) -> None:
+        state = load()
+        normalized = _normalize_symbol(symbol)
+        market = normalized.split(":", maxsplit=1)[0] if ":" in normalized else ""
+        _watch_close_price_store(state).setdefault(normalized, {})[session_date] = {
+            "symbol": normalized,
+            "market": market,
+            "session_date": session_date,
+            "close_price": float(close_price),
+            "reference_price": float(reference_price),
+            "snapshot_session_date": snapshot_session_date,
+            "snapshot_asof": snapshot_asof,
+            "provider": provider,
+            "source": source,
+            "collection_reason": collection_reason,
+            "captured_at": captured_at,
+        }
+        save(state)
+
+    def get_watch_close_price(symbol: str, session_date: str):
+        state = load()
+        return _watch_close_price_store(state).get(_normalize_symbol(symbol), {}).get(session_date)
+
+    def watch_close_price_exists(symbol: str, session_date: str) -> bool:
+        return get_watch_close_price(symbol, session_date) is not None
+
+    def should_attempt_watch_close_price(
+        symbol: str,
+        session_date: str,
+        now: datetime,
+        *,
+        retry_after: timedelta = timedelta(minutes=15),
+    ) -> bool:
+        state = load()
+        normalized = _normalize_symbol(symbol)
+        if _watch_close_price_store(state).get(normalized, {}).get(session_date) is not None:
+            return False
+        attempt = _watch_close_price_attempt_store(state).get(normalized, {}).get(session_date)
+        if not attempt:
+            return True
+        last_attempt_at = _datetime_value(attempt.get("last_attempt_at"))
+        if last_attempt_at is None:
+            return True
+        return now - last_attempt_at >= retry_after
+
+    def record_watch_close_price_attempt(
+        symbol: str,
+        session_date: str,
+        attempted_at: datetime,
+        status: str,
+        *,
+        error: str | None = None,
+    ) -> None:
+        state = load()
+        normalized = _normalize_symbol(symbol)
+        attempts = _watch_close_price_attempt_store(state).setdefault(normalized, {})
+        current = attempts.get(session_date, {})
+        attempts[session_date] = {
+            "last_attempt_at": attempted_at,
+            "attempt_count": int(current.get("attempt_count") or 0) + 1,
+            "last_status": status,
+            "last_error": error,
+        }
+        save(state)
 
     def get_command_image_cache(command_key: str):
         return repository.get_command_state(load(), command_key).get("last_images", {})
@@ -172,6 +269,11 @@ def patch_legacy_state_store(
         "clear_watch_current_comment_id": mutate(repository.clear_watch_current_comment_id),
         "mutate_watch_session_alert": mutate_watch_session_alert,
         "replace_watch_session_alert": replace_watch_session_alert,
+        "upsert_watch_close_price": upsert_watch_close_price,
+        "get_watch_close_price": get_watch_close_price,
+        "watch_close_price_exists": watch_close_price_exists,
+        "should_attempt_watch_close_price": should_attempt_watch_close_price,
+        "record_watch_close_price_attempt": record_watch_close_price_attempt,
         "get_watch_cooldown_hit": get(repository.get_watch_cooldown_hit),
         "set_watch_cooldown_hit": mutate(repository.set_watch_cooldown_hit),
         "get_watch_alert_latch": get(repository.get_watch_alert_latch),

@@ -74,13 +74,17 @@ from bot.forum.state_store import (
     list_active_watch_symbols,
     list_watch_tracked_symbols,
     mutate_watch_session_alert,
+    record_watch_close_price_attempt,
     set_guild_last_auto_skip,
     set_guild_last_auto_run_date,
     set_job_last_run,
     set_provider_status,
     set_watch_current_comment_id,
     set_watch_reference_snapshot,
+    should_attempt_watch_close_price,
     update_watch_session_alert,
+    upsert_watch_close_price,
+    watch_close_price_exists,
 )
 from bot.forum.service import upsert_daily_post
 from bot.intel.instrument_registry import (
@@ -863,6 +867,14 @@ def _is_watch_close_finalization_due(symbol: str, now: datetime) -> bool:
     return (kst_now.hour, kst_now.minute) == due_time
 
 
+def _is_watch_close_price_catchup_due(symbol: str, now: datetime) -> bool:
+    due_time = _watch_close_finalization_due_time(symbol)
+    if due_time is None:
+        return False
+    kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
+    return (kst_now.hour, kst_now.minute) > due_time
+
+
 def _watch_poll_target_symbols(guild_id: int) -> tuple[list[str], list[str]]:
     active_symbols = list_active_watch_symbols(guild_id)
     tracked_symbols = list_watch_tracked_symbols(guild_id)
@@ -882,9 +894,9 @@ def _is_invalid_watch_symbol_error(exc: RuntimeError) -> bool:
     return message.startswith("unsupported-market:")
 
 
-def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> float | None:
+def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_session_date: str) -> tuple[float, str] | None:
     if snapshot.session_date == target_session_date and snapshot.session_close_price is not None:
-        return snapshot.session_close_price
+        return snapshot.session_close_price, "session_close_price"
     if (
         snapshot.session_date > target_session_date
         and snapshot.previous_close > 0
@@ -894,8 +906,53 @@ def _resolve_watch_close_price(symbol: str, snapshot: WatchSnapshot, target_sess
             next_session_date=snapshot.session_date,
         )
     ):
-        return snapshot.previous_close
+        return snapshot.previous_close, "adjacent_previous_close"
     return None
+
+
+def _persist_watch_close_price(
+    *,
+    symbol: str,
+    session_date: str,
+    close_price: float,
+    reference_price: float,
+    snapshot: WatchSnapshot,
+    source: str,
+    collection_reason: str,
+    captured_at: datetime,
+) -> None:
+    upsert_watch_close_price(
+        symbol,
+        session_date=session_date,
+        close_price=close_price,
+        reference_price=reference_price,
+        snapshot_session_date=snapshot.session_date,
+        snapshot_asof=snapshot.asof,
+        provider=snapshot.provider or "market_data_provider",
+        source=source,
+        collection_reason=collection_reason,
+        captured_at=captured_at,
+    )
+
+
+def _persist_watch_close_price_catchup(symbol: str, session_date: str, snapshot: WatchSnapshot, now: datetime) -> str:
+    if snapshot.session_date != session_date:
+        return "session-mismatch"
+    if snapshot.session_close_price is None or snapshot.session_close_price <= 0:
+        return "close-unavailable"
+    if snapshot.previous_close <= 0:
+        return "missing-reference"
+    _persist_watch_close_price(
+        symbol=symbol,
+        session_date=session_date,
+        close_price=snapshot.session_close_price,
+        reference_price=snapshot.previous_close,
+        snapshot=snapshot,
+        source="session_close_price",
+        collection_reason="catchup",
+        captured_at=now,
+    )
+    return "ok"
 
 
 async def _find_existing_close_comment(
@@ -1011,9 +1068,21 @@ async def _finalize_watch_session(
     if reference_price <= 0 or not target_session_date:
         return False
 
-    close_price = _resolve_watch_close_price(symbol, snapshot, target_session_date)
-    if close_price is None:
+    resolved_close = _resolve_watch_close_price(symbol, snapshot, target_session_date)
+    if resolved_close is None:
         return False
+    close_price, close_price_source = resolved_close
+
+    _persist_watch_close_price(
+        symbol=symbol,
+        session_date=target_session_date,
+        close_price=close_price,
+        reference_price=reference_price,
+        snapshot=snapshot,
+        source=close_price_source,
+        collection_reason="finalization",
+        captured_at=now,
+    )
 
     handle = await upsert_watch_thread(
         client=client,
@@ -1174,6 +1243,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     updated_current_comments = 0
     finalized_sessions = 0
     dropped_pending_close_sessions = 0
+    close_price_catchup_saved = 0
+    close_price_catchup_unavailable = 0
+    close_price_catchup_failed = 0
     missing_forum_guilds = 0
     thread_failures = 0
     snapshot_failures = 0
@@ -1213,6 +1285,13 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 warm_symbols.add(symbol)
             elif needs_finalization and close_finalization_due:
                 warm_symbols.add(symbol)
+            elif (
+                symbol in active_symbols
+                and market_session.is_after_regular_close
+                and _is_watch_close_price_catchup_due(symbol, now)
+                and not watch_close_price_exists(symbol, market_session.session_date)
+            ):
+                warm_symbols.add(symbol)
 
     warm_watch_snapshots = getattr(quote_provider, "warm_watch_snapshots", None)
     if warm_symbols and callable(warm_watch_snapshots):
@@ -1239,10 +1318,24 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             alert_entry = get_watch_session_alert(guild_id, symbol)
             needs_finalization = _has_unfinalized_watch_session(alert_entry)
             close_finalization_due = _is_watch_close_finalization_due(symbol, now)
+            catchup_session_date = (
+                market_session.session_date
+                if (
+                    symbol in active_symbols
+                    and market_session.is_after_regular_close
+                    and _is_watch_close_price_catchup_due(symbol, now)
+                )
+                else ""
+            )
+            close_price_catchup_due = bool(catchup_session_date) and should_attempt_watch_close_price(
+                symbol,
+                catchup_session_date,
+                now,
+            )
             if market_session.is_regular_session_open and symbol in active_symbols:
                 pass
             else:
-                if not needs_finalization or not close_finalization_due:
+                if not ((needs_finalization and close_finalization_due) or close_price_catchup_due):
                     continue
 
             try:
@@ -1252,7 +1345,26 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             except Exception as exc:
                 provider_key = getattr(exc, "provider_key", "kis_quote")
                 set_provider_status(provider_key, False, str(exc))
+                if close_price_catchup_due and not (needs_finalization and close_finalization_due):
+                    record_watch_close_price_attempt(symbol, catchup_session_date, now, "failed", error=str(exc))
+                    close_price_catchup_failed += 1
+                    continue
                 snapshot_failures += 1
+                continue
+
+            if close_price_catchup_due and not (needs_finalization and close_finalization_due):
+                catchup_status = _persist_watch_close_price_catchup(symbol, catchup_session_date, snapshot, now)
+                record_watch_close_price_attempt(
+                    symbol,
+                    catchup_session_date,
+                    now,
+                    catchup_status,
+                    error=None if catchup_status == "ok" else catchup_status,
+                )
+                if catchup_status == "ok":
+                    close_price_catchup_saved += 1
+                else:
+                    close_price_catchup_unavailable += 1
                 continue
 
             if market_session.is_regular_session_open and symbol in active_symbols:
@@ -1475,6 +1587,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
         f"active_symbols={active_symbols_count} updated_threads={updated_threads} "
         f"updated_current_comments={updated_current_comments} finalized_sessions={finalized_sessions} "
         f"dropped_pending_close_sessions={dropped_pending_close_sessions} "
+        f"close_price_catchup_saved={close_price_catchup_saved} "
+        f"close_price_catchup_unavailable={close_price_catchup_unavailable} "
+        f"close_price_catchup_failed={close_price_catchup_failed} "
         f"missing_forum_guilds={missing_forum_guilds} thread_failures={thread_failures} "
         f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
     )

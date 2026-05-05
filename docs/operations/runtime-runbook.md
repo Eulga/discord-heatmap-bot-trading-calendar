@@ -59,6 +59,9 @@
   - `docker compose up -d adminer`
   - open `http://127.0.0.1:8080`
   - use system `PostgreSQL`, server `postgres`, username/password/database from `docker-compose.yml`
+- Inspect accumulated watch close prices:
+  - in Adminer, open table `bot_watch_close_prices`
+  - SQL example: `SELECT symbol, session_date, close_price, provider FROM bot_watch_close_prices ORDER BY session_date DESC, symbol LIMIT 20`
 - Stop:
   - `docker compose down`
 - Docker-specific note:
@@ -93,6 +96,7 @@
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
   - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
   - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
+  - close prices are still accumulated in `bot_watch_close_prices` once a provider snapshot exposes `session_close_price`; after the due minute, DB catch-up can save a missing close price without creating a Discord close comment
   - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 
 ## Logs and State Paths
@@ -129,6 +133,7 @@
 - Watch thread behavior looks wrong:
   - verify `watch_forum_channel_id` exists in the configured app-state backend
   - check `bot_watch_symbols` and `bot_watch_session_alerts`
+  - check `bot_watch_close_prices` and `bot_watch_close_price_attempts` when DB close-price accumulation looks incomplete
   - confirm the bot can create forum threads and send/edit thread comments in the configured watch forum
 - Render or capture problems:
   - retry after cached artifacts expire or are intentionally refreshed

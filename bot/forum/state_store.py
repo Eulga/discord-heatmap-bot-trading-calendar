@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import zlib
 from collections.abc import Callable, Iterable
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from bot.app.settings import DATABASE_URL, POSTGRES_STATE_KEY, STATE_BACKEND
@@ -62,6 +63,29 @@ def _float_or_none(value: Any) -> float | None:
 
 def _str_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _date_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    isoformat = getattr(value, "isoformat", None)
+    return str(isoformat()) if callable(isoformat) else str(value)
+
+
+def _datetime_or_none(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _market_for_symbol(symbol: str) -> str:
+    normalized = _normalize_symbol(symbol)
+    return normalized.split(":", maxsplit=1)[0] if ":" in normalized else ""
 
 
 def _json_dumps(value: Any) -> str:
@@ -506,6 +530,53 @@ def _ensure_schema(cursor: Any) -> None:
             checked_at TEXT NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (state_key, guild_id, symbol)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bot_watch_close_prices (
+            state_key TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            market TEXT NOT NULL,
+            session_date DATE NOT NULL,
+            close_price DOUBLE PRECISION NOT NULL CHECK (close_price > 0),
+            reference_price DOUBLE PRECISION NOT NULL CHECK (reference_price > 0),
+            snapshot_session_date DATE NOT NULL,
+            snapshot_asof TIMESTAMPTZ NOT NULL,
+            provider TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('session_close_price', 'adjacent_previous_close')),
+            collection_reason TEXT NOT NULL CHECK (collection_reason IN ('finalization', 'catchup')),
+            captured_at TIMESTAMPTZ NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (state_key, symbol, session_date)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_bot_watch_close_prices_symbol_date
+        ON bot_watch_close_prices (state_key, symbol, session_date DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_bot_watch_close_prices_date
+        ON bot_watch_close_prices (state_key, session_date DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bot_watch_close_price_attempts (
+            state_key TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            session_date DATE NOT NULL,
+            last_attempt_at TIMESTAMPTZ NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            last_status TEXT NOT NULL,
+            last_error TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (state_key, symbol, session_date)
         )
         """
     )
@@ -1699,6 +1770,142 @@ def set_watch_baseline(
         cursor.execute(query, params)
         return
     _execute(query, params)
+
+
+def upsert_watch_close_price(
+    symbol: str,
+    *,
+    session_date: str,
+    close_price: float,
+    reference_price: float,
+    snapshot_session_date: str,
+    snapshot_asof: datetime,
+    provider: str,
+    source: str,
+    collection_reason: str,
+    captured_at: datetime,
+) -> None:
+    normalized = _normalize_symbol(symbol)
+    _execute(
+        """
+        INSERT INTO bot_watch_close_prices (
+            state_key, symbol, market, session_date, close_price, reference_price,
+            snapshot_session_date, snapshot_asof, provider, source, collection_reason, captured_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (state_key, symbol, session_date) DO UPDATE SET
+            market = EXCLUDED.market,
+            close_price = EXCLUDED.close_price,
+            reference_price = EXCLUDED.reference_price,
+            snapshot_session_date = EXCLUDED.snapshot_session_date,
+            snapshot_asof = EXCLUDED.snapshot_asof,
+            provider = EXCLUDED.provider,
+            source = EXCLUDED.source,
+            collection_reason = EXCLUDED.collection_reason,
+            captured_at = EXCLUDED.captured_at,
+            updated_at = now()
+        """,
+        (
+            _state_key(),
+            normalized,
+            _market_for_symbol(normalized),
+            session_date,
+            float(close_price),
+            float(reference_price),
+            snapshot_session_date,
+            snapshot_asof,
+            str(provider or ""),
+            source,
+            collection_reason,
+            captured_at,
+        ),
+    )
+
+
+def get_watch_close_price(symbol: str, session_date: str) -> dict[str, Any] | None:
+    row = _fetchone(
+        """
+        SELECT symbol, market, session_date, close_price, reference_price, snapshot_session_date,
+               snapshot_asof, provider, source, collection_reason, captured_at, updated_at
+        FROM bot_watch_close_prices
+        WHERE state_key = %s AND symbol = %s AND session_date = %s
+        """,
+        (_state_key(), _normalize_symbol(symbol), session_date),
+    )
+    if row is None:
+        return None
+    return {
+        "symbol": row[0],
+        "market": row[1],
+        "session_date": _date_text(row[2]),
+        "close_price": float(row[3]),
+        "reference_price": float(row[4]),
+        "snapshot_session_date": _date_text(row[5]),
+        "snapshot_asof": row[6],
+        "provider": row[7],
+        "source": row[8],
+        "collection_reason": row[9],
+        "captured_at": row[10],
+        "updated_at": row[11],
+    }
+
+
+def watch_close_price_exists(symbol: str, session_date: str) -> bool:
+    row = _fetchone(
+        "SELECT 1 FROM bot_watch_close_prices WHERE state_key = %s AND symbol = %s AND session_date = %s",
+        (_state_key(), _normalize_symbol(symbol), session_date),
+    )
+    return row is not None
+
+
+def should_attempt_watch_close_price(
+    symbol: str,
+    session_date: str,
+    now: datetime,
+    *,
+    retry_after: timedelta = timedelta(minutes=15),
+) -> bool:
+    if watch_close_price_exists(symbol, session_date):
+        return False
+    row = _fetchone(
+        """
+        SELECT last_attempt_at
+        FROM bot_watch_close_price_attempts
+        WHERE state_key = %s AND symbol = %s AND session_date = %s
+        """,
+        (_state_key(), _normalize_symbol(symbol), session_date),
+    )
+    if row is None:
+        return True
+    last_attempt_at = _datetime_or_none(row[0])
+    if last_attempt_at is None:
+        return True
+    return now - last_attempt_at >= retry_after
+
+
+def record_watch_close_price_attempt(
+    symbol: str,
+    session_date: str,
+    attempted_at: datetime,
+    status: str,
+    *,
+    error: str | None = None,
+) -> None:
+    _execute(
+        """
+        INSERT INTO bot_watch_close_price_attempts (
+            state_key, symbol, session_date, last_attempt_at, attempt_count, last_status, last_error
+        )
+        VALUES (%s, %s, %s, %s, 1, %s, %s)
+        ON CONFLICT (state_key, symbol, session_date) DO UPDATE SET
+            last_attempt_at = EXCLUDED.last_attempt_at,
+            attempt_count = bot_watch_close_price_attempts.attempt_count + 1,
+            last_status = EXCLUDED.last_status,
+            last_error = EXCLUDED.last_error,
+            updated_at = now()
+        """,
+        (_state_key(), _normalize_symbol(symbol), session_date, attempted_at, status, error),
+    )
 
 
 def is_news_dedup_seen(dedup_key: str, date_text: str) -> bool:

@@ -1,7 +1,12 @@
 import copy
 import json
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from bot.forum import repository, state_store
+
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 class FakeCursor:
@@ -71,6 +76,14 @@ class FakeConnection:
         cursor = FakeCursor(self.store, fail=self.fail)
         self.cursors.append(cursor)
         return cursor
+
+
+class DdlCursor:
+    def __init__(self):
+        self.statements: list[str] = []
+
+    def execute(self, query: str, params: tuple | None = None):
+        self.statements.append(query)
 
 
 def test_state_atomic_roundtrip(tmp_path, monkeypatch):
@@ -240,6 +253,115 @@ def test_postgres_load_failure_does_not_return_empty_state(monkeypatch):
         assert "PostgreSQL state backend load failed" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_split_state_schema_creates_watch_close_price_tables():
+    cursor = DdlCursor()
+
+    state_store._ensure_schema(cursor)
+
+    executed = "\n".join(cursor.statements)
+    assert "CREATE TABLE IF NOT EXISTS bot_watch_close_prices" in executed
+    assert "PRIMARY KEY (state_key, symbol, session_date)" in executed
+    assert "CREATE TABLE IF NOT EXISTS bot_watch_close_price_attempts" in executed
+    assert "idx_bot_watch_close_prices_symbol_date" in executed
+    assert "idx_bot_watch_close_prices_date" in executed
+
+
+def test_watch_close_price_upsert_replaces_existing_symbol_session(monkeypatch):
+    rows: dict[tuple[str, str, str], dict[str, object]] = {}
+
+    def fake_execute(query: str, params: tuple):
+        assert "ON CONFLICT (state_key, symbol, session_date) DO UPDATE" in query
+        (
+            state_key,
+            symbol,
+            market,
+            session_date,
+            close_price,
+            reference_price,
+            snapshot_session_date,
+            snapshot_asof,
+            provider,
+            source,
+            collection_reason,
+            captured_at,
+        ) = params
+        rows[(state_key, symbol, session_date)] = {
+            "market": market,
+            "close_price": close_price,
+            "reference_price": reference_price,
+            "snapshot_session_date": snapshot_session_date,
+            "snapshot_asof": snapshot_asof,
+            "provider": provider,
+            "source": source,
+            "collection_reason": collection_reason,
+            "captured_at": captured_at,
+        }
+
+    monkeypatch.setattr(state_store, "POSTGRES_STATE_KEY", "bot-1")
+    monkeypatch.setattr(state_store, "_execute", fake_execute)
+
+    now = datetime(2026, 3, 26, 16, 0, tzinfo=KST)
+    state_store.upsert_watch_close_price(
+        "krx:005930",
+        session_date="2026-03-26",
+        close_price=98.0,
+        reference_price=100.0,
+        snapshot_session_date="2026-03-26",
+        snapshot_asof=now,
+        provider="kis_quote",
+        source="session_close_price",
+        collection_reason="finalization",
+        captured_at=now,
+    )
+    state_store.upsert_watch_close_price(
+        "KRX:005930",
+        session_date="2026-03-26",
+        close_price=99.0,
+        reference_price=100.0,
+        snapshot_session_date="2026-03-26",
+        snapshot_asof=now,
+        provider="kis_quote",
+        source="session_close_price",
+        collection_reason="catchup",
+        captured_at=now,
+    )
+
+    assert len(rows) == 1
+    row = rows[("bot-1", "KRX:005930", "2026-03-26")]
+    assert row["market"] == "KRX"
+    assert row["close_price"] == 99.0
+    assert row["collection_reason"] == "catchup"
+
+
+def test_watch_close_price_attempt_throttle(monkeypatch):
+    prices: set[tuple[str, str, str]] = set()
+    attempts: dict[tuple[str, str, str], datetime] = {}
+    now = datetime(2026, 3, 26, 16, 30, tzinfo=KST)
+
+    def fake_fetchone(query: str, params: tuple):
+        key = (params[0], params[1], params[2])
+        if "FROM bot_watch_close_prices" in query:
+            return (1,) if key in prices else None
+        if "FROM bot_watch_close_price_attempts" in query:
+            attempted_at = attempts.get(key)
+            return (attempted_at,) if attempted_at is not None else None
+        raise AssertionError(query)
+
+    monkeypatch.setattr(state_store, "POSTGRES_STATE_KEY", "bot-1")
+    monkeypatch.setattr(state_store, "_fetchone", fake_fetchone)
+
+    assert state_store.should_attempt_watch_close_price("KRX:005930", "2026-03-26", now) is True
+
+    attempts[("bot-1", "KRX:005930", "2026-03-26")] = now - timedelta(minutes=10)
+    assert state_store.should_attempt_watch_close_price("KRX:005930", "2026-03-26", now) is False
+
+    attempts[("bot-1", "KRX:005930", "2026-03-26")] = now - timedelta(minutes=16)
+    assert state_store.should_attempt_watch_close_price("KRX:005930", "2026-03-26", now) is True
+
+    prices.add(("bot-1", "KRX:005930", "2026-03-26"))
+    assert state_store.should_attempt_watch_close_price("KRX:005930", "2026-03-26", now) is False
 
 
 def test_split_state_maps_legacy_app_state_domains():

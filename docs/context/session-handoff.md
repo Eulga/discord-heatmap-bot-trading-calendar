@@ -3,6 +3,7 @@
 - Active carry-forward as of 2026-05-05:
   - Runtime state는 PostgreSQL split rows로 전환됐다. 현재 bot startup은 `STATE_BACKEND=postgres` 또는 `postgresql`과 `DATABASE_URL`이 필요하다.
   - `split_state_v1` migration은 기존 `bot_app_state.state JSONB` row를 우선 source로 사용하고, 없을 때만 `data/state/state.json`을 fallback import한다. legacy JSON row는 보존되며 runtime에서 다시 sync-back하지 않는다.
+  - Watch close-price history now accumulates in `bot_watch_close_prices` keyed by `(state_key, symbol, session_date)`. `bot_watch_close_price_attempts` throttles post-due catch-up retries; these rows are not part of legacy `AppState` snapshots.
   - Docker smoke 중 이전 live `discord-bot` 컨테이너가 실행 중인 것을 확인해 중지했고, marker를 지운 뒤 migration을 한 번 재실행해 split rows를 legacy row 기준으로 다시 맞췄다. 현재 Compose 상태는 `postgres` healthy와 `adminer` up, `discord-bot` stopped다.
   - 남은 state safety 리스크는 full-document lost update가 아니라 duplicate bot instances에 대한 distributed scheduler lease/outbox 부재다.
 - Active carry-forward as of 2026-05-04:

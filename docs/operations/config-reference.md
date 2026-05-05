@@ -139,6 +139,10 @@
   - `bot_provider_status`
   - `bot_news_dedup`
   - all keyed by `POSTGRES_STATE_KEY`
+- Accumulated watch close-price history:
+  - `bot_watch_close_prices`
+  - `bot_watch_close_price_attempts`
+  - keyed by `POSTGRES_STATE_KEY`; these rows are historical/analytics data and are not exported into legacy `AppState` snapshots
 - Migration/rollback state:
   - PostgreSQL table `bot_app_state` keeps the legacy full `AppState` JSONB row.
   - `data/state/state.json` is a one-time import fallback only when no legacy PostgreSQL row exists.

@@ -1,6 +1,19 @@
 # Design Decisions
 
 ## 2026-05-05
+- Context: watch close comments preserve Discord-visible session history, but users now also want accumulated close-price rows in PostgreSQL for inspection and future analytics.
+- Decision: Store watch close prices as historical PostgreSQL rows keyed by `(state_key, symbol, session_date)`, separate from mutable runtime state and legacy `AppState` snapshots.
+- Why:
+1. Close-price history is market data, not per-guild route/thread/checkpoint state.
+2. A global symbol/date row avoids duplicate price rows when multiple guilds watch the same symbol.
+3. Saving the row before Discord close-comment side effects prevents Discord write failures from losing the market-data observation.
+- Impact:
+1. `bot_watch_close_prices` accumulates resolved close prices indefinitely.
+2. `bot_watch_close_price_attempts` throttles post-due catch-up attempts for missing rows.
+3. Discord close comments still follow the existing KST due-minute finalization policy.
+- Status: accepted
+
+## 2026-05-05
 - Context: one-row `bot_app_state.state JSONB` with optimistic locking prevents silent stale saves, but still makes unrelated command/scheduler updates contend on one document and does not provide granular transactional cleanup for watch state.
 - Decision: Move current runtime state to PostgreSQL-only split domain rows, preserve the legacy JSON row as backup/import source, and keep distributed scheduler lease/outbox as a separate future design.
 - Why:

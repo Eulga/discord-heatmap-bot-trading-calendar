@@ -1,6 +1,31 @@
 # Development Log
 
 ## 2026-05-05
+- Context: 사용자가 watch poll 등록 종목의 마감가를 PostgreSQL에 누적 저장하는 정책으로 변경해 달라고 요청했다.
+- Change:
+1. `bot_watch_close_prices`를 추가해 `POSTGRES_STATE_KEY + symbol + session_date` 단위로 close price history를 누적 저장한다.
+2. `bot_watch_close_price_attempts`를 추가해 post-due catch-up fetch를 15분 단위로 throttle한다.
+3. Watch close finalization은 close price가 확정되면 Discord close comment side effect 전에 DB row를 upsert한다.
+4. Active watch symbol은 market-specific KST due minute 이후 close price row가 없으면 Discord comment 없이 DB catch-up을 시도한다.
+5. `session_close_price`가 없는 catch-up snapshot은 `close-unavailable` attempt로 기록하고 `watch_poll` job 자체는 실패 처리하지 않는다.
+6. Tests now cover schema DDL, close-price upsert semantics, attempt throttling, Discord close-comment failure persistence, post-due catch-up, guild-level dedupe, and adjacent `previous_close` fallback source marking.
+7. Current-truth docs now describe the accumulated history tables, Adminer/SQL inspection path, and the distinction from legacy `AppState` snapshots.
+- Verification:
+1. `PYTHONPYCACHEPREFIX=.tmp_pycache python3 -m py_compile bot/forum/state_store.py bot/features/intel_scheduler.py tests/state_store_adapter.py tests/unit/test_state_atomic.py tests/integration/test_watch_poll_forum_scheduler.py`
+2. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py`
+3. `python3 scripts/run_repo_checks.py integration -- tests/integration/test_watch_poll_forum_scheduler.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+6. `python3 scripts/run_repo_checks.py collect`
+7. `docker compose config --quiet`
+8. `git diff --check`
+9. `docker compose run --rm -v "$PWD:/app" discord-bot python scripts/run_repo_checks.py collect`
+10. `docker compose run --rm -v "$PWD:/app" discord-bot python -c "from bot.forum.state_store import ensure_schema_and_migrate; ensure_schema_and_migrate(); print('schema_ok')"`
+11. PostgreSQL smoke confirmed `bot_watch_close_prices` and `bot_watch_close_price_attempts` exist; both had row count `0` before future live collection.
+12. `docker compose ps` showed `postgres` healthy and `adminer` up, with no live `discord-bot` service running.
+- Status: done
+
+## 2026-05-05
 - Context: 사용자가 PostgreSQL state를 도메인 row로 분해하고 runtime full-document write 경로를 제거해 달라고 요청했다.
 - Change:
 1. `bot/forum/state_store.py`를 추가해 `POSTGRES_STATE_KEY` namespace별 split schema, `split_state_v1` migration, legacy JSON import, and granular repository APIs를 구현했다.

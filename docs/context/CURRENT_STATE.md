@@ -36,6 +36,8 @@
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
   - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
   - close finalization is now KST exact-minute gated: KRX symbols only attempt `마감가 알림` at 16:00 KST, and NAS/NYS/AMS symbols only attempt it at 07:00 KST; missed due minutes leave close finalization pending until the next due minute without blocking later regular-session current-price/band updates, but pending close targets are dropped from retry state once a later snapshot is no longer the immediately adjacent trading session
+  - watch close prices are accumulated in PostgreSQL per `POSTGRES_STATE_KEY + symbol + session_date`; DB history is saved as soon as a close price is resolved, while Discord close comments remain governed by the due-minute finalization path
+  - after the due minute has passed, active symbols can perform best-effort close-price DB catch-up until the next regular session, without creating Discord close comments
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
@@ -64,6 +66,7 @@
 ## Code-Confirmed Current Behavior Concerns
 - PostgreSQL backend failures are intended to fail closed at startup and repository access time.
 - Runtime paths now write domain rows instead of rewriting one full `AppState` JSON document, reducing state lost-update risk for independent route, daily-post, scheduler/status, and watch updates.
+- Watch close-price history is accumulated in dedicated PostgreSQL rows and is not included in legacy `AppState` snapshots.
 - Same-row watch alert updates use row-level/compound repository operations where current behavior needs merge-like semantics.
 - The implementation still does not include distributed scheduler leases or a Discord side-effect outbox, so duplicate bot instances can still duplicate external side effects.
 - Heatmap auto screenshot uses same-day catch-up after its fixed KST schedule: `kheatmap` after 16:00 and `usheatmap` after 07:00, once per guild/job/date.
