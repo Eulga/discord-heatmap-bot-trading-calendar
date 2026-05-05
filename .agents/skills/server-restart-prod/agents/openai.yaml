@@ -1,0 +1,6 @@
+interface:
+  display_name: "Prod Server Restart"
+  short_description: "Restart production bot safely"
+  default_prompt: "Use $server-restart-prod to restart the production Discord heatmap bot from /Users/jaeik/Documents/discord-heatmap-bot-trading-calendar, verify Docker Compose/PostgreSQL health, check timezone and logs, avoid secret exposure, and report service state."
+policy:
+  allow_implicit_invocation: true

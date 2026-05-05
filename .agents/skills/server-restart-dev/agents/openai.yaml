@@ -1,0 +1,6 @@
+interface:
+  display_name: "Dev Server Restart"
+  short_description: "Restart dev bot"
+  default_prompt: "Use $server-restart-dev to safely restart this repo's development Docker Compose Discord bot, keep the container named discord-heatmap-bot-dev, verify PostgreSQL/Adminer, confirm Asia/Seoul timezone, reload .env when needed, and report logs plus service state without inspecting sibling project tokens. Treat local LLM/model server availability as external to this restart workflow."
+policy:
+  allow_implicit_invocation: true
