@@ -1,6 +1,19 @@
 # Development Log
 
 ## 2026-05-04
+- Context: PR #24 Codex review found two follow-up issues in the new `$check-pr-review` clean-merge path.
+- Change:
+1. Clean PR merges now instruct agents to call `gh pr merge <number> --squash --delete-branch --match-head-commit <headRefOid>` so a last-second unreviewed push cannot be merged after the clean-state check.
+2. Local branch cleanup now checks `git branch --list <feature-branch>` before `git branch -D`, and reports `already-gone` if GitHub CLI already deleted the local branch.
+3. `.agents/skills/check-pr-review/agents/openai.yaml` was updated to match the pinned merge and idempotent cleanup workflow.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/check-pr-review`
+2. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/check-pr-review/agents/openai.yaml').read_text()); print('yaml ok')"`
+3. `git diff --check`
+4. `.venv/bin/python scripts/run_repo_checks.py collect`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 `$check-pr-review`에서 PR review가 clean이면 merge 후 remote/local branch 삭제까지 수행하도록 요청했다.
 - Change:
 1. `.agents/skills/check-pr-review/SKILL.md`의 clean workflow를 squash merge, remote branch deletion, base branch checkout, local feature branch deletion까지 수행하도록 확장했다.

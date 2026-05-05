@@ -49,14 +49,16 @@ Use this skill to inspect the current branch's GitHub PR review state and finish
      - PR state is open, mergeable, and not in a conflict/dirty merge state
      - all required checks are successful
    - If any merge-safety condition fails, report `Clean - blocked` with the exact blocker and do not merge.
-   - If merge-safe, merge the PR with `gh pr merge <number> --squash --delete-branch`.
+   - If merge-safe, merge the PR with `gh pr merge <number> --squash --delete-branch --match-head-commit <headRefOid>` so a last-second unreviewed push cannot be merged.
    - If `gh pr merge` fails, stop immediately, report `Clean - blocked`, and do not delete the local branch.
    - After successful merge, clean up the local branch:
      - remember the feature branch and base branch from the PR
      - `git fetch origin <base>`
      - `git checkout <base>`
      - `git pull --ff-only origin <base>`
-     - delete the old local feature branch with `git branch -D <feature-branch>`
+     - check whether the old local feature branch still exists with `git branch --list <feature-branch>`
+     - if it exists, delete it with `git branch -D <feature-branch>`
+     - if it is already gone, report local cleanup as `already-gone` rather than failing
    - Report PR URL, current PR head commit, latest reviewed commit or clean Codex response, check summary, merge method, remote branch deletion, local branch cleanup result, and current branch after cleanup.
 5. If not clean, inspect and fix:
    - Group findings by file and behavior area.
@@ -91,7 +93,7 @@ Use this skill to inspect the current branch's GitHub PR review state and finish
 - GitHub writes this skill may perform by default:
   - `@codex review` comment after pushing review-fix commits
   - one `@codex review` comment when the current PR head is newer than the latest completed Codex review and no newer request is visible
-  - squash merge a clean PR and request remote branch deletion with `gh pr merge --squash --delete-branch`
+  - squash merge a clean PR and request remote branch deletion with `gh pr merge --squash --delete-branch --match-head-commit <headRefOid>`
 
 ## Done When
 
