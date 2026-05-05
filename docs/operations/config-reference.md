@@ -130,6 +130,7 @@
   - PostgreSQL table `bot_app_state`
   - row key from `POSTGRES_STATE_KEY`
   - full `AppState` document stored in `state JSONB`
+  - `version BIGINT` tracks optimistic write version; stale loaded-state saves fail instead of overwriting newer row state
 - Optional runtime registry artifact:
   - `data/state/instrument_registry.json`
 - Logs:

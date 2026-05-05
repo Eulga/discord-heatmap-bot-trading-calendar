@@ -57,12 +57,13 @@
   - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
   - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
-- PostgreSQL app-state persistence is now available as an opt-in backend for preserving Discord route/thread/message IDs and scheduler/watch checkpoints beyond the local JSON state file.
+- PostgreSQL app-state persistence is now available as an opt-in backend for preserving Discord route/thread/message IDs and scheduler/watch checkpoints beyond the local JSON state file, with version-based stale-write conflict detection.
 
 ## Code-Confirmed Current Behavior Concerns
 - State reads can fail open and later be saved back as authoritative empty state.
 - State writes are not visibly serialized across commands, schedulers, and startup paths.
-- PostgreSQL backend failures are intended to fail closed, but the v1 backend still stores the whole `AppState` document as one JSONB row and does not solve cross-process lost updates.
+- PostgreSQL backend failures are intended to fail closed, and loaded PostgreSQL state saves now use a `version` optimistic lock so stale writers fail instead of silently overwriting newer row state.
+- PostgreSQL still stores the whole `AppState` document as one JSONB row; conflicts are not auto-merged and writes are not leased or serialized.
 - Heatmap, news, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
@@ -83,7 +84,7 @@
 - Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
-- This summary was last updated on 2026-05-04 from:
+- This summary was last updated on 2026-05-05 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`
@@ -95,4 +96,5 @@
   - `../../.github/workflows/pr-checks.yml`
   - `../../.codex-harness/README.md`
   - `../../bot/forum/repository.py`
+  - `../../tests/unit/test_state_atomic.py`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

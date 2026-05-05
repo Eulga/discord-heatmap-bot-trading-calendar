@@ -1,5 +1,27 @@
 # Development Log
 
+## 2026-05-05
+- Context: 사용자가 PostgreSQL `bot_app_state.state JSONB` 한 row 저장 방식은 유지하면서 lost update를 막는 optimistic locking을 구현해 달라고 요청했다.
+- Change:
+1. PostgreSQL `bot_app_state` schema에 `version BIGINT NOT NULL DEFAULT 1`을 추가하고, 기존 DB는 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`로 자동 보정하게 했다.
+2. PostgreSQL `load_state()`는 `state, version`을 함께 읽고, version은 persisted `AppState` JSON key가 아니라 loaded state wrapper attribute로 추적한다.
+3. PostgreSQL `save_state()`는 loaded state의 expected version으로 `UPDATE ... WHERE state_key = ... AND version = ...`를 수행하고, 성공 시 `version = version + 1`로 증가시킨다.
+4. stale version update가 row를 갱신하지 못하면 `RuntimeError("PostgreSQL state backend concurrent update conflict.")`를 그대로 발생시켜 조용한 overwrite를 막는다.
+5. File backend behavior는 변경하지 않았고, ad hoc untracked PostgreSQL save는 기존 public API 호환을 위해 현재 row version을 읽은 뒤 update한다.
+6. Current-truth docs and design decisions now describe the versioned PostgreSQL state row and non-merge conflict policy.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_state_atomic.py`
+2. `python3 scripts/run_repo_checks.py collect`
+3. `docker compose config --quiet`
+4. `docker compose run --rm -v /Users/jaeik/Documents/discord-heatmap-bot-trading-calendar-dev:/app discord-bot python scripts/run_repo_checks.py collect`
+5. `docker compose up -d --build discord-bot`
+6. `docker compose exec -T postgres psql ... information_schema.columns ...` confirmed `bot_app_state.version` as non-null `bigint` with default `1`.
+7. `docker compose exec -T postgres psql ... SELECT state_key, version, jsonb_typeof(state) ...` confirmed the `default` state row is JSON object with version `3`.
+8. `docker compose run --rm discord-bot python -c "... load_state() ..."` confirmed `state_load_ok True`, `guild_count 1`, `command_count 6`.
+9. `docker compose ps` confirmed `discord-bot` and `adminer` running and `postgres` healthy; bot logs showed Gateway connection, 11 global commands synced, scheduler start, and watch poll success.
+10. `git diff --check`
+- Status: done
+
 ## 2026-05-04
 - Context: PR #24 Codex review found two follow-up issues in the new `$check-pr-review` clean-merge path.
 - Change:

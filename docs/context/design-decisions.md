@@ -1,5 +1,19 @@
 # Design Decisions
 
+## 2026-05-05
+- Context: PostgreSQL backend now persists the full mutable `AppState` document in one JSONB row, so independent bot processes can otherwise overwrite each other after separate load-mutate-save cycles.
+- Decision: Keep the one-row JSONB state model and add `version BIGINT` optimistic locking for PostgreSQL saves. Do not split the state into relational tables or add automatic merge in this change.
+- Why:
+1. The current feature paths already share one `load_state()` / `save_state()` document contract.
+2. Version checking prevents silent lost updates with a smaller compatibility surface than a relational state redesign.
+3. Automatic merge would require command- and scheduler-specific merge rules and is a separate design problem.
+- Impact:
+1. Existing PostgreSQL state tables are auto-migrated with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`.
+2. PostgreSQL loads track the row version outside the persisted `AppState` JSON keys.
+3. PostgreSQL saves of loaded state increment the version on success and raise `RuntimeError("PostgreSQL state backend concurrent update conflict.")` on stale-version conflict.
+4. File backend behavior is unchanged.
+- Status: accepted
+
 ## 2026-05-04
 - Context: PostgreSQL 도입 요구는 Discord 게시 후 봇이 다시 찾아야 하는 route/thread/message ID와 scheduler/watch checkpoint를 보존하는 목적이었고, 현재 구현은 이 값을 모두 `AppState` JSON 문서 형태로 `data/state/state.json`에 저장한다.
 - Decision: PostgreSQL v1은 기존 `AppState` 문서를 그대로 `bot_app_state.state JSONB` 한 row에 저장한다. feature별 relational schema로 분해하지 않는다.
@@ -10,7 +24,7 @@
 - Impact:
 1. `STATE_BACKEND=file`은 기존 JSON 파일 동작을 유지한다.
 2. `STATE_BACKEND=postgres`는 같은 문서를 PostgreSQL JSONB row로 저장하고, 첫 row 생성 시 기존 file state를 seed로 사용할 수 있다.
-3. 여러 bot process가 동시에 같은 row를 load-mutate-save하는 lost update 문제는 v1에서 완전히 해결하지 않는다.
+3. 여러 bot process가 동시에 같은 row를 load-mutate-save하는 lost update 문제는 초기 v1에서 완전히 해결하지 않았으며, 2026-05-05 결정으로 같은 JSONB row 모델 위에 version conflict detection을 추가했다.
 - Status: accepted
 
 ## 2026-05-04

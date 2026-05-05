@@ -14,6 +14,13 @@ from bot.common.fs import atomic_write_json
 from bot.intel.instrument_registry import normalize_stored_watch_symbol
 
 WATCH_POLL_COMMAND_KEY = "watchpoll"
+POSTGRES_CONCURRENT_UPDATE_MESSAGE = "PostgreSQL state backend concurrent update conflict."
+
+
+class _PostgresVersionedState(dict[str, Any]):
+    __slots__ = ("postgres_version",)
+
+    postgres_version: int
 
 
 def _empty_state() -> AppState:
@@ -123,8 +130,15 @@ def _ensure_postgres_table(cursor: Any) -> None:
         CREATE TABLE IF NOT EXISTS bot_app_state (
             state_key TEXT PRIMARY KEY,
             state JSONB NOT NULL,
+            version BIGINT NOT NULL DEFAULT 1,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+        """
+    )
+    cursor.execute(
+        """
+        ALTER TABLE bot_app_state
+        ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1
         """
     )
 
@@ -140,16 +154,98 @@ def _coerce_postgres_state(value: Any) -> AppState:
     return _normalize_state(value)
 
 
-def _upsert_postgres_state(cursor: Any, state: AppState) -> None:
+def _coerce_postgres_version(value: Any) -> int:
+    if isinstance(value, bool):
+        raise RuntimeError("PostgreSQL state row has invalid version.")
+    try:
+        version = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("PostgreSQL state row has invalid version.") from exc
+    if version < 1:
+        raise RuntimeError("PostgreSQL state row has invalid version.")
+    return version
+
+
+def _with_postgres_version(state: AppState, version: int) -> AppState:
+    if isinstance(state, _PostgresVersionedState):
+        state.postgres_version = version
+        return cast(AppState, state)
+
+    tracked_state = _PostgresVersionedState(cast(dict[str, Any], state))
+    tracked_state.postgres_version = version
+    return cast(AppState, tracked_state)
+
+
+def _get_postgres_version(state: AppState) -> int | None:
+    if isinstance(state, _PostgresVersionedState):
+        return state.postgres_version
+    return None
+
+
+def _set_postgres_version(state: AppState, version: int) -> None:
+    if isinstance(state, _PostgresVersionedState):
+        state.postgres_version = version
+
+
+def _select_postgres_state(cursor: Any) -> tuple[AppState, int] | None:
+    cursor.execute("SELECT state, version FROM bot_app_state WHERE state_key = %s", (POSTGRES_STATE_KEY,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _coerce_postgres_state(row[0]), _coerce_postgres_version(row[1])
+
+
+def _select_postgres_version(cursor: Any) -> int | None:
+    cursor.execute("SELECT version FROM bot_app_state WHERE state_key = %s", (POSTGRES_STATE_KEY,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _coerce_postgres_version(row[0])
+
+
+def _insert_postgres_state(cursor: Any, state: AppState) -> bool:
     cursor.execute(
         """
-        INSERT INTO bot_app_state (state_key, state, updated_at)
-        VALUES (%s, %s::jsonb, now())
+        INSERT INTO bot_app_state (state_key, state, version, updated_at)
+        VALUES (%s, %s::jsonb, 1, now())
         ON CONFLICT (state_key)
-        DO UPDATE SET state = EXCLUDED.state, updated_at = now()
+        DO NOTHING
         """,
         (POSTGRES_STATE_KEY, json.dumps(state, ensure_ascii=False)),
     )
+    return cursor.rowcount == 1
+
+
+def _update_postgres_state(cursor: Any, state: AppState, expected_version: int) -> int:
+    cursor.execute(
+        """
+        UPDATE bot_app_state
+        SET state = %s::jsonb,
+            version = version + 1,
+            updated_at = now()
+        WHERE state_key = %s
+          AND version = %s
+        """,
+        (json.dumps(state, ensure_ascii=False), POSTGRES_STATE_KEY, expected_version),
+    )
+    if cursor.rowcount != 1:
+        raise RuntimeError(POSTGRES_CONCURRENT_UPDATE_MESSAGE)
+    return expected_version + 1
+
+
+def _upsert_postgres_state(cursor: Any, state: AppState, expected_version: int | None) -> int:
+    if expected_version is not None:
+        return _update_postgres_state(cursor, state, expected_version)
+
+    current_version = _select_postgres_version(cursor)
+    if current_version is None:
+        if _insert_postgres_state(cursor, state):
+            return 1
+        current_version = _select_postgres_version(cursor)
+        if current_version is None:
+            raise RuntimeError("PostgreSQL state backend row disappeared during save.")
+
+    return _update_postgres_state(cursor, state, current_version)
 
 
 def _load_postgres_state() -> AppState:
@@ -158,14 +254,19 @@ def _load_postgres_state() -> AppState:
         with _connect_postgres() as conn:
             with conn.cursor() as cursor:
                 _ensure_postgres_table(cursor)
-                cursor.execute("SELECT state FROM bot_app_state WHERE state_key = %s", (POSTGRES_STATE_KEY,))
-                row = cursor.fetchone()
-                if row is not None:
-                    return _coerce_postgres_state(row[0])
+                current = _select_postgres_state(cursor)
+                if current is not None:
+                    state, version = current
+                    return _with_postgres_version(state, version)
 
                 seeded_state = _load_file_state(migrate_legacy=False)
-                _upsert_postgres_state(cursor, seeded_state)
-                return seeded_state
+                if _insert_postgres_state(cursor, seeded_state):
+                    return _with_postgres_version(seeded_state, 1)
+                seeded_current = _select_postgres_state(cursor)
+                if seeded_current is None:
+                    raise RuntimeError("PostgreSQL state backend seed failed.")
+                state, version = seeded_current
+                return _with_postgres_version(state, version)
     except Exception as exc:
         raise RuntimeError("PostgreSQL state backend load failed.") from exc
 
@@ -176,7 +277,14 @@ def _save_postgres_state(state: AppState) -> None:
         with _connect_postgres() as conn:
             with conn.cursor() as cursor:
                 _ensure_postgres_table(cursor)
-                _upsert_postgres_state(cursor, _normalize_state(state))
+                normalized_state = _normalize_state(state)
+                expected_version = _get_postgres_version(normalized_state)
+                new_version = _upsert_postgres_state(cursor, normalized_state, expected_version)
+                _set_postgres_version(normalized_state, new_version)
+    except RuntimeError as exc:
+        if str(exc) == POSTGRES_CONCURRENT_UPDATE_MESSAGE:
+            raise
+        raise RuntimeError("PostgreSQL state backend save failed.") from exc
     except Exception as exc:
         raise RuntimeError("PostgreSQL state backend save failed.") from exc
 

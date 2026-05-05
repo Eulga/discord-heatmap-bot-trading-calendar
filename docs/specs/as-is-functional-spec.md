@@ -993,7 +993,11 @@
 - File backend `load_state()` returns an empty state on missing file, invalid JSON, non-dict payload, `JSONDecodeError`, or `OSError`.
 - File backend `save_state()` uses atomic temp-file replacement.
 - `STATE_BACKEND=postgres` or `postgresql` reads/writes PostgreSQL table `bot_app_state`, keyed by `POSTGRES_STATE_KEY`, with the full app-state document stored in `state JSONB`.
-- PostgreSQL backend creates the table on first use and seeds the row from the current file state if no row exists.
+- PostgreSQL table schema is `state_key TEXT PRIMARY KEY`, `state JSONB NOT NULL`, `version BIGINT NOT NULL DEFAULT 1`, and `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
+- PostgreSQL backend creates the table on first use, runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1` for older databases, and seeds the row from the current file state with `version = 1` if no row exists.
+- PostgreSQL `load_state()` reads `state` and `version`; the loaded version is tracked outside the persisted `AppState` JSON keys.
+- PostgreSQL `save_state()` for a loaded state updates with `WHERE state_key = ... AND version = ...`, increments `version` on success, and raises `RuntimeError("PostgreSQL state backend concurrent update conflict.")` when the expected version is stale.
+- PostgreSQL saves of untracked ad hoc state retain the public API by reading the current row version before the update; they can still fail if another writer changes the row between that version read and update.
 - PostgreSQL backend failures raise runtime errors instead of returning empty state.
 - Runtime registry is a separate JSON file under `data/state/instrument_registry.json`.
 
@@ -1003,7 +1007,7 @@
 - News/EOD/watch jobs write `system.job_last_runs` with `ok`, `failed`, or `skipped` outcomes.
 - Provider failures usually update `system.provider_status` as well.
 - Some Discord fetch/edit/delete failures are swallowed locally and converted into fallback or partial-cleanup behavior.
-- There is no visible global coordination for multi-process safety or job leasing.
+- PostgreSQL state writes have stale-version conflict detection, but there is no visible global coordination for job leasing, automatic merge, or serialized multi-process writes.
 
 # 6. Configuration and dependency map
 
@@ -1144,7 +1148,7 @@
 - Name: PostgreSQL `bot_app_state`
   - Purpose: optional mutable application state backend
   - Required vs optional: required only when `STATE_BACKEND=postgres` or `postgresql`
-  - Observed usage: `bot/forum/repository.py` stores the full `AppState` document in `state JSONB`
+  - Observed usage: `bot/forum/repository.py` stores the full `AppState` document in `state JSONB` and uses a `version BIGINT` optimistic lock for loaded-state saves
   - Risk if missing: table is created on first use; if the database is unreachable, selected PostgreSQL backend fails closed
 - Name: `data/state/instrument_registry.json`
   - Purpose: runtime registry override artifact
