@@ -22,6 +22,10 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw.isdigit() else default
 
 
+def _env_bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(_env_int(name, default), maximum))
+
+
 def _env_channel_id(name: str) -> int | None:
     raw = os.getenv(name, "").strip()
     return int(raw) if raw.isdigit() else None
@@ -77,6 +81,15 @@ POSTGRES_STATE_KEY = os.getenv("POSTGRES_STATE_KEY", "default").strip() or "defa
 LOG_FILE_PATH = _env_path("LOG_FILE_PATH", Path("data/logs/bot.log"))
 LOG_RETENTION_DAYS = _env_int("LOG_RETENTION_DAYS", 7)
 LOG_CONSOLE_ENABLED = _env_bool("LOG_CONSOLE_ENABLED", True)
+
+LOCAL_MODEL_ENABLED = _env_bool("LOCAL_MODEL_ENABLED", False)
+_LOCAL_MODEL_BASE_URL_DEFAULT = "http://host.docker.internal:8081/v1"
+LOCAL_MODEL_BASE_URL = os.getenv("LOCAL_MODEL_BASE_URL", _LOCAL_MODEL_BASE_URL_DEFAULT).strip() or _LOCAL_MODEL_BASE_URL_DEFAULT
+LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "gemma-e4b").strip() or "gemma-e4b"
+LOCAL_MODEL_TIMEOUT_SECONDS = _env_bounded_int("LOCAL_MODEL_TIMEOUT_SECONDS", 45, 1, 120)
+LOCAL_MODEL_MAX_PROMPT_CHARS = _env_bounded_int("LOCAL_MODEL_MAX_PROMPT_CHARS", 2000, 1, 6000)
+LOCAL_MODEL_MAX_RESPONSE_CHARS = _env_bounded_int("LOCAL_MODEL_MAX_RESPONSE_CHARS", 1800, 200, 1900)
+LOCAL_MODEL_PUBLIC_RESPONSES = _env_bool("LOCAL_MODEL_PUBLIC_RESPONSES", False)
 
 KOREA_MARKET_URLS: dict[str, str] = {
     "kospi": "https://markets.hankyung.com/marketmap/kospi",

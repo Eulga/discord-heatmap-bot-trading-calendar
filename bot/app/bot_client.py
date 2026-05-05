@@ -24,6 +24,7 @@ from bot.forum.state_store import (
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
 from bot.features.kheatmap.command import register as register_kheatmap
+from bot.features.local_model.command import register as register_local_model
 from bot.features.status.command import register as register_status
 from bot.features.usheatmap.command import register as register_usheatmap
 from bot.features.watch.command import register as register_watch
@@ -118,6 +119,7 @@ class BotApp:
         register_watch(self.tree, self.client)
         register_kheatmap(self.tree, self.client)
         register_usheatmap(self.tree, self.client)
+        register_local_model(self.tree, self.client)
 
         @self.client.event
         async def on_ready() -> None:
