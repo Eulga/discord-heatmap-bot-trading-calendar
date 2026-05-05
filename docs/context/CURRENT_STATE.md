@@ -43,7 +43,14 @@
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - manual heatmap commands plus `/watch add`, `/watch start`, `/watch stop`, `/watch list` require guild context but are not admin-gated
   - `/watch delete` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - `/local ask` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - status commands do not currently apply a visible authorization gate
+- Local model slash command:
+  - `/local ask` is disabled by default through `LOCAL_MODEL_ENABLED=false`
+  - when enabled, it calls an already-running OpenAI-compatible local model endpoint at `LOCAL_MODEL_BASE_URL`
+  - Docker development defaults target Mac host `llama-server` at `http://host.docker.internal:8081/v1`
+  - local model server lifecycle is external to bot/server restart workflows
+  - the bot does not start/supervise the model server and does not grant shell/file/DB tools to the model
 - The deep current behavior, visible ambiguities, and observed implementation gaps are documented in `../specs/as-is-functional-spec.md`.
 - Current QA prioritization is documented separately in `../reports/qa-issue-review-2026-03-24.md`; treat that file as a review artifact, not as a runtime spec.
 
@@ -55,7 +62,7 @@
 - Agent-operating baseline uplift:
   - standardized local bootstrap via `scripts/bootstrap_dev_env.py`
   - standardized repo validation via `scripts/run_repo_checks.py` through the active interpreter for the current OS
-  - repo-local Codex skills for staged harness operation, PR review, CI triage, docs sync, and scheduler/watch review
+  - repo-local Codex skills for staged harness operation, PR review, CI triage, docs sync, scheduler/watch review, safe dev server restart, and safe prod server restart
   - repo-local staged workflow templates and state helper under `.codex-harness/`, with run-specific state and reports ignored by git
   - GitHub PR template plus CI workflow under `.github/`
   - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs

@@ -46,6 +46,7 @@
 - Start with PostgreSQL state backend:
   - set `STATE_BACKEND=postgres`
   - set `DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap`
+  - dev PostgreSQL is configured for `Asia/Seoul`; verify with `docker compose exec -T postgres psql -U discord_heatmap -d discord_heatmap -c "SHOW timezone"`
   - run `docker compose up -d --build`
 - Infra/checks-only startup without live Discord connection:
   - `docker compose up -d postgres`
@@ -62,6 +63,19 @@
 - Inspect accumulated watch close prices:
   - in Adminer, open table `bot_watch_close_prices`
   - SQL example: `SELECT symbol, session_date, close_price, provider FROM bot_watch_close_prices ORDER BY session_date DESC, symbol LIMIT 20`
+- Optional local model command:
+  - `/local ask` expects an already-running external OpenAI-compatible local model endpoint
+  - bot restart workflows and server restart skills do not start, stop, adopt, or health-check the model server
+  - if an operator manually uses the repository helper scripts outside bot restart:
+    - `scripts/start_local_model_server.sh`
+    - `scripts/stop_local_model_server.sh`
+  - those helper scripts use PID/log files:
+    - `data/logs/local-model-server.pid`
+    - `data/logs/local-model-server.log`
+  - the helper uses port `8081` because Adminer uses `8080`
+  - verify from the Docker bot container:
+    - `docker compose exec -T discord-bot python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:8081/v1/models', timeout=10).read().decode('utf-8')[:500])"`
+  - Docker `.env` should use `LOCAL_MODEL_BASE_URL=http://host.docker.internal:8081/v1`
 - Stop:
   - `docker compose down`
 - Docker-specific note:
@@ -74,6 +88,7 @@
   - `STATE_BACKEND=postgres` or `postgresql`
   - `DATABASE_URL` is required
   - `POSTGRES_STATE_KEY` defaults to `default` and namespaces split rows
+- Development PostgreSQL timezone is `Asia/Seoul`.
 - Startup creates/migrates PostgreSQL tables before the Discord client is created.
 - Runtime reads/writes split domain tables for guild routes, scheduler markers, daily posts, image cache, watch state, job/provider status, and news dedup.
 - Legacy backup/import behavior:
@@ -90,7 +105,13 @@
 - Code-confirmed command boundary:
   - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/kheatmap`, `/usheatmap`, and `/watch *` require guild context but are not admin-gated
+  - `/local ask` requires guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/health`, `/last-run`, and `/source-status` do not currently apply a visible authorization gate in code
+- Local model note:
+  - `/local ask` only sends text to an already-running OpenAI-compatible local model HTTP server
+  - the bot does not grant model-side shell, file, database, or tool access
+  - default responses are ephemeral; public responses require `LOCAL_MODEL_PUBLIC_RESPONSES=true` and the command's `public` option
+  - local model server lifecycle is managed outside bot/server restart workflows
 - Watch-specific operator note:
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
@@ -107,6 +128,8 @@
   - `data/state/instrument_registry.json`
 - Runtime logs:
   - `data/logs/bot.log`
+  - `data/logs/local-model-server.log`
+  - `data/logs/local-model-server.pid`
 - Cached heatmap artifacts:
   - `data/heatmaps/kheatmap/`
   - `data/heatmaps/usheatmap/`

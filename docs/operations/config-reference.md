@@ -34,6 +34,8 @@
     - currently only affects `/source-status` default rows
   - `ADMIN_STATUS_CHANNEL_ID`
     - parsed from env but no direct runtime use was found in current bot code
+  - `LOCAL_MODEL_*`
+    - optional local llama.cpp HTTP endpoint settings for the admin-only `/local ask` command
 
 ## Bootstrap-only Env Vars
 - The inspected runtime docs currently treat these as bootstrap/default route IDs rather than the primary runtime routing source:
@@ -67,6 +69,14 @@
 - Registry refresh:
   - `INSTRUMENT_REGISTRY_REFRESH_ENABLED`
   - `INSTRUMENT_REGISTRY_REFRESH_TIME`
+- Local model:
+  - `LOCAL_MODEL_ENABLED`
+  - `LOCAL_MODEL_BASE_URL`
+  - `LOCAL_MODEL_NAME`
+  - `LOCAL_MODEL_TIMEOUT_SECONDS`
+  - `LOCAL_MODEL_MAX_PROMPT_CHARS`
+  - `LOCAL_MODEL_MAX_RESPONSE_CHARS`
+  - `LOCAL_MODEL_PUBLIC_RESPONSES`
 - Logging:
   - `LOG_FILE_PATH`
   - `LOG_RETENTION_DAYS`
@@ -99,6 +109,14 @@
 - Registry refresh:
   - `INSTRUMENT_REGISTRY_REFRESH_ENABLED = False`
   - `INSTRUMENT_REGISTRY_REFRESH_TIME = "06:20"`
+- Local model:
+  - `LOCAL_MODEL_ENABLED = False`
+  - `LOCAL_MODEL_BASE_URL = "http://host.docker.internal:8081/v1"`
+  - `LOCAL_MODEL_NAME = "gemma-e4b"`
+  - `LOCAL_MODEL_TIMEOUT_SECONDS = 45`
+  - `LOCAL_MODEL_MAX_PROMPT_CHARS = 2000`
+  - `LOCAL_MODEL_MAX_RESPONSE_CHARS = 1800`
+  - `LOCAL_MODEL_PUBLIC_RESPONSES = False`
 - Logging:
   - `LOG_RETENTION_DAYS = 7`
   - `LOG_CONSOLE_ENABLED = True`
@@ -120,6 +138,11 @@
   - the current watch path consumes normalized `WatchSnapshot` data via `get_watch_snapshot(...)`, not text-channel quote alerts
 - EOD wiring:
   - the scheduler currently uses `MockEodSummaryProvider()` unconditionally when EOD is enabled
+- Local model wiring:
+  - when `LOCAL_MODEL_ENABLED=True`, `/local ask` posts to `{LOCAL_MODEL_BASE_URL}/chat/completions` using the OpenAI-compatible request shape
+  - the Docker development default targets a host `llama-server` at `http://host.docker.internal:8081/v1`
+  - the bot does not start, stop, or supervise the local model server
+  - server restart skills do not manage the local model server; any model process manager or helper script is external to the bot lifecycle
 - Status-only provider rows:
   - `twelvedata_reference` and `openfigi_mapping` are currently status rows, not active runtime providers in the inspected bot code
 
@@ -143,6 +166,9 @@
   - `bot_watch_close_prices`
   - `bot_watch_close_price_attempts`
   - keyed by `POSTGRES_STATE_KEY`; these rows are historical/analytics data and are not exported into legacy `AppState` snapshots
+- Docker development PostgreSQL timezone:
+  - `docker-compose.yml` sets `TZ=Asia/Seoul`, `PGTZ=Asia/Seoul`, and server `timezone=Asia/Seoul`
+  - existing dev DB/role should also report `SHOW timezone` as `Asia/Seoul`
 - Migration/rollback state:
   - PostgreSQL table `bot_app_state` keeps the legacy full `AppState` JSONB row.
   - `data/state/state.json` is a one-time import fallback only when no legacy PostgreSQL row exists.
@@ -151,6 +177,8 @@
   - `data/state/instrument_registry.json`
 - Logs:
   - `data/logs/bot.log`
+  - `data/logs/local-model-server.log`
+  - `data/logs/local-model-server.pid`
 - Cached heatmap data:
   - `data/heatmaps/kheatmap/`
   - `data/heatmaps/usheatmap/`

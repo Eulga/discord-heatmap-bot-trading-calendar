@@ -1,6 +1,95 @@
 # Development Log
 
 ## 2026-05-05
+- Context: 사용자가 로컬 LLM 서버는 dev bot 전용이 아니라 상시 외부 서비스로 별도 관리해야 하므로 서버 재시작 skill에서 제외해 달라고 요청했다.
+- Change:
+1. `server-restart-dev` skill에서 `llama-server` start/stop/adopt/health-check 절차를 제거했다.
+2. `server-restart-dev` agent metadata를 dev bot restart 전용 설명으로 수정했다.
+3. README, runtime runbook, config reference, as-is spec, current-state docs에서 로컬 모델 서버 lifecycle은 bot/server restart workflow 밖에서 관리한다는 경계를 반영했다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/server-restart-dev`
+2. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/server-restart-dev/agents/openai.yaml').read_text()); print('yaml ok')"`
+3. `git diff --check`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 `/local ask`용 Mac host `llama-server`를 더 깔끔하게 관리하도록 dev start/stop 스크립트를 추가해 달라고 요청했다.
+- Change:
+1. `scripts/start_local_model_server.sh`를 추가해 기존 `8081`의 `llama-server`를 PID 파일로 채택하거나, 없으면 Gemma GGUF 모델로 새 서버를 시작하게 했다.
+2. `scripts/stop_local_model_server.sh`를 추가해 `data/logs/local-model-server.pid` 또는 `8081`의 matching `llama-server` PID를 안전하게 종료하게 했다.
+3. Local model PID/log 경로를 `data/logs/local-model-server.pid`와 `data/logs/local-model-server.log`로 고정했다.
+4. `server-restart-dev` skill, README, runtime runbook, config reference, as-is spec, current-state docs에 새 script 기반 운영 절차를 반영했다.
+5. Unit test에 shell syntax/executable 검증을 추가했다.
+- Verification:
+1. `bash -n scripts/start_local_model_server.sh scripts/stop_local_model_server.sh`
+2. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_dev_env_scripts.py`
+3. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/server-restart-dev`
+4. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/server-restart-dev/agents/openai.yaml').read_text()); print('yaml ok')"`
+5. `scripts/start_local_model_server.sh` adopted existing `llama-server` on port `8081` and wrote `data/logs/local-model-server.pid`.
+6. `docker compose exec -T discord-bot python -c "... urlopen('http://host.docker.internal:8081/v1/models') ..."` returned the `gemma-e4b` model list.
+7. `git diff --check`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 Discord slash command로 Mac host의 로컬 `llama.cpp` 모델에 간단히 명령하는 기능을 구현해 달라고 요청했다.
+- Change:
+1. `LOCAL_MODEL_*` env 설정을 추가하고 기본 endpoint를 Docker 컨테이너 기준 `http://host.docker.internal:8081/v1`, 모델명을 `gemma-e4b`로 정했다.
+2. `/local ask` slash command를 추가해 guild owner/admin 또는 `DISCORD_GLOBAL_ADMIN_USER_IDS` 사용자만 로컬 모델에 prompt를 보낼 수 있게 했다.
+3. 로컬 모델 client는 신규 dependency 없이 `urllib.request`를 `asyncio.to_thread()`로 감싸 OpenAI-compatible `/chat/completions`를 호출한다.
+4. Prompt/response 길이 제한, timeout/API/invalid-response 실패 처리, ephemeral 기본 응답, optional public 응답 gate를 추가했다.
+5. `.env.example`, config reference, runtime runbook, as-is spec, current-state docs에 로컬 모델 설정과 운영 전제를 반영했다.
+- Verification:
+1. `PYTHONPYCACHEPREFIX=.tmp_pycache /opt/homebrew/bin/python3.11 -m py_compile bot/app/settings.py bot/app/bot_client.py bot/features/local_model/client.py bot/features/local_model/command.py tests/unit/test_local_model_client.py tests/integration/test_local_model_command.py`
+2. `python3 scripts/run_repo_checks.py unit -- tests/unit/test_local_model_client.py`
+3. `python3 scripts/run_repo_checks.py integration -- tests/integration/test_local_model_command.py`
+4. `python3 scripts/run_repo_checks.py unit`
+5. `python3 scripts/run_repo_checks.py integration`
+6. `python3 scripts/run_repo_checks.py collect`
+7. `docker compose config --quiet`
+8. `git diff --check`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 서버 재시작 skill을 운영과 개발 두 가지로 분리해 달라고 요청했다.
+- Change:
+1. 단일 `.agents/skills/server-restart/` skill을 제거하고 `.agents/skills/server-restart-dev/`와 `.agents/skills/server-restart-prod/`로 분리했다.
+2. `server-restart-dev`는 현재 dev repo, `discord-heatmap-bot-dev`, Adminer, PostgreSQL `Asia/Seoul` timezone, sibling token/env 검사 금지 정책을 명시한다.
+3. `server-restart-prod`는 운영 repo `/Users/jaeik/Documents/discord-heatmap-bot-trading-calendar`, expected production container `discord-heatmap-bot`, dirty worktree preflight, stricter restart/rollback checks를 명시한다.
+4. README와 current-state skill summary를 새 skill 이름으로 갱신했다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/server-restart-dev`
+2. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/server-restart-prod`
+3. `python3 -c "import pathlib, yaml; [yaml.safe_load(p.read_text()) for p in pathlib.Path('.agents/skills').glob('server-restart-*/agents/openai.yaml')]; print('yaml ok')"`
+4. `git diff --check`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 개발 DB 설정의 시간대를 한국 기준으로 변경해 달라고 요청했다.
+- Change:
+1. `docker-compose.yml`의 `postgres` 서비스에 `TZ=Asia/Seoul`, `PGTZ=Asia/Seoul`, server command `timezone=Asia/Seoul`을 추가했다.
+2. 기존 개발 DB에는 `ALTER DATABASE discord_heatmap SET timezone TO 'Asia/Seoul'` 및 `ALTER ROLE discord_heatmap SET timezone TO 'Asia/Seoul'`로 새 세션 기본 timezone을 맞췄다.
+3. `server-restart` skill과 operations docs에 `SHOW timezone` 검증 절차를 추가했다.
+- Verification:
+1. `docker compose config --quiet`
+2. `docker compose up -d --force-recreate postgres`
+3. `docker compose exec postgres pg_isready -U discord_heatmap -d discord_heatmap`
+4. `docker compose exec -T postgres psql -U discord_heatmap -d discord_heatmap -c "SHOW timezone"` confirmed `Asia/Seoul`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 서버 재실행 관련 설정과 안전 절차를 자세히 담은 repo-local skill을 추가해 달라고 요청했다.
+- Change:
+1. `.agents/skills/server-restart/`를 추가해 Docker Compose/PostgreSQL/Adminer 기준 재실행 절차를 skill로 문서화했다.
+2. Skill은 infra/checks-only, live bot restart, `.env` reload, code rebuild, process-only bounce를 구분한다.
+3. `.env` secret 노출 금지, `docker compose config --quiet`, duplicate live bot avoidance, schema smoke, log verification, failure stop guidance를 포함했다.
+4. README와 current-state agent workflow summary에 `server-restart` skill을 추가했다.
+5. 현재 dev 경로의 live bot 컨테이너 이름을 `discord-heatmap-bot-dev`로 고정하고, skill은 sibling project token/container env 검사를 하지 않는 정책으로 맞췄다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/server-restart`
+2. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/server-restart/agents/openai.yaml').read_text()); print('yaml ok')"`
+- Status: done
+
+## 2026-05-05
 - Context: 사용자가 watch poll 등록 종목의 마감가를 PostgreSQL에 누적 저장하는 정책으로 변경해 달라고 요청했다.
 - Change:
 1. `bot_watch_close_prices`를 추가해 `POSTGRES_STATE_KEY + symbol + session_date` 단위로 close price history를 누적 저장한다.

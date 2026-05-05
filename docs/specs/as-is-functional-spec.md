@@ -58,6 +58,7 @@
 | F-11 | Watch poll and per-symbol forum-thread alerting | Implemented | intel scheduler interval check | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
 | F-12 | Instrument registry load/search/runtime refresh | Implemented | startup lookup, watch commands, scheduler when enabled | local search, status rows, runtime registry rebuild file | Confirmed |
 | F-13 | Legacy message ping handler (`!ping`) | Implemented | plain text message event | `pong` reply | Confirmed |
+| F-14 | Local model command (`/local ask`) | Implemented | slash command | admin-only ephemeral text response from configured local model HTTP endpoint | Confirmed |
 
 # 4. Detailed As-Is functional specification
 
@@ -85,7 +86,7 @@
 
 ### 4.4 Processing flow
 1. `bot/main.py` creates the bot app and calls `client.run(TOKEN)`.
-2. `create_bot_app()` configures logging, ensures/migrates PostgreSQL split-state schema, creates a `discord.Client`, builds a `CommandTree`, and registers admin, status, watch, Korea heatmap, and US heatmap commands.
+2. `create_bot_app()` configures logging, ensures/migrates PostgreSQL split-state schema, creates a `discord.Client`, builds a `CommandTree`, and registers admin, status, watch, Korea heatmap, US heatmap, and local model commands.
 3. On the first `on_ready`, the bot attempts `tree.sync()` for global commands.
 4. Command-sync success or failure is recorded into state via `record_command_sync()`.
 5. `_bootstrap_guild_channel_routes_from_env()` reads current route rows and tries to resolve each optional bootstrap channel ID.
@@ -534,6 +535,67 @@
 - `bot/features/status/command.py`
 - `bot/forum/state_store.py`
 - `bot/intel/instrument_registry.py`
+
+## Feature: Local model command (`/local ask`)
+
+### 4.1 Purpose
+- Allow authorized operators to send a short text prompt to a configured local OpenAI-compatible model endpoint.
+
+### 4.2 Trigger
+- Slash command `/local ask`
+
+### 4.3 Inputs
+- Config inputs:
+  - `LOCAL_MODEL_ENABLED`
+  - `LOCAL_MODEL_BASE_URL`
+  - `LOCAL_MODEL_NAME`
+  - `LOCAL_MODEL_TIMEOUT_SECONDS`
+  - `LOCAL_MODEL_MAX_PROMPT_CHARS`
+  - `LOCAL_MODEL_MAX_RESPONSE_CHARS`
+  - `LOCAL_MODEL_PUBLIC_RESPONSES`
+  - `DISCORD_GLOBAL_ADMIN_USER_IDS`
+- User inputs:
+  - `prompt`
+  - optional `public`
+- Runtime inputs:
+  - guild context
+  - guild owner/admin status or global admin allowlist membership
+
+### 4.4 Processing flow
+1. The command requires guild context.
+2. The command allows only guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`.
+3. If local model support is disabled, the command returns an ephemeral rejection.
+4. The command trims and length-checks the prompt.
+5. Public responses are rejected unless `LOCAL_MODEL_PUBLIC_RESPONSES` is true.
+6. The interaction is deferred, then the bot posts an OpenAI-compatible `chat/completions` request to `{LOCAL_MODEL_BASE_URL}/chat/completions`.
+7. The bot extracts `choices[0].message.content`, trims/truncates it, and returns it through the interaction follow-up.
+
+### 4.5 Outputs
+- Ephemeral text response by default
+- Optional public text response when both env and command option allow it
+- Logs of request result without prompt or response body
+
+### 4.6 Persistence / state interaction
+- Does not read or write runtime state.
+
+### 4.7 Error / edge handling (As-Is)
+- Disabled, no-guild, unauthorized, empty prompt, and over-length prompt cases return user-facing messages before model call.
+- Timeout and local model API/response errors are converted into user-facing failure messages after defer.
+
+### 4.8 Operational constraints
+- The bot does not start, stop, or supervise `llama-server`.
+- The configured local model endpoint must already be reachable from the bot process.
+- In Docker development, the default endpoint uses `host.docker.internal:8081` to reach the Mac host.
+- Local model server lifecycle is external to bot/server restart workflows.
+- No model-side shell, file, database, or tool execution is granted by this bot command.
+
+### 4.9 Confidence
+- Confirmed
+
+### 4.10 Evidence notes
+- `bot/features/local_model/command.py`
+- `bot/features/local_model/client.py`
+- `bot/app/settings.py`
 
 ## Feature: Scheduled news briefing posting
 
@@ -1077,6 +1139,11 @@
   - Required vs optional: optional
   - Observed usage: read in settings only; no direct runtime use was confirmed in inspected code
   - Risk if missing: no confirmed runtime effect
+- Name: `LOCAL_MODEL_ENABLED`, `LOCAL_MODEL_BASE_URL`, `LOCAL_MODEL_NAME`, `LOCAL_MODEL_TIMEOUT_SECONDS`, `LOCAL_MODEL_MAX_PROMPT_CHARS`, `LOCAL_MODEL_MAX_RESPONSE_CHARS`, `LOCAL_MODEL_PUBLIC_RESPONSES`
+  - Purpose: configure the admin-only local model slash command
+  - Required vs optional: optional; disabled by default
+  - Observed usage: `/local ask` command and OpenAI-compatible local model client
+  - Risk if missing: local model command remains disabled or uses Docker dev defaults
 
 ## Config files
 - Name: `.env`

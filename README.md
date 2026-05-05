@@ -52,6 +52,15 @@ docker compose logs -f discord-bot
 docker compose down
 ```
 
+Optional local model server for `/local ask`:
+
+```bash
+scripts/start_local_model_server.sh
+scripts/stop_local_model_server.sh
+```
+
+The helper scripts keep PID/log files under `data/logs/` and use port `8081` for the Mac host `llama-server`. They are manual helpers only; bot/server restart skills do not manage the local model server lifecycle.
+
 ## State Persistence
 
 Default runtime state uses `data/state/state.json`.
@@ -154,6 +163,8 @@ Live-only:
   - `ci-triage`
   - `docs-sync`
   - `scheduler-watch-review`
+  - `server-restart-dev`
+  - `server-restart-prod`
 - Staged Codex workflow templates and state helper live in `.codex-harness/`;
   run-specific `requirements.md`, `state.json`, and role reports are ignored
   runtime files created from tracked templates.
