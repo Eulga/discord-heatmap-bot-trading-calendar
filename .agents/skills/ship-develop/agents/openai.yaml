@@ -1,6 +1,6 @@
 interface:
   display_name: "Ship To Base Branch"
-  short_description: "Push, PR, request review, merge"
-  default_prompt: "Use $ship-develop to ship the current branch into a target base branch. Default base is develop, but if the invocation includes trailing text like `$ship-develop master`, interpret it as base=master. Then create or reuse the PR, request Codex review without waiting on the first pass, handle later fix loops, merge, and clean up the branch."
+  short_description: "Push, PR, request review, stop"
+  default_prompt: "Use $ship-develop to ship the current branch into a target base branch. Default base is develop, but if the invocation includes trailing text like `$ship-develop master`, interpret it as base=master. Then create or reuse the PR, request Codex review asynchronously, do not wait for review, and report the PR URL and current state."
 policy:
   allow_implicit_invocation: true

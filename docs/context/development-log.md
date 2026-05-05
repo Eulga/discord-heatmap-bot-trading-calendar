@@ -1,6 +1,46 @@
 # Development Log
 
 ## 2026-05-04
+- Context: PR #24 Codex review found two follow-up issues in the new `$check-pr-review` clean-merge path.
+- Change:
+1. Clean PR merges now instruct agents to call `gh pr merge <number> --squash --delete-branch --match-head-commit <headRefOid>` so a last-second unreviewed push cannot be merged after the clean-state check.
+2. Local branch cleanup now checks `git branch --list <feature-branch>` before `git branch -D`, and reports `already-gone` if GitHub CLI already deleted the local branch.
+3. `.agents/skills/check-pr-review/agents/openai.yaml` was updated to match the pinned merge and idempotent cleanup workflow.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/check-pr-review`
+2. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/check-pr-review/agents/openai.yaml').read_text()); print('yaml ok')"`
+3. `git diff --check`
+4. `.venv/bin/python scripts/run_repo_checks.py collect`
+- Status: done
+
+## 2026-05-04
+- Context: 사용자가 `$check-pr-review`에서 PR review가 clean이면 merge 후 remote/local branch 삭제까지 수행하도록 요청했다.
+- Change:
+1. `.agents/skills/check-pr-review/SKILL.md`의 clean workflow를 squash merge, remote branch deletion, base branch checkout, local feature branch deletion까지 수행하도록 확장했다.
+2. Clean merge 전에 local worktree, local HEAD와 PR head 일치, PR mergeability, required checks를 확인하고, 실패하면 `Clean - blocked`로 멈추도록 안전 조건을 추가했다.
+3. GitHub가 formal review 대신 top-level Codex clean comment로 결과를 노출하는 경우도 current-head clean review loop로 인정하는 기준을 문서화했다.
+4. `.agents/skills/check-pr-review/agents/openai.yaml`의 UI prompt를 새 merge/cleanup behavior에 맞게 갱신했다.
+- Verification:
+1. `python3 /Users/jaeik/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/check-pr-review`
+2. `python3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.agents/skills/check-pr-review/agents/openai.yaml').read_text()); print('yaml ok')"`
+3. `git diff --check`
+4. `.venv/bin/python scripts/run_repo_checks.py collect`
+- Status: done
+
+## 2026-05-04
+- Context: 사용자가 repo-local Codex 설정의 모든 명시 모델을 최신 고성능 기본값으로 고정해 달라고 요청했다.
+- Change:
+1. `.codex/config.toml`의 기본 모델을 `gpt-5.5`, reasoning effort를 `xhigh`, plan-mode reasoning effort를 `xhigh`로 올렸다.
+2. `.codex/config.toml`에 `service_tier = "fast"`를 추가해 repo 설정도 fast service tier를 명시하도록 했다.
+3. `repo_explorer`, `reviewer`, `docs_researcher`, `integration_tester` custom agent 모델을 모두 `gpt-5.5`와 `xhigh` reasoning effort로 정렬했다.
+- Verification:
+1. `.venv/bin/python -c "import pathlib, tomllib; [tomllib.loads(path.read_text()) for path in [pathlib.Path('.codex/config.toml'), *pathlib.Path('.codex/agents').glob('*.toml')]]; print('toml ok')"`
+2. `rg -n "model\\s*=|model_reasoning_effort\\s*=|plan_mode_reasoning_effort\\s*=|service_tier\\s*=" .codex .agents -g '*.*'`
+3. `.venv/bin/python scripts/run_repo_checks.py collect`
+4. `git diff --check`
+- Status: done
+
+## 2026-05-04
 - Context: 사용자가 `$codex-harness`로 PostgreSQL 도입을 요청했고, 완료 기준은 기존 Discord 게시 이후 휘발되는 데이터를 저장하는 것이었다.
 - Change:
 1. `STATE_BACKEND=file|postgres`, `DATABASE_URL`, `POSTGRES_STATE_KEY` 설정을 추가했다.

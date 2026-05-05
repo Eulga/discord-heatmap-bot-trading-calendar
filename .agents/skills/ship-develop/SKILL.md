@@ -1,6 +1,6 @@
 ---
 name: ship-develop
-description: "Ship the current branch into a target base branch with the full GitHub flow. Default base is `develop`, but a trailing skill argument like `$ship-develop master` means `--base master`. Verify repo state, run the right tests, commit if needed, push, create or reuse a PR, request Codex review, address findings until clean, and merge when safe."
+description: "Ship the current branch into a target base branch. Default base is `develop`, but a trailing skill argument like `$ship-develop master` means `--base master`. Verify repo state, run the right tests, commit if needed, push, create or reuse a PR, request Codex review asynchronously, and report the PR status without waiting for review."
 ---
 
 # Ship Develop
@@ -22,9 +22,9 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 2. Run tests or validation proportional to the change through `scripts/run_repo_checks.py`.
 3. If the tree is dirty, create the commit before shipping.
 4. Resolve the target base branch from the invocation. Default to `develop`, but if the user invoked `$ship-develop master`, use `master`.
-5. For the default first pass, run `.agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review` with the active interpreter for the current OS.
-6. If the script reports `codex-review-requested`, return the PR URL and stop. After Codex review is expected to be ready, rerun with `--wait-codex-seconds 300 --wait-seconds 600` so the script can observe the result before merge and then watch checks.
-7. If the script reports `codex-review-findings`, read the PR review comments, fix them, rerun validation, and run the same command again.
+5. Run `.agents/skills/ship-develop/scripts/ship_develop.py --base <resolved-base> --codex-review` with the active interpreter for the current OS.
+6. If the script reports `codex-review-requested`, return the PR URL and stop. Do not wait for Codex review in this skill.
+7. If a later user request asks to inspect review findings, use the PR review/comment handling workflow separately.
 8. Use `--require-review` only when the user explicitly wants human approval before merge.
 
 ## Workflow
@@ -50,7 +50,7 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
   - Codex review request and optional polling
   - human review gate inspection when requested
   - check status inspection
-  - merge when safe after Codex is clean
+  - merge when invoked without the asynchronous Codex review stop path and all gates are satisfied
   - checkout the chosen base branch and delete the local branch after a successful merge
 - Preferred command:
 
@@ -62,8 +62,8 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 ### 4. Interpret outcomes conservatively
 
 - If the script reports `codex-review-requested`, the review request was posted and the skill intentionally stopped without polling. Return the PR URL and let Codex review complete asynchronously.
-- If the script reports `codex-review-findings`, inspect the PR review comments from `chatgpt-codex-connector[bot]`, fix them locally, rerun tests, push, and rerun the same command.
-- If the script reports `codex-review-pending`, wait and rerun instead of merging blind.
+- Do not run this skill with `--wait-codex-seconds`; review follow-up belongs to a separate explicit review request.
+- If the script reports `codex-review-findings` or `codex-review-pending` because a user explicitly asked for a non-default run, stop and report the PR URL and state.
 - If checks fail, stop and summarize the failure.
 - If human review is required and the PR is not approved yet, stop after PR creation or reuse and report the PR URL.
 - If the PR has `CHANGES_REQUESTED` or merge conflicts, stop and report exactly that.
@@ -76,7 +76,7 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 - `--merge-method squash|merge|rebase`: default is `squash`
 - `--create-only`: stop after PR creation or lookup
 - `--codex-review`: comment `@codex review` on the PR; if `--wait-codex-seconds` is omitted or `0`, request the review and stop immediately
-- `--wait-codex-seconds N`: when `N > 0`, poll Codex review status for up to `N` seconds after posting the review request
+- `--wait-codex-seconds N`: available in the script, but do not use it in this skill's default workflow
 - `--require-review`: require `APPROVED` before merge
 - `--wait-review-seconds N`: optionally poll for review state before giving up
 - `--wait-seconds N`: poll checks for up to `N` seconds before deciding
@@ -91,10 +91,9 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 - `gh` may not be on `PATH` in this environment. The script already falls back to `C:\Program Files\GitHub CLI\gh.exe`.
 - This repo currently has no branch protection on `develop`, so the review gate lives in this script rather than GitHub policy.
 - Release shipping to `master` should be invoked as `$ship-develop master`, which maps to `--base master`.
-- The default practical workflow is iterative:
-  - pass 1: create or update the PR, request Codex review, and stop immediately with the PR URL
-  - middle passes: after review lands, rerun with `--wait-codex-seconds` to inspect findings, then fix findings and rerun again as needed
-  - final pass: Codex returns clean, checks are green, and the script merges
+- The default practical workflow is asynchronous:
+  - create or update the PR, request Codex review, and stop immediately with the PR URL
+  - inspect and fix review findings only when the user asks for that follow-up explicitly
 - Human approval remains an optional second gate when the user explicitly asks for it.
 - This repo currently has `delete_branch_on_merge=false`, so local cleanup is handled by the script after a successful merge.
 
@@ -102,5 +101,5 @@ For this repository, do not assume the GitHub default branch is `develop`. Verif
 
 - The branch is pushed.
 - A PR to the chosen base branch exists or was reused.
-- The merge either completed safely or stopped with a concrete reason.
+- Codex review was requested without waiting, or the script stopped with a concrete reason.
 - If merge completed, the workspace is on the chosen base branch and the local feature branch is removed unless the user asked to keep it.
