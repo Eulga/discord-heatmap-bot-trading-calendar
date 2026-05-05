@@ -1,7 +1,11 @@
+import os
+import subprocess
 from pathlib import Path
 
 from scripts import bootstrap_dev_env, dev_env_utils, run_repo_checks
 from scripts.dev_env_utils import VenvInspection
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _inspection(tmp_path: Path, status: str) -> VenvInspection:
@@ -369,3 +373,12 @@ def test_build_pytest_args_still_detects_target_after_option_value():
 
     assert "tests/unit" not in args
     assert args == ["-m", "pytest", "-q", "-m", "not live"]
+
+
+def test_local_model_server_scripts_are_executable_and_syntax_valid():
+    for script_name in ("start_local_model_server.sh", "stop_local_model_server.sh"):
+        script = PROJECT_ROOT / "scripts" / script_name
+        assert script.exists()
+        assert os.access(script, os.X_OK)
+        result = subprocess.run(["bash", "-n", str(script)], check=False, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
