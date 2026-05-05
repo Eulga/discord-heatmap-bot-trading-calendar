@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: discord-heatmap-bot-dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -20,6 +21,9 @@ services:
       POSTGRES_DB: discord_heatmap
       POSTGRES_USER: discord_heatmap
       POSTGRES_PASSWORD: discord_heatmap
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
+    command: ["postgres", "-c", "timezone=Asia/Seoul"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U discord_heatmap -d discord_heatmap"]
       interval: 5s
