@@ -18,7 +18,7 @@ from bot.app.settings import (
     OPENFIGI_API_KEY,
     TWELVEDATA_API_KEY,
 )
-from bot.forum.repository import get_job_last_runs, get_provider_statuses, load_state
+from bot.forum.state_store import get_job_last_runs, get_provider_statuses
 from bot.intel.instrument_registry import registry_status
 
 _LEGACY_PROVIDER_KEYS = {
@@ -124,23 +124,20 @@ def _merge_defaults(actual: dict[str, dict], defaults: dict[str, dict]) -> dict[
 def register(tree: app_commands.CommandTree, client) -> None:
     @tree.command(name="health", description="봇 상태 요약")
     async def health_command(interaction: discord.Interaction) -> None:
-        state = load_state()
-        runs = _merge_defaults(get_job_last_runs(state), _default_job_rows())
-        providers = _merge_defaults(get_provider_statuses(state), _default_provider_rows())
+        runs = _merge_defaults(get_job_last_runs(), _default_job_rows())
+        providers = _merge_defaults(get_provider_statuses(), _default_provider_rows())
         text = "\n".join(["[Jobs]", _fmt_dict_rows(runs), "", "[Providers]", _fmt_dict_rows(providers)])
         logger.info("[command] health requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(text, ephemeral=True)
 
     @tree.command(name="last-run", description="작업별 마지막 실행 결과")
     async def last_run_command(interaction: discord.Interaction) -> None:
-        state = load_state()
-        runs = _merge_defaults(get_job_last_runs(state), _default_job_rows())
+        runs = _merge_defaults(get_job_last_runs(), _default_job_rows())
         logger.info("[command] last-run requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(_fmt_dict_rows(runs), ephemeral=True)
 
     @tree.command(name="source-status", description="데이터 소스 상태 조회")
     async def source_status_command(interaction: discord.Interaction) -> None:
-        state = load_state()
-        providers = _merge_defaults(get_provider_statuses(state), _default_provider_rows())
+        providers = _merge_defaults(get_provider_statuses(), _default_provider_rows())
         logger.info("[command] source-status requested guild=%s user=%s", interaction.guild_id, _interaction_user_id(interaction))
         await interaction.response.send_message(_fmt_dict_rows(providers), ephemeral=True)

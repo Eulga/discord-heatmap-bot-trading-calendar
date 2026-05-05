@@ -6,11 +6,12 @@ from bot.app.types import AppState
 from bot.common.clock import date_key
 from bot.common.errors import ForumChannelTypeError
 from bot.forum.repository import get_daily_posts_for_guild
+from bot.forum import state_store
 
 
 async def upsert_daily_post(
     client: discord.Client,
-    state: AppState,
+    state: AppState | None,
     guild_id: int,
     forum_channel_id: int,
     command_key: str,
@@ -26,9 +27,9 @@ async def upsert_daily_post(
     if not isinstance(channel, discord.ForumChannel):
         raise ForumChannelTypeError(f"Channel {forum_channel_id} is not a ForumChannel.")
 
-    daily_posts = get_daily_posts_for_guild(state, command_key, guild_id)
     today = date_key()
-    record = daily_posts.get(today, {})
+    daily_posts = get_daily_posts_for_guild(state, command_key, guild_id) if state is not None else None
+    record = daily_posts.get(today, {}) if daily_posts is not None else (state_store.get_daily_post_record(command_key, guild_id, today) or {})
 
     thread_id = record.get("thread_id")
     starter_message_id = record.get("starter_message_id")
@@ -70,13 +71,23 @@ async def upsert_daily_post(
     persisted_content_ids = list(content_message_ids)
 
     def persist_record(current_content_ids: list[int]) -> None:
-        daily_posts[today] = {
-            "thread_id": thread.id,
-            "starter_message_id": message.id,
-        }
         cleaned_ids = [content_id for content_id in current_content_ids if isinstance(content_id, int)]
-        if cleaned_ids:
-            daily_posts[today]["content_message_ids"] = cleaned_ids
+        if daily_posts is not None:
+            daily_posts[today] = {
+                "thread_id": thread.id,
+                "starter_message_id": message.id,
+            }
+            if cleaned_ids:
+                daily_posts[today]["content_message_ids"] = cleaned_ids
+            return
+        state_store.upsert_daily_post_record(
+            command_key,
+            guild_id,
+            today,
+            thread.id,
+            message.id,
+            cleaned_ids,
+        )
 
     # Persist the thread as soon as the starter message is available so retries reuse
     # the existing daily thread even if syncing follow-up content fails midway.

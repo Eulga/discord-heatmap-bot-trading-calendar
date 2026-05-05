@@ -23,27 +23,25 @@ def test_format_command_sync_error_mentions_token_for_auth_errors():
 
 
 def test_record_command_sync_persists_job_result(monkeypatch):
-    state = {"commands": {}, "guilds": {}}
-    saved: dict[str, object] = {}
+    saved: dict[str, str] = {}
 
-    monkeypatch.setattr(command_sync, "load_state", lambda: state)
-    monkeypatch.setattr(command_sync, "save_state", lambda payload: saved.setdefault("state", payload))
+    def set_job_last_run(job_key: str, status: str, detail: str) -> None:
+        saved["job_key"] = job_key
+        saved["status"] = status
+        saved["detail"] = detail
+
+    monkeypatch.setattr(command_sync, "set_job_last_run", set_job_last_run)
 
     command_sync.record_command_sync("ok", "3 commands synced")
 
-    job = saved["state"]["system"]["job_last_runs"]["command-sync"]
-    assert job["status"] == "ok"
-    assert job["detail"] == "3 commands synced"
-    assert "run_at" in job
+    assert saved == {"job_key": "command-sync", "status": "ok", "detail": "3 commands synced"}
 
 
 def test_record_command_sync_fails_open_when_state_write_breaks(monkeypatch, caplog):
-    monkeypatch.setattr(command_sync, "load_state", lambda: {"commands": {}, "guilds": {}})
-
-    def boom(_payload):
+    def boom(_job_key: str, _status: str, _detail: str) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(command_sync, "save_state", boom)
+    monkeypatch.setattr(command_sync, "set_job_last_run", boom)
 
     with caplog.at_level("WARNING"):
         command_sync.record_command_sync("failed", "sync failed")

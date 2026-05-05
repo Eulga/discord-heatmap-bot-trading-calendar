@@ -6,19 +6,24 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from bot.app.types import AppState
 from bot.common.clock import now_kst
 from bot.forum.repository import get_command_state
+from bot.forum import state_store
 from bot.markets.cache import is_cache_valid
 
 CaptureFunc = Callable[[str, str], Awaitable[Path]]
 
 
 async def get_or_capture_images(
-    state: AppState,
+    state: AppState | None,
     command_key: str,
     targets: dict[str, str],
     capture_func: CaptureFunc,
 ) -> tuple[list[Path], list[str], dict[str, str]]:
-    command_state = get_command_state(state, command_key)
-    last_images = command_state["last_images"]
+    if state is None:
+        command_state = None
+        last_images = state_store.get_command_image_cache(command_key)
+    else:
+        command_state = get_command_state(state, command_key)
+        last_images = command_state["last_images"]
 
     successful_paths: list[Path] = []
     failed: list[str] = []
@@ -41,10 +46,20 @@ async def get_or_capture_images(
             captured_path = await capture_func(url=url, market_label=market_label)
             successful_paths.append(captured_path)
             source_map[market_label] = "captured"
-            last_images[market_label] = {
-                "path": str(captured_path),
-                "captured_at": now_kst().isoformat(),
-            }
+            captured_at = now_kst().isoformat()
+            if command_state is None:
+                state_store.upsert_command_image_cache(
+                    command_key,
+                    market_label,
+                    str(captured_path),
+                    captured_at,
+                    last_run_at=now.isoformat(),
+                )
+            else:
+                last_images[market_label] = {
+                    "path": str(captured_path),
+                    "captured_at": captured_at,
+                }
         except PlaywrightTimeoutError:
             failed.append(f"{market_label}: timed out while rendering")
         except Exception as exc:
@@ -53,5 +68,6 @@ async def get_or_capture_images(
                 message = "Chromium is not installed. Run: python -m playwright install chromium"
             failed.append(f"{market_label}: {message or 'unknown error'}")
 
-    command_state["last_run_at"] = now_kst().isoformat()
+    if command_state is not None:
+        command_state["last_run_at"] = now_kst().isoformat()
     return successful_paths, failed, source_map

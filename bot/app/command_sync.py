@@ -3,7 +3,7 @@ import logging
 import discord
 from discord import app_commands
 
-from bot.forum.repository import load_state, save_state, set_job_last_run
+from bot.forum.state_store import set_job_last_run
 
 
 logger = logging.getLogger(__name__)
@@ -15,9 +15,7 @@ def _compact_exception_text(exc: Exception) -> str:
 
 def record_command_sync(status: str, detail: str) -> None:
     try:
-        state = load_state()
-        set_job_last_run(state, "command-sync", status, detail)
-        save_state(state)
+        set_job_last_run("command-sync", status, detail)
     except Exception as exc:
         logger.warning("[command-sync] 상태 저장 실패: %s", _compact_exception_text(exc))
 

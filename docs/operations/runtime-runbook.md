@@ -17,6 +17,8 @@
 - Prepare configuration:
   - copy `.env.example` to `.env`
   - set the bot token and any feature-specific credentials you actually need
+  - set `STATE_BACKEND=postgres` or `postgresql`
+  - set `DATABASE_URL` to a PostgreSQL database reachable from the process
 - Start the bot:
   - `python -m bot.main`
 
@@ -45,10 +47,18 @@
   - set `STATE_BACKEND=postgres`
   - set `DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap`
   - run `docker compose up -d --build`
+- Infra/checks-only startup without live Discord connection:
+  - `docker compose up -d postgres`
+  - `docker compose exec postgres pg_isready -U discord_heatmap -d discord_heatmap`
+  - `docker compose run --rm -v "$PWD:/app" discord-bot python -c "from bot.forum.state_store import ensure_schema_and_migrate; ensure_schema_and_migrate(); print('state_migration_ok')"`
 - View logs:
   - `docker compose logs -f discord-bot`
 - View PostgreSQL logs:
   - `docker compose logs -f postgres`
+- View PostgreSQL with GUI:
+  - `docker compose up -d adminer`
+  - open `http://127.0.0.1:8080`
+  - use system `PostgreSQL`, server `postgres`, username/password/database from `docker-compose.yml`
 - Stop:
   - `docker compose down`
 - Docker-specific note:
@@ -57,17 +67,17 @@
   - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 
 ## State Backend
-- Default state backend:
-  - `STATE_BACKEND=file`
-  - runtime state is `data/state/state.json`
-- PostgreSQL state backend:
-  - `STATE_BACKEND=postgres`
+- Current runtime state backend:
+  - `STATE_BACKEND=postgres` or `postgresql`
   - `DATABASE_URL` is required
-  - `POSTGRES_STATE_KEY` defaults to `default`
-  - the bot creates table `bot_app_state` on first use
-  - the full app-state document is stored in `state JSONB`
-  - when no database row exists, first load seeds from `data/state/state.json` if present
-- PostgreSQL failures are fail-closed. If the backend is selected and the database is unavailable, the bot raises instead of silently replacing state with an empty document.
+  - `POSTGRES_STATE_KEY` defaults to `default` and namespaces split rows
+- Startup creates/migrates PostgreSQL tables before the Discord client is created.
+- Runtime reads/writes split domain tables for guild routes, scheduler markers, daily posts, image cache, watch state, job/provider status, and news dedup.
+- Legacy backup/import behavior:
+  - `bot_app_state.state` keeps the old full JSONB document for rollback/audit.
+  - if that row is absent, `data/state/state.json` can be imported once during `split_state_v1`.
+  - runtime does not sync split rows back into `bot_app_state`.
+- PostgreSQL failures are fail-closed. If the database is unavailable, the bot raises instead of silently replacing state with an empty document.
 
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
@@ -86,10 +96,9 @@
   - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 
 ## Logs and State Paths
-- Main mutable state, file backend:
-  - `data/state/state.json`
 - Main mutable state, PostgreSQL backend:
-  - `bot_app_state.state` JSONB row identified by `POSTGRES_STATE_KEY`
+  - split `bot_*` domain tables identified by `POSTGRES_STATE_KEY`
+  - `bot_app_state.state` is legacy backup/import source only
 - Optional runtime registry override:
   - `data/state/instrument_registry.json`
 - Runtime logs:
@@ -119,14 +128,14 @@
   - inspect `data/logs/bot.log` and the configured app-state backend
 - Watch thread behavior looks wrong:
   - verify `watch_forum_channel_id` exists in the configured app-state backend
-  - check `commands.watchpoll.symbol_threads_by_guild` and `system.watch_session_alerts`
+  - check `bot_watch_symbols` and `bot_watch_session_alerts`
   - confirm the bot can create forum threads and send/edit thread comments in the configured watch forum
 - Render or capture problems:
   - retry after cached artifacts expire or are intentionally refreshed
   - verify Playwright/browser setup
 - Unexpected scheduler behavior:
-  - inspect latest run state via status commands or `data/state/state.json`
-  - when using PostgreSQL, inspect `bot_app_state` for the selected `POSTGRES_STATE_KEY`
+  - inspect latest run state via status commands or `bot_job_status`
+  - inspect per-guild scheduler markers in `bot_guild_job_markers`
   - check whether multiple bot instances are running
   - use `../specs/as-is-functional-spec.md` as the current deep reference for exact scheduler semantics
 

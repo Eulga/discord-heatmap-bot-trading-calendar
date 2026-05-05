@@ -11,12 +11,12 @@ from bot.app.settings import (
     NEWS_TARGET_FORUM_ID,
 )
 from bot.common.logging import setup_logging
-from bot.forum.repository import (
+from bot.forum.state_store import (
+    ensure_schema_and_migrate,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
     get_guild_news_forum_channel_id,
-    load_state,
-    save_state,
+    list_legacy_watch_route_migrations_needed,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
     set_guild_news_forum_channel_id,
@@ -43,8 +43,6 @@ async def _fetch_channel(client: discord.Client, channel_id: int) -> discord.abc
 
 
 async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> None:
-    state = load_state()
-    changed = False
     specs = [
         (
             DEFAULT_FORUM_CHANNEL_ID,
@@ -89,29 +87,14 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
         if not isinstance(guild_id, int):
             logger.warning("[startup] ignored %s because channel %s has no guild context", env_name, channel_id)
             continue
-        if getter(state, guild_id) is not None:
+        if getter(guild_id) is not None:
             continue
-        setter(state, guild_id, channel_id)
-        changed = True
+        setter(guild_id, channel_id)
         logger.info("[startup] bootstrapped %s into state for guild=%s channel=%s", env_name, guild_id, channel_id)
-
-    if changed:
-        save_state(state)
 
 
 def _warn_legacy_watch_route_migration_needed() -> None:
-    state = load_state()
-    guilds = state.get("guilds", {})
-    if not isinstance(guilds, dict):
-        return
-
-    for guild_id, guild_cfg in guilds.items():
-        if not isinstance(guild_cfg, dict):
-            continue
-        watch_forum_channel_id = guild_cfg.get("watch_forum_channel_id")
-        legacy_watch_channel_id = guild_cfg.get("watch_alert_channel_id")
-        if isinstance(watch_forum_channel_id, int) or not isinstance(legacy_watch_channel_id, int):
-            continue
+    for guild_id, legacy_watch_channel_id in list_legacy_watch_route_migrations_needed():
         logger.warning(
             "[startup] watch route migration required guild=%s legacy_watch_alert_channel_id=%s detail=/setwatchforum-required",
             guild_id,
@@ -173,4 +156,5 @@ class BotApp:
 
 def create_bot_app() -> BotApp:
     setup_logging()
+    ensure_schema_and_migrate()
     return BotApp()

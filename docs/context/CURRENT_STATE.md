@@ -24,9 +24,11 @@
 
 ## Current System Snapshot
 - The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news, trend, watch-poll, and instrument-registry-refresh flows.
-- Per-guild mutable routing and runtime state use a selectable app-state backend:
-  - default `STATE_BACKEND=file` stores `data/state/state.json`
-  - `STATE_BACKEND=postgres` stores the same app-state document in PostgreSQL table `bot_app_state` as JSONB
+- Per-guild mutable routing and runtime state now use the PostgreSQL split-state store at runtime.
+  - `STATE_BACKEND=postgres` or `postgresql` and `DATABASE_URL` are required for bot startup.
+  - `POSTGRES_STATE_KEY` namespaces all split rows.
+  - The legacy `bot_app_state.state JSONB` row is preserved as a migration/rollback backup, not sync-written by runtime paths.
+  - `data/state/state.json` is a one-time import fallback only when no legacy PostgreSQL row exists during `split_state_v1` migration.
 - `watch_poll` is now code-confirmed as a session-aware forum-thread flow:
   - route source of truth is `watch_forum_channel_id`
   - `/setwatchforum` configures the route
@@ -57,14 +59,15 @@
   - GitHub PR checks now inject placeholder `DISCORD_BOT_TOKEN` so import-time settings validation does not break non-live collect/unit/integration jobs
   - local bootstrap currently requires Python `3.10+`; Docker remains the fallback when only older system Python is available
   - current macOS host now has Homebrew `python3.11`, and `.venv` has been rebuilt successfully against `3.11.15`
-- PostgreSQL app-state persistence is now available as an opt-in backend for preserving Discord route/thread/message IDs and scheduler/watch checkpoints beyond the local JSON state file, with version-based stale-write conflict detection.
+- PostgreSQL split-state persistence is now the runtime backend for Discord route/thread/message IDs and scheduler/watch checkpoints.
 
 ## Code-Confirmed Current Behavior Concerns
-- State reads can fail open and later be saved back as authoritative empty state.
-- State writes are not visibly serialized across commands, schedulers, and startup paths.
-- PostgreSQL backend failures are intended to fail closed, and loaded PostgreSQL state saves now use a `version` optimistic lock so stale writers fail instead of silently overwriting newer row state.
-- PostgreSQL still stores the whole `AppState` document as one JSONB row; conflicts are not auto-merged and writes are not leased or serialized.
-- Heatmap, news, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
+- PostgreSQL backend failures are intended to fail closed at startup and repository access time.
+- Runtime paths now write domain rows instead of rewriting one full `AppState` JSON document, reducing state lost-update risk for independent route, daily-post, scheduler/status, and watch updates.
+- Same-row watch alert updates use row-level/compound repository operations where current behavior needs merge-like semantics.
+- The implementation still does not include distributed scheduler leases or a Discord side-effect outbox, so duplicate bot instances can still duplicate external side effects.
+- Heatmap auto screenshot uses same-day catch-up after its fixed KST schedule: `kheatmap` after 16:00 and `usheatmap` after 07:00, once per guild/job/date.
+- News and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
 - The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`, so watch forum migration is still an active rollout concern.
@@ -96,5 +99,6 @@
   - `../../.github/workflows/pr-checks.yml`
   - `../../.codex-harness/README.md`
   - `../../bot/forum/repository.py`
+  - `../../bot/forum/state_store.py`
   - `../../tests/unit/test_state_atomic.py`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.

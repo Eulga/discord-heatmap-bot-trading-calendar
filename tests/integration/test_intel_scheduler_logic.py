@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.features import intel_scheduler
+from tests.state_store_adapter import patch_legacy_state_store
 from bot.intel.instrument_registry import InstrumentRecord, InstrumentRegistry, ProviderIds
 from bot.intel.providers.market import EodRow, EodSummary
 from bot.intel.providers.news import NewsAnalysis, NewsItem, ThemeBrief, TrendThemeReport
@@ -79,8 +80,7 @@ async def test_news_job_records_provider_failure(monkeypatch):
         async def fetch(self, now):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", FailingProvider())
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -94,8 +94,7 @@ async def test_news_job_records_provider_failure(monkeypatch):
 async def test_eod_job_skips_non_trading_day(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
 
     now = datetime(2026, 2, 14, 16, 20, tzinfo=KST)
@@ -113,8 +112,7 @@ async def test_news_job_skips_when_no_target_forum(monkeypatch):
             called["fetch"] += 1
             return []
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -136,8 +134,7 @@ async def test_news_job_skips_when_only_base_forum_is_configured(monkeypatch):
             called["fetch"] += 1
             return []
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -161,8 +158,7 @@ async def test_news_job_skips_explicit_news_forum_from_other_guild(monkeypatch):
             return []
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -186,8 +182,7 @@ async def test_news_job_fails_when_forum_resolution_api_errors(monkeypatch):
             return []
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
 
     now = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
@@ -210,8 +205,7 @@ async def test_news_job_skips_holiday_before_forum_resolution_errors(monkeypatch
             called["fetch"] += 1
             return []
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_TRADING_DAYS_ONLY", True)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
@@ -264,8 +258,7 @@ async def test_news_job_continues_after_one_forum_resolution_api_error(monkeypat
         return None
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -303,8 +296,7 @@ async def test_news_job_retries_same_items_after_post_failure(monkeypatch):
     async def ok_post(**kwargs):
         captured[kwargs["command_key"]] = kwargs["body_text"]
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fail_post)
 
@@ -342,8 +334,7 @@ async def test_news_job_keeps_ok_status_when_later_tick_has_only_missing_forums(
     async def ok_post(**kwargs):
         return None
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -382,8 +373,7 @@ async def test_news_job_posts_only_for_guilds_with_explicit_news_route(monkeypat
     async def ok_post(**kwargs):
         calls.append((kwargs["guild_id"], kwargs["command_key"]))
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -432,8 +422,7 @@ async def test_news_job_uses_configured_limit_per_region(monkeypatch):
     async def ok_post(**kwargs):
         captured[kwargs["command_key"]] = kwargs["body_text"]
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
     monkeypatch.setattr(intel_scheduler, "NAVER_NEWS_LIMIT_PER_REGION", 20)
@@ -482,8 +471,7 @@ async def test_news_job_dedups_same_story_across_regions(monkeypatch):
     async def ok_post(**kwargs):
         captured[kwargs["command_key"]] = kwargs["body_text"]
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -510,8 +498,7 @@ async def test_news_job_posts_domestic_and_global_threads_separately(monkeypatch
     async def ok_post(**kwargs):
         calls.append((kwargs["command_key"], kwargs["post_title"], kwargs["body_text"]))
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -547,8 +534,7 @@ async def test_news_job_marks_failed_when_any_guild_post_fails(monkeypatch):
             raise RuntimeError("forum write failed")
         return None
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
 
@@ -596,8 +582,7 @@ async def test_news_job_posts_trendbriefing_with_content_messages(monkeypatch):
     async def ok_post(**kwargs):
         calls.append(kwargs)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -657,8 +642,7 @@ async def test_news_job_marks_trend_failed_when_any_guild_trend_post_fails(monke
             raise RuntimeError("trend write failed")
         return None
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
 
@@ -703,8 +687,7 @@ async def test_news_job_skips_trendbriefing_when_both_regions_are_below_minimum(
     async def ok_post(**kwargs):
         calls.append(kwargs)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -748,8 +731,7 @@ async def test_news_job_uses_placeholder_for_region_below_minimum_when_other_reg
     async def ok_post(**kwargs):
         calls.append(kwargs)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "news_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
 
@@ -780,8 +762,7 @@ async def test_eod_job_marks_failed_when_all_posts_fail(monkeypatch):
     async def fail_post(**kwargs):
         raise RuntimeError("forum write failed")
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fail_post)
@@ -820,8 +801,7 @@ async def test_eod_job_marks_failed_when_any_guild_post_fails(monkeypatch):
             raise RuntimeError("forum write failed")
         return None
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", flaky_post)
@@ -860,8 +840,7 @@ async def test_eod_job_keeps_ok_status_when_later_tick_has_only_missing_forums(m
     async def ok_post(**kwargs):
         return None
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
@@ -897,8 +876,7 @@ async def test_eod_job_skips_global_fallback_forum_from_other_guild(monkeypatch)
             )
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
 
@@ -929,8 +907,7 @@ async def test_eod_job_fails_when_forum_resolution_api_errors(monkeypatch):
             )
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
 
@@ -960,8 +937,7 @@ async def test_eod_job_skips_holiday_before_forum_resolution_errors(monkeypatch)
                 top_turnover=[EodRow("005930", "삼성전자", 4.2, 1300.5)],
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (False, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
 
@@ -999,8 +975,7 @@ async def test_eod_job_continues_after_one_forum_resolution_api_error(monkeypatc
         return None
 
     monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", FakeForumChannel)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "safe_check_krx_trading_day", lambda now: (True, None))
     monkeypatch.setattr(intel_scheduler, "eod_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", ok_post)
@@ -1087,8 +1062,7 @@ async def test_instrument_registry_refresh_records_success_and_runtime_source(mo
         metadata={"active_source": "runtime"},
     )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "load_registry", lambda: previous_registry)
     monkeypatch.setattr(intel_scheduler, "build_live_registry", lambda dart_api_key: refreshed_registry)
     monkeypatch.setattr(intel_scheduler, "DART_API_KEY", "dart-key")
@@ -1132,8 +1106,7 @@ async def test_instrument_registry_refresh_keeps_active_registry_when_rebuild_fa
         metadata={"active_source": "bundled"},
     )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "load_registry", lambda: active_registry)
     monkeypatch.setattr(
         intel_scheduler,
@@ -1182,9 +1155,9 @@ def test_should_start_instrument_registry_refresh_retries_after_failed_same_day(
             }
         }
     }
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
 
     should_run = intel_scheduler._should_start_instrument_registry_refresh(
-        state,
         now,
         refresh_hour=6,
         refresh_minute=20,
@@ -1194,8 +1167,9 @@ def test_should_start_instrument_registry_refresh_retries_after_failed_same_day(
 
 
 def test_should_start_instrument_registry_refresh_catches_up_after_late_start(monkeypatch):
+    patch_legacy_state_store(monkeypatch, intel_scheduler, {"system": {"job_last_runs": {}}})
+
     should_run = intel_scheduler._should_start_instrument_registry_refresh(
-        {"system": {"job_last_runs": {}}},
         datetime(2026, 2, 13, 6, 21, tzinfo=KST),
         refresh_hour=6,
         refresh_minute=20,
@@ -1217,15 +1191,14 @@ def test_should_start_instrument_registry_refresh_does_not_retry_same_minute_or_
             }
         }
     }
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
 
     should_run_same_minute = intel_scheduler._should_start_instrument_registry_refresh(
-        state,
         same_minute,
         refresh_hour=6,
         refresh_minute=20,
     )
     should_run_missing_key_later = intel_scheduler._should_start_instrument_registry_refresh(
-        state,
         datetime(2026, 2, 13, 6, 21, tzinfo=KST),
         refresh_hour=6,
         refresh_minute=20,
@@ -1235,9 +1208,10 @@ def test_should_start_instrument_registry_refresh_does_not_retry_same_minute_or_
     assert should_run_missing_key_later is False
 
 
-def test_should_run_daily_job_catches_up_after_late_start():
+def test_should_run_daily_job_catches_up_after_late_start(monkeypatch):
+    patch_legacy_state_store(monkeypatch, intel_scheduler, {"system": {"job_last_runs": {}}})
+
     should_run = intel_scheduler._should_run_daily_job(
-        {"system": {"job_last_runs": {}}},
         datetime(2026, 2, 13, 7, 31, tzinfo=KST),
         job_key="news_briefing",
         scheduled_hour=7,
@@ -1247,7 +1221,7 @@ def test_should_run_daily_job_catches_up_after_late_start():
     assert should_run is True
 
 
-def test_should_run_daily_job_skips_before_time_and_after_same_day_attempt():
+def test_should_run_daily_job_skips_before_time_and_after_same_day_attempt(monkeypatch):
     state = {
         "system": {
             "job_last_runs": {
@@ -1259,16 +1233,16 @@ def test_should_run_daily_job_skips_before_time_and_after_same_day_attempt():
             }
         }
     }
+    patch_legacy_state_store(monkeypatch, intel_scheduler, {"system": {"job_last_runs": {}}})
 
     should_run_before_time = intel_scheduler._should_run_daily_job(
-        {"system": {"job_last_runs": {}}},
         datetime(2026, 2, 13, 7, 29, tzinfo=KST),
         job_key="news_briefing",
         scheduled_hour=7,
         scheduled_minute=30,
     )
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     should_run_after_attempt = intel_scheduler._should_run_daily_job(
-        state,
         datetime(2026, 2, 13, 7, 45, tzinfo=KST),
         job_key="news_briefing",
         scheduled_hour=7,
@@ -1303,7 +1277,7 @@ async def test_intel_scheduler_runs_registry_refresh_once_at_configured_time(mon
     monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
     monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
 
@@ -1348,8 +1322,7 @@ async def test_intel_scheduler_does_not_restart_registry_refresh_after_same_day_
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
     monkeypatch.setattr("bot.common.clock.now_kst", lambda: now)
-    monkeypatch.setattr(intel_scheduler, "load_state", fake_load_state)
-    monkeypatch.setattr(intel_scheduler, "save_state", fake_save_state)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, fake_load_state, fake_save_state)
     monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
     monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
 
@@ -1383,7 +1356,7 @@ async def test_intel_scheduler_catches_up_news_job_after_late_start(monkeypatch)
     monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "_run_news_job", fake_news_job)
     monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
 
@@ -1416,7 +1389,7 @@ async def test_intel_scheduler_catches_up_eod_job_after_late_start(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_TIME", "16:20")
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "_run_eod_job", fake_eod_job)
     monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
 
@@ -1461,7 +1434,7 @@ async def test_intel_scheduler_keeps_watch_poll_running_while_registry_refresh_i
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_INTERVAL_SECONDS", 60)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "_refresh_instrument_registry", fake_refresh)
     monkeypatch.setattr(intel_scheduler, "_run_watch_poll", fake_watch_poll)
     monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)

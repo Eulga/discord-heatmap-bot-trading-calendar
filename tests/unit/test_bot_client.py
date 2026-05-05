@@ -22,17 +22,39 @@ class FakeClient:
         return self._channels_by_id.get(channel_id)
 
 
+def _patch_route_state(monkeypatch, state: dict, calls: list[tuple[str, int, int]]) -> None:
+    def getter(key: str):
+        def _get(guild_id: int) -> int | None:
+            value = state.setdefault("guilds", {}).get(str(guild_id), {}).get(key)
+            return value if isinstance(value, int) else None
+
+        return _get
+
+    def setter(key: str):
+        def _set(guild_id: int, channel_id: int) -> None:
+            state.setdefault("guilds", {}).setdefault(str(guild_id), {})[key] = channel_id
+            calls.append((key, guild_id, channel_id))
+
+        return _set
+
+    monkeypatch.setattr(bot_client, "get_guild_forum_channel_id", getter("forum_channel_id"))
+    monkeypatch.setattr(bot_client, "get_guild_news_forum_channel_id", getter("news_forum_channel_id"))
+    monkeypatch.setattr(bot_client, "get_guild_eod_forum_channel_id", getter("eod_forum_channel_id"))
+    monkeypatch.setattr(bot_client, "set_guild_forum_channel_id", setter("forum_channel_id"))
+    monkeypatch.setattr(bot_client, "set_guild_news_forum_channel_id", setter("news_forum_channel_id"))
+    monkeypatch.setattr(bot_client, "set_guild_eod_forum_channel_id", setter("eod_forum_channel_id"))
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_guild_channel_routes_from_env_persists_missing_state(monkeypatch):
     state = {"commands": {}, "guilds": {}}
-    saves = {"count": 0}
+    calls: list[tuple[str, int, int]] = []
 
     monkeypatch.setattr(bot_client.discord, "ForumChannel", FakeForumChannel)
     monkeypatch.setattr(bot_client, "DEFAULT_FORUM_CHANNEL_ID", 101)
     monkeypatch.setattr(bot_client, "NEWS_TARGET_FORUM_ID", 102)
     monkeypatch.setattr(bot_client, "EOD_TARGET_FORUM_ID", 103)
-    monkeypatch.setattr(bot_client, "load_state", lambda: state)
-    monkeypatch.setattr(bot_client, "save_state", lambda _state: saves.__setitem__("count", saves["count"] + 1))
+    _patch_route_state(monkeypatch, state, calls)
 
     client = FakeClient(
         {
@@ -48,7 +70,11 @@ async def test_bootstrap_guild_channel_routes_from_env_persists_missing_state(mo
     assert guild["forum_channel_id"] == 101
     assert guild["news_forum_channel_id"] == 102
     assert guild["eod_forum_channel_id"] == 103
-    assert saves["count"] == 1
+    assert calls == [
+        ("forum_channel_id", 1, 101),
+        ("news_forum_channel_id", 1, 102),
+        ("eod_forum_channel_id", 1, 103),
+    ]
 
 
 @pytest.mark.asyncio
@@ -63,14 +89,13 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
             }
         },
     }
-    saves = {"count": 0}
+    calls: list[tuple[str, int, int]] = []
 
     monkeypatch.setattr(bot_client.discord, "ForumChannel", FakeForumChannel)
     monkeypatch.setattr(bot_client, "DEFAULT_FORUM_CHANNEL_ID", 101)
     monkeypatch.setattr(bot_client, "NEWS_TARGET_FORUM_ID", 102)
     monkeypatch.setattr(bot_client, "EOD_TARGET_FORUM_ID", 103)
-    monkeypatch.setattr(bot_client, "load_state", lambda: state)
-    monkeypatch.setattr(bot_client, "save_state", lambda _state: saves.__setitem__("count", saves["count"] + 1))
+    _patch_route_state(monkeypatch, state, calls)
 
     client = FakeClient(
         {
@@ -86,19 +111,11 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
     assert guild["forum_channel_id"] == 201
     assert guild["news_forum_channel_id"] == 202
     assert guild["eod_forum_channel_id"] == 203
-    assert saves["count"] == 0
+    assert calls == []
 
 
 def test_warn_legacy_watch_route_migration_needed_logs_missing_watch_forum(caplog, monkeypatch):
-    state = {
-        "commands": {},
-        "guilds": {
-            "1": {"watch_alert_channel_id": 460011902043553792},
-            "2": {"watch_alert_channel_id": 123, "watch_forum_channel_id": 456},
-        },
-    }
-
-    monkeypatch.setattr(bot_client, "load_state", lambda: state)
+    monkeypatch.setattr(bot_client, "list_legacy_watch_route_migrations_needed", lambda: [(1, 460011902043553792)])
 
     with caplog.at_level("WARNING"):
         bot_client._warn_legacy_watch_route_migration_needed()

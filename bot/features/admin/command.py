@@ -4,10 +4,8 @@ import discord
 from discord import app_commands
 
 from bot.app.settings import DISCORD_GLOBAL_ADMIN_USER_IDS
-from bot.forum.repository import (
+from bot.forum.state_store import (
     get_guild_watch_forum_channel_id,
-    load_state,
-    save_state,
     set_guild_auto_screenshot_enabled,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
@@ -62,9 +60,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
             return
 
-        state = load_state()
-        set_guild_forum_channel_id(state, guild.id, forum_channel.id)
-        save_state(state)
+        set_guild_forum_channel_id(guild.id, forum_channel.id)
         logger.info("[command] setforumchannel result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"기본 포럼 채널을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
@@ -88,9 +84,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
             return
-        state = load_state()
-        set_guild_news_forum_channel_id(state, guild.id, forum_channel.id)
-        save_state(state)
+        set_guild_news_forum_channel_id(guild.id, forum_channel.id)
         logger.info("[command] setnewsforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"뉴스 브리핑 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
@@ -114,9 +108,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
             return
-        state = load_state()
-        set_guild_eod_forum_channel_id(state, guild.id, forum_channel.id)
-        save_state(state)
+        set_guild_eod_forum_channel_id(guild.id, forum_channel.id)
         logger.info("[command] seteodforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"장마감 요약 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
@@ -140,13 +132,11 @@ def register(tree: app_commands.CommandTree, client) -> None:
             )
             await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
             return
-        state = load_state()
-        existing = get_guild_watch_forum_channel_id(state, guild.id)
+        existing = get_guild_watch_forum_channel_id(guild.id)
         if existing == forum_channel.id:
             await interaction.response.send_message(f"watch 포럼은 이미 <#{forum_channel.id}> 로 설정되어 있습니다.", ephemeral=True)
             return
-        set_guild_watch_forum_channel_id(state, guild.id, forum_channel.id)
-        save_state(state)
+        set_guild_watch_forum_channel_id(guild.id, forum_channel.id)
         logger.info("[command] setwatchforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"watch 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
@@ -167,9 +157,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             return
 
         enabled = mode.value == "on"
-        state = load_state()
-        set_guild_auto_screenshot_enabled(state, guild.id, enabled)
-        save_state(state)
+        set_guild_auto_screenshot_enabled(guild.id, enabled)
         logger.info(
             "[command] autoscreenshot result=ok guild=%s user=%s enabled=%s",
             guild.id,
@@ -177,7 +165,7 @@ def register(tree: app_commands.CommandTree, client) -> None:
             enabled,
         )
         text = (
-            "자동스크린샷을 켰습니다. KST 기준으로 15:35 `kheatmap`, 06:05 `usheatmap` 자동 실행됩니다."
+            "자동스크린샷을 켰습니다. KST 기준으로 16:00 `kheatmap`, 07:00 `usheatmap` 자동 실행됩니다."
             if enabled
             else "자동스크린샷을 껐습니다."
         )

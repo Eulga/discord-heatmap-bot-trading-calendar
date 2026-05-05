@@ -1,6 +1,27 @@
 # Development Log
 
 ## 2026-05-05
+- Context: 사용자가 PostgreSQL state를 도메인 row로 분해하고 runtime full-document write 경로를 제거해 달라고 요청했다.
+- Change:
+1. `bot/forum/state_store.py`를 추가해 `POSTGRES_STATE_KEY` namespace별 split schema, `split_state_v1` migration, legacy JSON import, and granular repository APIs를 구현했다.
+2. Startup, command sync, admin/status commands, heatmap runner/cache/forum upsert, auto/news/EOD/watch schedulers, and watch commands now use split-state APIs instead of runtime `load_state()` / `save_state()`.
+3. Legacy `bot_app_state.state JSONB` row is preserved as migration/rollback backup; runtime no longer syncs split rows back into that JSON row.
+4. Watch delete and alert/session updates now go through compound/row-level repository operations instead of full document rewrites.
+5. Tests gained a split-state mapper unit test and a test-only adapter so existing fake Discord integration flows validate behavior without reintroducing runtime full-document state writes.
+6. Canonical docs now describe PostgreSQL-only runtime state, split tables, migration behavior, and the remaining distributed lease/outbox risk.
+- Verification:
+1. `python3 scripts/run_repo_checks.py unit`
+2. `python3 scripts/run_repo_checks.py integration`
+3. `python3 scripts/run_repo_checks.py collect`
+4. `docker compose config --quiet`
+5. `docker compose up -d postgres`
+6. `docker compose exec postgres pg_isready -U discord_heatmap -d discord_heatmap`
+7. `docker compose run --rm -v "$PWD:/app" discord-bot python -c "... ensure_schema_and_migrate(); load_state_snapshot() ..."` confirmed `state_load_ok True`, `guild_count 1`, `command_count 4`.
+8. PostgreSQL smoke confirmed `split_state_v1` marker and all 15 `bot_*` tables; row counts included `bot_guild_config=1`, `bot_daily_posts=3`, `bot_watch_symbols=2`, `bot_watch_session_alerts=2`.
+9. Existing live `discord-bot` container was stopped before final migration refresh; final `docker compose ps` showed `postgres` healthy and `adminer` up, with no live bot service running.
+- Status: done
+
+## 2026-05-05
 - Context: 사용자가 PostgreSQL `bot_app_state.state JSONB` 한 row 저장 방식은 유지하면서 lost update를 막는 optimistic locking을 구현해 달라고 요청했다.
 - Change:
 1. PostgreSQL `bot_app_state` schema에 `version BIGINT NOT NULL DEFAULT 1`을 추가하고, 기존 DB는 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`로 자동 보정하게 했다.
@@ -20,6 +41,34 @@
 8. `docker compose run --rm discord-bot python -c "... load_state() ..."` confirmed `state_load_ok True`, `guild_count 1`, `command_count 6`.
 9. `docker compose ps` confirmed `discord-bot` and `adminer` running and `postgres` healthy; bot logs showed Gateway connection, 11 global commands synced, scheduler start, and watch poll success.
 10. `git diff --check`
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 heatmap 자동스크린샷도 watch 마감 알림과 동일한 KST 기준 시간으로 변경해 달라고 요청했다.
+- Change:
+1. `kheatmap` 자동 실행 기준 시각을 KST `16:00`으로 변경했다.
+2. `usheatmap` 자동 실행 기준 시각을 KST `07:00`으로 변경했다.
+3. `/autoscreenshot on` 확인 문구와 autoscheduler regression 계약을 새 시간에 맞췄다.
+4. Current-truth docs now describe the `16:00`/`07:00` heatmap auto-screenshot schedule and preserve the same-day catch-up behavior.
+- Verification:
+1. `python3 scripts/run_repo_checks.py integration tests/integration/test_auto_scheduler_logic.py`
+2. `python3 scripts/run_repo_checks.py unit tests/unit/test_trading_calendar.py`
+3. `docker compose up -d --build`
+4. `docker compose ps`에서 `discord-bot`, `postgres`, `adminer` 실행 중이고 `postgres`는 healthy임을 확인했다.
+5. `docker compose logs --tail=120 discord-bot`에서 Gateway 연결, 11개 global command sync, auto screenshot scheduler 시작, intel scheduler 시작을 확인했다.
+- Status: done
+
+## 2026-05-05
+- Context: 사용자가 PostgreSQL 상태를 GUI로 확인할 수 있게 하고 dev Docker 서비스를 재실행해 달라고 요청했다.
+- Change:
+1. `docker-compose.yml`에 `adminer:4` 서비스를 추가했다.
+2. Adminer는 `postgres` healthcheck 이후 시작하며, 호스트에는 `127.0.0.1:8080`으로만 노출된다.
+3. `docker compose up -d --build`로 `discord-bot`, `postgres`, `adminer`를 재실행했다.
+- Verification:
+1. `docker compose config --quiet`
+2. `docker compose ps`에서 `adminer`, `discord-bot`, `postgres`가 모두 실행 중이고 `postgres`는 healthy임을 확인했다.
+3. `docker compose logs --tail=100 discord-bot`에서 Gateway 연결, 11개 global command sync, scheduler 시작, watch poll 성공 로그를 확인했다.
+4. `docker compose logs --tail=40 adminer`에서 Adminer PHP development server가 `8080`으로 시작됐음을 확인했다.
 - Status: done
 
 ## 2026-05-04

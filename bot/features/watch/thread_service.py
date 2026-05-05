@@ -8,6 +8,7 @@ from bot.app.types import AppState
 from bot.common.errors import ForumChannelTypeError
 from bot.features.watch.service import render_blank_watch_starter
 from bot.forum.repository import get_watch_symbol_thread, set_watch_symbol_thread
+from bot.forum import state_store
 from bot.intel.instrument_registry import format_watch_symbol
 
 
@@ -69,7 +70,7 @@ async def _resolve_existing_thread(
 
 async def upsert_watch_thread(
     client: discord.Client,
-    state: AppState,
+    state: AppState | None,
     *,
     guild_id: int,
     forum_channel_id: int,
@@ -81,7 +82,11 @@ async def upsert_watch_thread(
     forum_channel = await _resolve_forum_channel(client, guild_id=guild_id, forum_channel_id=forum_channel_id)
     desired_title = _watch_thread_title(symbol)
     desired_starter = starter_text
-    existing = get_watch_symbol_thread(state, guild_id, symbol)
+    existing = (
+        get_watch_symbol_thread(state, guild_id, symbol)
+        if state is not None
+        else state_store.get_watch_symbol_thread(guild_id, symbol)
+    )
 
     if existing is not None:
         thread_id = existing.get("thread_id")
@@ -99,14 +104,23 @@ async def upsert_watch_thread(
                     await thread.edit(name=desired_title)
                 if desired_starter is not None and getattr(starter_message, "content", None) != desired_starter:
                     await starter_message.edit(content=desired_starter)
-                set_watch_symbol_thread(
-                    state,
-                    guild_id,
-                    symbol,
-                    thread_id=thread.id,
-                    starter_message_id=starter_message.id,
-                    status="active" if active else "inactive",
-                )
+                if state is None:
+                    state_store.set_watch_symbol_thread(
+                        guild_id,
+                        symbol,
+                        thread_id=thread.id,
+                        starter_message_id=starter_message.id,
+                        status="active" if active else "inactive",
+                    )
+                else:
+                    set_watch_symbol_thread(
+                        state,
+                        guild_id,
+                        symbol,
+                        thread_id=thread.id,
+                        starter_message_id=starter_message.id,
+                        status="active" if active else "inactive",
+                    )
                 return WatchThreadHandle(thread=thread, starter_message=starter_message, action="updated")
 
     if not allow_create:
@@ -118,25 +132,38 @@ async def upsert_watch_thread(
     )
     thread = created.thread
     starter_message = created.message
-    set_watch_symbol_thread(
-        state,
-        guild_id,
-        symbol,
-        thread_id=thread.id,
-        starter_message_id=starter_message.id,
-        status="active" if active else "inactive",
-    )
+    if state is None:
+        state_store.set_watch_symbol_thread(
+            guild_id,
+            symbol,
+            thread_id=thread.id,
+            starter_message_id=starter_message.id,
+            status="active" if active else "inactive",
+        )
+    else:
+        set_watch_symbol_thread(
+            state,
+            guild_id,
+            symbol,
+            thread_id=thread.id,
+            starter_message_id=starter_message.id,
+            status="active" if active else "inactive",
+        )
     return WatchThreadHandle(thread=thread, starter_message=starter_message, action="created")
 
 
 async def delete_watch_thread(
     client: discord.Client,
-    state: AppState,
+    state: AppState | None,
     *,
     guild_id: int,
     symbol: str,
 ) -> str:
-    existing = get_watch_symbol_thread(state, guild_id, symbol)
+    existing = (
+        get_watch_symbol_thread(state, guild_id, symbol)
+        if state is not None
+        else state_store.get_watch_symbol_thread(guild_id, symbol)
+    )
     if not isinstance(existing, dict):
         return "missing"
 

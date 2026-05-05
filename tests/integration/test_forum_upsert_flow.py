@@ -1,6 +1,7 @@
 import pytest
 
 from bot.forum import service
+from tests.state_store_adapter import patch_legacy_state_store
 from bot.features import runner
 
 
@@ -366,11 +367,10 @@ async def test_runner_includes_partial_failure_in_body(monkeypatch):
     async def fake_resolve(*_args, **_kwargs):
         return object()
 
-    monkeypatch.setattr(runner, "load_state", lambda: state)
-    monkeypatch.setattr(runner, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, runner, state)
     monkeypatch.setattr(runner, "get_or_capture_images", fake_get_or_capture_images)
     monkeypatch.setattr(runner, "upsert_daily_post", fake_upsert_daily_post)
-    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _gid: 123)
     monkeypatch.setattr(runner, "_resolve_guild_forum_channel", fake_resolve)
 
     def body_builder(ts, src_lines, failed):
@@ -412,11 +412,10 @@ async def test_runner_upserts_with_partial_failure(monkeypatch, tmp_path):
     async def fake_resolve(*_args, **_kwargs):
         return type("Forum", (), {"id": 123})()
 
-    monkeypatch.setattr(runner, "load_state", lambda: state)
-    monkeypatch.setattr(runner, "save_state", lambda _: None)
+    patch_legacy_state_store(monkeypatch, runner, state)
     monkeypatch.setattr(runner, "get_or_capture_images", fake_get_or_capture_images)
     monkeypatch.setattr(runner, "upsert_daily_post", fake_upsert_daily_post)
-    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _gid: 123)
     monkeypatch.setattr(runner, "_resolve_guild_forum_channel", fake_resolve)
 
     def body_builder(ts, src_lines, failed):
@@ -442,9 +441,8 @@ async def test_runner_rejects_invalid_state_forum_channel(monkeypatch):
     interaction = FakeInteraction()
     state = {"commands": {"kheatmap": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
 
-    monkeypatch.setattr(runner, "load_state", lambda: state)
-    monkeypatch.setattr(runner, "save_state", lambda _: None)
-    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _state, _gid: 123)
+    patch_legacy_state_store(monkeypatch, runner, state)
+    monkeypatch.setattr(runner, "get_guild_forum_channel_id", lambda _gid: 123)
 
     async def fake_resolve(*_args, **_kwargs):
         return None

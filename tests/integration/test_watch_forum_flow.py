@@ -7,6 +7,7 @@ import pytest
 
 from bot.features.admin import command as admin_command
 from bot.features.watch import command as watch_command
+from tests.state_store_adapter import patch_legacy_state_store
 from bot.features.watch import thread_service
 
 KST = ZoneInfo("Asia/Seoul")
@@ -361,8 +362,7 @@ async def test_setwatchforum_command_handles_success_unauthorized_and_foreign_fo
     command = _command_by_name(tree, "setwatchforum")
 
     state = {"commands": {}, "guilds": {}}
-    monkeypatch.setattr(admin_command, "load_state", lambda: state)
-    monkeypatch.setattr(admin_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, admin_command, state)
     monkeypatch.setattr(admin_command, "DISCORD_GLOBAL_ADMIN_USER_IDS", {10})
 
     success = FakeInteraction(guild_id=1, user_id=10)
@@ -387,8 +387,7 @@ async def test_watch_add_rejects_when_watch_forum_is_missing(monkeypatch):
     add_command = next(command for command in group.commands if command.name == "add")
 
     state = {"commands": {}, "guilds": {"1": {}}}
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
     await add_command.callback(interaction, "005930")
@@ -413,8 +412,7 @@ async def test_watch_add_uses_blank_starter_when_upserting_thread(monkeypatch):
         calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text")))
         return SimpleNamespace(action="created")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -458,8 +456,7 @@ async def test_watch_add_resets_same_session_band_checkpoints_for_legacy_inactiv
     async def fake_upsert_watch_thread(**kwargs):
         return SimpleNamespace(action="updated")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
     monkeypatch.setattr(watch_command, "now_kst", lambda: datetime(2026, 3, 26, 10, 0, tzinfo=KST))
 
@@ -497,8 +494,7 @@ async def test_watch_add_rejects_inactive_symbol_and_points_to_start(monkeypatch
         calls.append(kwargs["symbol"])
         return SimpleNamespace(action="updated")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -531,8 +527,7 @@ async def test_watch_start_uses_blank_starter_when_upserting_thread(monkeypatch)
         calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text")))
         return SimpleNamespace(action="updated")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -575,8 +570,7 @@ async def test_watch_start_resets_same_session_band_checkpoints_for_reactivated_
     async def fake_upsert_watch_thread(**kwargs):
         return SimpleNamespace(action="updated")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
     monkeypatch.setattr(watch_command, "now_kst", lambda: datetime(2026, 3, 26, 10, 0, tzinfo=KST))
 
@@ -613,8 +607,7 @@ async def test_watch_stop_marks_thread_inactive_and_blanks_starter(monkeypatch):
         calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text"), kwargs.get("allow_create")))
         return SimpleNamespace(action="updated")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -666,8 +659,7 @@ async def test_watch_stop_ignores_current_comment_cleanup_http_failure(monkeypat
     async def fake_upsert_watch_thread(**kwargs):
         return SimpleNamespace(action="updated", thread=CleanupThread())
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -696,8 +688,7 @@ async def test_watch_stop_without_registry_entry_records_inactive_status_without
         calls.append(kwargs["symbol"])
         return SimpleNamespace(action="created")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -737,8 +728,7 @@ async def test_watch_stop_marks_symbol_inactive_when_tracked_thread_is_stale(mon
         calls.append((kwargs["symbol"], kwargs["active"], kwargs.get("starter_text"), kwargs.get("allow_create")))
         return None
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -785,8 +775,7 @@ async def test_watch_stop_keeps_active_state_when_starter_update_fails(monkeypat
     async def fake_upsert_watch_thread(**kwargs):
         raise RuntimeError("discord-edit-failed")
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "upsert_watch_thread", fake_upsert_watch_thread)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
@@ -809,7 +798,7 @@ async def test_watch_delete_requires_admin(monkeypatch):
     delete_command = next(command for command in group.commands if command.name == "delete")
 
     state = {"commands": {}, "guilds": {"1": {"watchlist": ["KRX:005930"]}}}
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
 
     interaction = FakeInteraction(guild_id=1, user_id=10, guild_owner_id=99)
     await delete_command.callback(interaction, "005930")
@@ -872,8 +861,7 @@ async def test_watch_delete_removes_watch_state_and_thread(monkeypatch):
         thread.deleted = True
         return "deleted"
 
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
-    monkeypatch.setattr(watch_command, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
     monkeypatch.setattr(watch_command, "delete_watch_thread", fake_delete_watch_thread)
     monkeypatch.setattr(watch_command, "DISCORD_GLOBAL_ADMIN_USER_IDS", set())
 
@@ -908,7 +896,7 @@ async def test_watch_list_shows_active_and_inactive_status(monkeypatch):
         },
         "guilds": {"1": {"watchlist": ["KRX:005930", "NAS:AAPL"]}},
     }
-    monkeypatch.setattr(watch_command, "load_state", lambda: state)
+    patch_legacy_state_store(monkeypatch, watch_command, state)
 
     interaction = FakeInteraction(guild_id=1, user_id=10)
     await list_command.callback(interaction)

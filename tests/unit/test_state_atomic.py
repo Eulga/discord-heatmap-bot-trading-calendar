@@ -1,7 +1,7 @@
 import copy
 import json
 
-from bot.forum import repository
+from bot.forum import repository, state_store
 
 
 class FakeCursor:
@@ -240,3 +240,128 @@ def test_postgres_load_failure_does_not_return_empty_state(monkeypatch):
         assert "PostgreSQL state backend load failed" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_split_state_maps_legacy_app_state_domains():
+    state = {
+        "commands": {
+            "kheatmap": {
+                "last_run_at": "2026-05-05T16:00:00+09:00",
+                "last_images": {"kospi": {"path": "data/heatmaps/kospi.png", "captured_at": "2026-05-05T16:01:00+09:00"}},
+                "daily_posts_by_guild": {
+                    "1": {"2026-05-05": {"thread_id": 11, "starter_message_id": 12, "content_message_ids": [13, 14]}}
+                },
+            },
+            "watchpoll": {
+                "symbol_threads_by_guild": {"1": {"KRX:005930": {"thread_id": 21, "starter_message_id": 22, "status": "inactive"}}}
+            },
+        },
+        "guilds": {
+            "1": {
+                "forum_channel_id": 101,
+                "news_forum_channel_id": 102,
+                "eod_forum_channel_id": 103,
+                "watch_forum_channel_id": 104,
+                "watch_alert_channel_id": 105,
+                "auto_screenshot_enabled": True,
+                "last_auto_attempts": {"kheatmap": "2026-05-05"},
+                "last_auto_runs": {"kheatmap": "2026-05-05"},
+                "last_auto_skips": {"usheatmap": {"date": "2026-05-04", "reason": "holiday"}},
+                "watchlist": ["005930"],
+                "watch_alert_cooldowns": {"KRX:005930:up": "2026-05-05T10:00:00+09:00"},
+                "watch_alert_latches": {"KRX:005930": "up"},
+            }
+        },
+        "system": {
+            "watch_reference_snapshots": {
+                "1": {
+                    "KRX:005930": {
+                        "basis": "previous_close",
+                        "reference_price": 100.0,
+                        "session_date": "2026-05-05",
+                        "checked_at": "2026-05-05T10:00:00+09:00",
+                    }
+                }
+            },
+            "watch_session_alerts": {
+                "1": {
+                    "KRX:005930": {
+                        "active_session_date": "2026-05-05",
+                        "highest_up_band": 1,
+                        "highest_down_band": 0,
+                        "current_comment_id": 31,
+                        "intraday_comment_ids": [32],
+                        "close_comment_ids_by_session": {"2026-05-04": 33},
+                        "pending_close_sessions": {
+                            "2026-05-05": {"reference_price": 100.0, "intraday_comment_ids": [32]}
+                        },
+                        "last_finalized_session_date": "2026-05-04",
+                    }
+                }
+            },
+            "watch_baselines": {"1": {"KRX:005930": {"price": 100.0, "checked_at": "2026-05-05T09:00:00+09:00"}}},
+            "job_last_runs": {"watch_poll": {"status": "ok", "detail": "done", "run_at": "2026-05-05T10:00:00+09:00"}},
+            "provider_status": {"kis_quote": {"ok": True, "message": "ok", "updated_at": "2026-05-05T10:00:00+09:00"}},
+            "news_dedup": {"2026-05-05": ["story-1"]},
+        },
+    }
+
+    rows = state_store._split_state(state)
+
+    assert rows["guild_config"] == [
+        {
+            "guild_id": 1,
+            "forum_channel_id": 101,
+            "news_forum_channel_id": 102,
+            "eod_forum_channel_id": 103,
+            "watch_forum_channel_id": 104,
+            "legacy_watch_alert_channel_id": 105,
+            "auto_screenshot_enabled": True,
+        }
+    ]
+    assert {
+        "guild_id": 1,
+        "job_key": "kheatmap",
+        "last_attempt_date": "2026-05-05",
+        "last_run_date": "2026-05-05",
+        "last_skip_date": None,
+        "last_skip_reason": None,
+    } in rows["guild_job_markers"]
+    assert rows["daily_posts"] == [
+        {
+            "command_key": "kheatmap",
+            "guild_id": 1,
+            "post_date": "2026-05-05",
+            "thread_id": 11,
+            "starter_message_id": 12,
+            "content_message_ids": [13, 14],
+        }
+    ]
+    assert rows["command_image_cache"] == [
+        {
+            "command_key": "kheatmap",
+            "market_label": "kospi",
+            "path": "data/heatmaps/kospi.png",
+            "captured_at": "2026-05-05T16:01:00+09:00",
+            "last_run_at": "2026-05-05T16:00:00+09:00",
+        }
+    ]
+    assert rows["watch_symbols"] == [
+        {"guild_id": 1, "symbol": "KRX:005930", "status": "inactive", "thread_id": 21, "starter_message_id": 22}
+    ]
+    assert rows["watch_reference_snapshots"][0]["reference_price"] == 100.0
+    assert rows["watch_session_alerts"][0]["pending_close_sessions"]["2026-05-05"]["intraday_comment_ids"] == [32]
+    assert rows["watch_alert_cooldowns"] == [
+        {"guild_id": 1, "alert_key": "KRX:005930:up", "hit_at": "2026-05-05T10:00:00+09:00"}
+    ]
+    assert rows["watch_alert_latches"] == [{"guild_id": 1, "symbol": "KRX:005930", "direction": "up"}]
+    assert rows["watch_baselines"] == [
+        {"guild_id": 1, "symbol": "KRX:005930", "price": 100.0, "checked_at": "2026-05-05T09:00:00+09:00"}
+    ]
+    assert rows["job_status"] == [
+        {"job_key": "watch_poll", "status": "ok", "detail": "done", "run_at": "2026-05-05T10:00:00+09:00"}
+    ]
+    assert rows["provider_status"] == [
+        {"provider_key": "kis_quote", "ok": True, "message": "ok", "updated_at": "2026-05-05T10:00:00+09:00"}
+    ]
+    assert rows["news_dedup"] == [{"date_text": "2026-05-05", "dedup_key": "story-1"}]

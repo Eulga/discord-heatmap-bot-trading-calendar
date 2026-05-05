@@ -1,6 +1,20 @@
 # Design Decisions
 
 ## 2026-05-05
+- Context: one-row `bot_app_state.state JSONB` with optimistic locking prevents silent stale saves, but still makes unrelated command/scheduler updates contend on one document and does not provide granular transactional cleanup for watch state.
+- Decision: Move current runtime state to PostgreSQL-only split domain rows, preserve the legacy JSON row as backup/import source, and keep distributed scheduler lease/outbox as a separate future design.
+- Why:
+1. Route IDs, daily post handles, scheduler markers, job/provider status, and watch runtime state have distinct update boundaries.
+2. Split rows remove the common full-document lost-update path without forcing full normalization of every nested watch value.
+3. Legacy JSON preservation gives rollback/audit input without requiring bidirectional sync.
+- Impact:
+1. Bot startup now requires `STATE_BACKEND=postgres` or `postgresql` plus `DATABASE_URL`.
+2. `split_state_v1` migrates once per `POSTGRES_STATE_KEY` using advisory locking and `bot_state_migrations`.
+3. Runtime modules use granular `bot/forum/state_store.py` APIs instead of full `load_state()` / `save_state()` calls.
+4. `bot_app_state` remains preserved but is not sync-written after migration.
+- Status: accepted
+
+## 2026-05-05
 - Context: PostgreSQL backend now persists the full mutable `AppState` document in one JSONB row, so independent bot processes can otherwise overwrite each other after separate load-mutate-save cycles.
 - Decision: Keep the one-row JSONB state model and add `version BIGINT` optimistic locking for PostgreSQL saves. Do not split the state into relational tables or add automatic merge in this change.
 - Why:

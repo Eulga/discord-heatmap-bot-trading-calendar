@@ -20,7 +20,7 @@
 - The main runtime model is event-driven plus background polling:
   - slash commands trigger manual heatmap posting, route setup, watchlist changes, and status reads
   - `auto_screenshot_scheduler()` runs every 30 seconds and can catch up once per day after the fixed KST schedule has passed
-  - `intel_scheduler()` runs every 15 seconds and checks exact-minute news/EOD times plus elapsed watch interval and registry refresh state
+  - `intel_scheduler()` runs every 15 seconds and checks same-day-after-scheduled-time news/EOD eligibility plus elapsed watch interval and registry refresh state
   - This is confirmed by `bot/features/auto_scheduler.py` and `bot/features/intel_scheduler.py`.
 - The main external dependencies currently wired into runtime are:
   - Discord API via `discord.py`
@@ -31,14 +31,15 @@
   - This is confirmed by `requirements.txt`, `bot/markets/providers/*.py`, `bot/markets/trading_calendar.py`, `bot/intel/providers/*.py`, and `bot/intel/instrument_registry.py`.
 - The main persisted state/config mechanisms are:
   - `.env` loaded at import time by `bot/app/settings.py`
-  - selectable app-state backend through `STATE_BACKEND`
-  - `data/state/state.json` as the default mutable app state when `STATE_BACKEND=file`
-  - PostgreSQL table `bot_app_state` as the optional mutable app state when `STATE_BACKEND=postgres` or `postgresql`
+  - PostgreSQL split-state runtime backend through `bot/forum/state_store.py`
+  - `POSTGRES_STATE_KEY` as the namespace key for split rows
+  - PostgreSQL table `bot_app_state` as the preserved legacy full-JSON backup/import source
+  - `data/state/state.json` as a one-time migration fallback when no legacy PostgreSQL row exists
   - `data/state/instrument_registry.json` as an optional runtime registry override
   - `bot/intel/data/instrument_registry.json` and seed JSON as bundled registry artifacts
   - `data/heatmaps/...` as local image cache
   - `data/logs/bot.log` as rotating runtime log output
-  - This is confirmed by `bot/app/settings.py`, `bot/forum/repository.py`, `bot/intel/instrument_registry.py`, `bot/markets/capture_service.py`, and `bot/common/logging.py`.
+  - This is confirmed by `bot/app/settings.py`, `bot/forum/state_store.py`, `bot/forum/repository.py`, `bot/intel/instrument_registry.py`, `bot/markets/capture_service.py`, and `bot/common/logging.py`.
 
 # 3. Implemented feature inventory
 
@@ -51,9 +52,9 @@
 | F-05 | Admin route configuration and autoscreenshot toggle commands | Implemented | slash command | per-guild route state updates and auto-scheduler enable flag | Confirmed |
 | F-06 | Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`) | Implemented | slash command | per-guild watchlist state update/read plus watch status/thread lifecycle control | Confirmed |
 | F-07 | Status and diagnostic commands (`/health`, `/last-run`, `/source-status`) | Implemented | slash command | ephemeral text status summaries | Confirmed |
-| F-08 | Scheduled news briefing posting | Implemented | intel scheduler exact-minute check | domestic/global daily forum threads and job/provider status updates | Confirmed |
+| F-08 | Scheduled news briefing posting | Implemented | intel scheduler same-day catch-up check | domestic/global daily forum threads and job/provider status updates | Confirmed |
 | F-09 | Scheduled trend briefing posting | Implemented | nested inside news scheduler | trend summary thread with starter + region content messages | Confirmed |
-| F-10 | Scheduled EOD summary posting | Partially implemented | intel scheduler exact-minute check | daily EOD forum thread using mock summary provider | Confirmed |
+| F-10 | Scheduled EOD summary posting | Partially implemented | intel scheduler same-day catch-up check | daily EOD forum thread using mock summary provider | Confirmed |
 | F-11 | Watch poll and per-symbol forum-thread alerting | Implemented | intel scheduler interval check | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
 | F-12 | Instrument registry load/search/runtime refresh | Implemented | startup lookup, watch commands, scheduler when enabled | local search, status rows, runtime registry rebuild file | Confirmed |
 | F-13 | Legacy message ping handler (`!ping`) | Implemented | plain text message event | `pong` reply | Confirmed |
@@ -77,47 +78,46 @@
   - `EOD_TARGET_FORUM_ID`
   - logging env vars
 - Runtime inputs:
-  - current `data/state/state.json`
+  - current PostgreSQL split-state rows under `POSTGRES_STATE_KEY`
   - Discord app command sync result
 - Discord resource inputs:
   - channels referenced by bootstrap env IDs
 
 ### 4.4 Processing flow
 1. `bot/main.py` creates the bot app and calls `client.run(TOKEN)`.
-2. `create_bot_app()` configures logging, creates a `discord.Client`, builds a `CommandTree`, and registers admin, status, watch, Korea heatmap, and US heatmap commands.
+2. `create_bot_app()` configures logging, ensures/migrates PostgreSQL split-state schema, creates a `discord.Client`, builds a `CommandTree`, and registers admin, status, watch, Korea heatmap, and US heatmap commands.
 3. On the first `on_ready`, the bot attempts `tree.sync()` for global commands.
 4. Command-sync success or failure is recorded into state via `record_command_sync()`.
-5. `_bootstrap_guild_channel_routes_from_env()` loads current state and tries to resolve each optional bootstrap channel ID.
+5. `_bootstrap_guild_channel_routes_from_env()` reads current route rows and tries to resolve each optional bootstrap channel ID.
 6. For each bootstrap channel:
    - inaccessible channels are ignored
    - wrong channel type is ignored
    - channels without guild context are ignored
    - if the target guild already has that route in state, bootstrap does nothing
-   - otherwise the route is written into the matching guild entry in state
-7. If any bootstrap route changed state, `save_state()` is called once.
-8. `auto_screenshot_scheduler()` and `intel_scheduler()` are started if not already running.
+   - otherwise the route is written into the matching guild config row
+7. `auto_screenshot_scheduler()` and `intel_scheduler()` are started if not already running.
 
 ### 4.5 Outputs
 - Global slash commands available in Discord
-- `system.job_last_runs.command-sync` state entry
-- possible bootstrap route writes into `guilds.{guild_id}.*_channel_id`
+- `bot_job_status` row for `command-sync`
+- possible bootstrap route writes into `bot_guild_config`
 - scheduler tasks started
 - runtime logs
 
 ### 4.6 Persistence / state interaction
-- Reads and writes `data/state/state.json`
+- Reads/writes PostgreSQL split-state tables through `bot/forum/state_store.py`
 - Writes runtime logs to `data/logs/bot.log`
 - Reads env vars at module import time through `bot/app/settings.py`
 
 ### 4.7 Error / edge handling (As-Is)
 - Command sync failures are caught, formatted into a Korean hint message, logged, and written to state; the bot does not stop in that path.
 - Bootstrap channel fetches return `None` on any exception in `_fetch_channel()`.
-- Bootstrap save errors are not explicitly caught inside `_bootstrap_guild_channel_routes_from_env()`.
-- Schedulers are started after bootstrap; if bootstrap raises during save, that path is not explicitly isolated in this module.
+- Bootstrap repository errors are not explicitly caught inside `_bootstrap_guild_channel_routes_from_env()`.
+- Schedulers are started after bootstrap; if bootstrap raises during state writes, that path is not explicitly isolated in this module.
 
 ### 4.8 Operational constraints
 - `DISCORD_BOT_TOKEN` is required at import time; missing token raises `RuntimeError`.
-- In `_bootstrap_guild_channel_routes_from_env()`, forum bootstrap values are ignored unless the fetched channel is a `discord.ForumChannel`, and watch bootstrap values are ignored unless the fetched channel is a `discord.TextChannel`.
+- In `_bootstrap_guild_channel_routes_from_env()`, forum bootstrap values are ignored unless the fetched channel is a `discord.ForumChannel`.
 - Runtime routing reads state, not env, after bootstrap.
 
 ### 4.9 Confidence
@@ -156,16 +156,14 @@
 ### 4.4 Processing flow
 1. The command defers the interaction with `thinking=True`.
 2. If `interaction.guild_id` is missing, it returns a failure message.
-3. `execute_heatmap_for_guild()` loads state and reads the guild’s `forum_channel_id`.
+3. `execute_heatmap_for_guild()` reads the guild’s `forum_channel_id` from `bot_guild_config`.
 4. The code resolves the forum channel by cache or `fetch_channel()`. If the resolved object is missing, not a `ForumChannel`, or belongs to another guild, the command returns a failure message.
-5. `get_or_capture_images()` checks the last image cache for each market target:
+5. `get_or_capture_images()` checks `bot_command_image_cache` for each market target:
    - if a cached file path exists and cache TTL is still valid, the cached file is reused
    - otherwise the capture function is called and the new path/timestamp is stored
-6. State is saved immediately after cache updates.
-7. If all captures failed and no image path succeeded, the command returns a failure response and does not call forum upsert.
-8. Otherwise a title and body are built from the policy modules and `upsert_daily_post()` is called with the images.
-9. State is saved again after successful upsert.
-10. The command sends a follow-up message containing the thread link and counts of successful and failed image items.
+6. If all captures failed and no image path succeeded, the command returns a failure response and does not call forum upsert.
+7. Otherwise a title and body are built from the policy modules and `upsert_daily_post()` is called with the images.
+8. The command sends a follow-up message containing the thread link and counts of successful and failed image items.
 
 ### 4.5 Outputs
 - A created or updated forum thread for `kheatmap` or `usheatmap`
@@ -174,9 +172,9 @@
 - Logs for request and result
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `data/state/state.json`
-- Writes image cache metadata under `commands.kheatmap.last_images` or `commands.usheatmap.last_images`
-- Writes same-day daily post mapping via forum upsert
+- Reads guild route from `bot_guild_config`
+- Writes image cache metadata to `bot_command_image_cache`
+- Writes same-day daily post mapping to `bot_daily_posts` via forum upsert
 - Reads/writes local PNG files under `data/heatmaps/kheatmap/` or `data/heatmaps/usheatmap/`
 
 ### 4.7 Error / edge handling (As-Is)
@@ -213,7 +211,7 @@
 
 ### 4.3 Inputs
 - Runtime inputs:
-  - `state`
+  - split-state repository access
   - `guild_id`
   - `command_key`
   - `post_title`
@@ -227,13 +225,13 @@
 ### 4.4 Processing flow
 1. Resolve the forum channel by `client.get_channel()` or `client.fetch_channel()`.
 2. Reject non-forum channels by raising `ForumChannelTypeError`.
-3. Look up today’s record in `commands.{command_key}.daily_posts_by_guild.{guild_id}.{date}`.
+3. Look up today’s record in `bot_daily_posts`.
 4. If `thread_id` and `starter_message_id` are present, try to load the thread and starter message.
 5. If both are available:
    - rename the thread if the title changed
    - edit the starter message content and attachments
 6. Otherwise create a new thread with the given title/body/files.
-7. Persist the thread/starter IDs immediately into state.
+7. Persist the thread/starter IDs immediately into `bot_daily_posts`.
 8. If `content_texts` were supplied:
    - edit existing content messages by index when fetch succeeds
    - resend a content message when fetch fails for that index
@@ -252,7 +250,7 @@
 - State record for same-day thread/message IDs
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `commands.{command_key}.daily_posts_by_guild`
+- Reads/writes `bot_daily_posts`
 - Uses `date_key()` without passing the scheduler’s `now`, so the record key is based on current runtime date at call time
 
 ### 4.7 Error / edge handling (As-Is)
@@ -284,7 +282,7 @@
 
 ### 4.3 Inputs
 - Config inputs:
-  - fixed schedule in code: `15:35` KST for Korea, `06:05` KST for US
+  - fixed schedule in code: `16:00` KST for Korea, `07:00` KST for US
 - Runtime inputs:
   - current KST time
   - guild auto-screenshot flags in state
@@ -295,26 +293,25 @@
 
 ### 4.4 Processing flow
 1. Every loop, `process_auto_screenshot_tick()` computes current date and eligible jobs whose fixed scheduled time has already passed in KST.
-2. It loads state and enumerates guilds with `auto_screenshot_enabled == True`.
+2. It enumerates guild IDs where `bot_guild_config.auto_screenshot_enabled == true`.
 3. For each job and guild:
    - skip if today is already recorded in `last_auto_attempts.{command_key}`, `last_auto_runs.{command_key}`, or `last_auto_skips.{command_key}`
    - check trading day with the market-specific calendar helper using the scheduled KST timestamp for that job
    - on calendar failure, record one skip per date, record the day as an attempted auto run, and log a warning
    - on holiday, record one skip per date, record the day as an attempted auto run, and log info
 4. When a trading day is confirmed, `execute_heatmap_for_guild()` is called.
-5. On success, state is reloaded before saving `last_auto_runs` and `last_auto_attempts` to avoid clobbering runner changes.
-6. If the refreshed state looks empty while previous guild state existed, the scheduler skips writing auto metadata and logs a warning.
-7. On failure, state is reloaded before saving `last_auto_attempts`; the failure consumes that day’s scheduled auto attempt and no user-facing response exists.
+5. On success, it writes `last_auto_runs` and `last_auto_attempts` through `bot_guild_job_markers`.
+6. On failure, it writes `last_auto_attempts`; the failure consumes that day’s scheduled auto attempt and no user-facing response exists.
 
 ### 4.5 Outputs
 - Scheduled forum posts for heatmaps
- - `guilds.{guild_id}.last_auto_attempts`
-- `guilds.{guild_id}.last_auto_runs`
-- `guilds.{guild_id}.last_auto_skips`
+- `bot_guild_job_markers.last_auto_attempt_date`
+- `bot_guild_job_markers.last_run_date`
+- `bot_guild_job_markers.last_skip_date` / `last_skip_reason`
 - logs
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `data/state/state.json`
+- Reads/writes `bot_guild_config` and `bot_guild_job_markers`
 - Relies on `execute_heatmap_for_guild()` to persist image cache and daily post state
 
 ### 4.7 Error / edge handling (As-Is)
@@ -323,7 +320,7 @@
 - There is visible same-day catch-up logic after the fixed scheduled minute, but only one scheduled auto attempt is consumed per guild/job/date.
 
 ### 4.8 Operational constraints
-- Exact-minute schedule only
+- Same-day catch-up after the configured fixed schedule has passed
 - Depends on `exchange_calendars` data and the Discord/forum route already existing in state
 - Uses the same forum upsert and capture constraints as manual heatmap posting
 
@@ -365,7 +362,7 @@
    - a member with `administrator`
    - a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
 3. Channel-setting commands also require the chosen channel to belong to the same guild.
-4. The command loads state, writes the matching per-guild route field or `auto_screenshot_enabled`, saves state, logs success, and returns an ephemeral confirmation.
+4. The command writes the matching per-guild route field or `auto_screenshot_enabled` through the split-state repository, logs success, and returns an ephemeral confirmation.
 
 ### 4.5 Outputs
 - Updated guild routing fields or auto-screenshot flag in state
@@ -373,11 +370,11 @@
 - Logs
 
 ### 4.6 Persistence / state interaction
-- Writes `guilds.{guild_id}.forum_channel_id`
-- Writes `guilds.{guild_id}.news_forum_channel_id`
-- Writes `guilds.{guild_id}.eod_forum_channel_id`
-- Writes `guilds.{guild_id}.watch_forum_channel_id`
-- Writes `guilds.{guild_id}.auto_screenshot_enabled`
+- Writes `bot_guild_config.forum_channel_id`
+- Writes `bot_guild_config.news_forum_channel_id`
+- Writes `bot_guild_config.eod_forum_channel_id`
+- Writes `bot_guild_config.watch_forum_channel_id`
+- Writes `bot_guild_config.auto_screenshot_enabled`
 
 ### 4.7 Error / edge handling (As-Is)
 - No-guild use is rejected.
@@ -415,7 +412,7 @@
   - raw symbol text, ticker, or instrument name
 - Runtime inputs:
   - guild ID
-  - current guild watchlist from state
+  - current guild watch symbols from `bot_watch_symbols`
 - Provider inputs:
   - local registry search and canonical-symbol normalization
 
@@ -428,7 +425,7 @@
    - exact high-score search result
    - ambiguous search returns an error with candidate lines
 3. `/watch start`, `/watch stop`, `/watch delete` resolve against the current guild watchlist, including canonical and legacy representations.
-4. Successful `/watch add` requires `watch_forum_channel_id`, adds the symbol to the guild watchlist if it is not already present, saves immediately, and creates the persistent symbol thread with a blank starter for the newly added symbol.
+4. Successful `/watch add` requires `watch_forum_channel_id`, creates or repairs the persistent symbol thread with a blank starter, and stores the tracked symbol row.
 5. Duplicate `/watch add` is a no-op; if the symbol is tracked but `inactive`, the command points the user to `/watch start` instead of reactivating inline.
 6. `/watch start` only applies to inactive tracked symbols. It reuses or recreates the symbol thread with a blank starter, and same-session reactivation resets stored highest-band checkpoints so intraday alerts restart from a fresh active watch state.
 7. `/watch stop` does not remove the symbol from the guild watchlist. Instead it clears watch cooldown, latch, baseline runtime state, and any stored current-price comment ID, records thread status as `inactive`, and attempts an update-only blank starter write when a tracked thread exists.
@@ -440,20 +437,19 @@
 
 ### 4.5 Outputs
 - Ephemeral confirmation or error message
-- Updated `guilds.{guild_id}.watchlist`
-- Updated `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}` and blank starter message when add/start/stop/delete touches a tracked thread
-- Updated `system.watch_reference_snapshots.{guild_id}.{symbol}` and `system.watch_session_alerts.{guild_id}.{symbol}` when delete clears tracked state
+- Updated `bot_watch_symbols`
+- Blank starter message when add/start/stop/delete touches a tracked thread
+- Updated `bot_watch_reference_snapshots` and `bot_watch_session_alerts` when delete clears tracked state
 - Autocomplete choices for symbol search
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `guilds.{guild_id}.watchlist`
-- Reads `guilds.{guild_id}.watch_forum_channel_id`
-- Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
-- Reads/writes `guilds.{guild_id}.watch_alert_cooldowns`
-- Reads/writes `guilds.{guild_id}.watch_alert_latches`
-- Reads/writes `system.watch_baselines.{guild_id}`
-- Reads/writes `system.watch_reference_snapshots.{guild_id}`
-- Reads/writes `system.watch_session_alerts.{guild_id}`
+- Reads/writes `bot_watch_symbols`
+- Reads `bot_guild_config.watch_forum_channel_id`
+- Reads/writes `bot_watch_alert_cooldowns`
+- Reads/writes `bot_watch_alert_latches`
+- Reads/writes `bot_watch_baselines`
+- Reads/writes `bot_watch_reference_snapshots`
+- Reads/writes `bot_watch_session_alerts`
 - Reads the local instrument registry
 
 ### 4.7 Error / edge handling (As-Is)
@@ -499,12 +495,12 @@
   - provider credentials and tokens
   - `NEWS_PROVIDER_KIND`
 - Runtime inputs:
-  - `system.job_last_runs`
-  - `system.provider_status`
+  - `bot_job_status`
+  - `bot_provider_status`
   - `registry_status()`
 
 ### 4.4 Processing flow
-1. The command loads state.
+1. The command reads stored job/provider rows from `bot_job_status` and `bot_provider_status`.
 2. It merges stored status rows with built-in defaults:
    - default job rows include paused/scheduled placeholders for EOD and registry refresh
    - default provider rows include `instrument_registry`, `kis_quote`, `massive_reference`, `twelvedata_reference`, `openfigi_mapping`, plus news-provider rows depending on `NEWS_PROVIDER_KIND`
@@ -517,7 +513,7 @@
 - Logs of command usage
 
 ### 4.6 Persistence / state interaction
-- Reads `data/state/state.json`
+- Reads `bot_job_status` and `bot_provider_status`
 - Reads live registry status from the current registry artifact
 - Does not modify state
 
@@ -536,7 +532,7 @@
 
 ### 4.10 Evidence notes
 - `bot/features/status/command.py`
-- `bot/forum/repository.py`
+- `bot/forum/state_store.py`
 - `bot/intel/instrument_registry.py`
 
 ## Feature: Scheduled news briefing posting
@@ -545,7 +541,7 @@
 - Current code attempts to fetch news from the configured provider, build region-specific briefing text, and post separate domestic/global threads per guild at the scheduled minute.
 
 ### 4.2 Trigger
-- `intel_scheduler()` exact-minute check when `NEWS_BRIEFING_ENABLED` is true and current time matches `NEWS_BRIEFING_TIME`
+- `intel_scheduler()` same-day catch-up check when `NEWS_BRIEFING_ENABLED` is true and current time is at or after `NEWS_BRIEFING_TIME`
 
 ### 4.3 Inputs
 - Config inputs:
@@ -556,7 +552,7 @@
   - Naver/Marketaux query, limit, age, timeout, and retry env vars
 - Runtime inputs:
   - current KST datetime
-  - per-guild `news_forum_channel_id` from state, including values explicitly configured by command or initialized into state by startup `NEWS_TARGET_FORUM_ID` bootstrap
+  - per-guild `news_forum_channel_id` from `bot_guild_config`, including values explicitly configured by command or initialized by startup `NEWS_TARGET_FORUM_ID` bootstrap
   - previous job status and per-guild last auto-run dates
 - Provider inputs:
   - `news_provider` singleton built at module import time
@@ -565,11 +561,11 @@
   - forum channel for each guild
 
 ### 4.4 Processing flow
-1. `_run_news_job()` loads state and enumerates guild IDs.
+1. `_run_news_job()` enumerates guild IDs from split-state rows.
 2. For each guild:
-   - it migrates legacy `newsbriefing` post state into `newsbriefing-domestic` if needed
+   - it copies legacy `newsbriefing` daily post rows into `newsbriefing-domestic` if needed
    - it treats the guild as already complete only when:
-     - `guilds.{guild_id}.last_auto_runs.newsbriefing` equals today
+     - the guild job marker for `newsbriefing` equals today
      - both domestic and global daily threads exist for today
      - trend briefing is complete or was explicitly skipped for today
    - otherwise it requires `news_forum_channel_id`; `forum_channel_id` alone does not make the guild eligible for news/trend posting
@@ -591,15 +587,14 @@
 - Two daily forum threads per guild when posting succeeds:
   - domestic news thread
   - global news thread
-- `system.job_last_runs.news_briefing`
+- `bot_job_status` row for `news_briefing`
 - provider status rows such as `naver_news` or `marketaux_news`
 - logs
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `data/state/state.json`
+- Reads/writes `bot_guild_config`, `bot_guild_job_markers`, and `bot_daily_posts`
 - Writes daily post records under `newsbriefing-domestic` and `newsbriefing-global`
-- Writes per-guild `last_auto_runs.newsbriefing`
-- Writes provider/job status in `system`
+- Writes provider/job status in `bot_provider_status` and `bot_job_status`
 
 ### 4.7 Error / edge handling (As-Is)
 - Provider failure marks `news_briefing` and `trend_briefing` as failed and returns immediately.
@@ -608,7 +603,7 @@
   - only-missing-forum with no completed guilds can mark skipped
 - Per-guild posting failure increments `failed` and continues with later guilds.
 - Job status is `ok` only when at least one guild posted and total failures are zero; otherwise it is `failed`.
-- No visible same-day catch-up exists if the process starts after the scheduled minute.
+- Same-day catch-up exists after the configured scheduled time until the job records a same-day status.
 
 ### 4.8 Operational constraints
 - Provider objects are built once at import time in `bot/features/intel_scheduler.py`.
@@ -646,7 +641,7 @@
 1. The news analysis provides `trend_report` for `domestic` and `global`.
 2. The scheduler only displays a region’s themes when that region has at least 3 themes.
 3. If both regions are below 3 themes, the trend job is not posted:
-   - `guilds.{guild_id}.last_auto_skips.trendbriefing` is set with `insufficient-themes ...`
+   - `bot_guild_job_markers` records `trendbriefing` skip metadata with `insufficient-themes ...`
    - final `trend_briefing` job status becomes `skipped`
 4. If at least one region qualifies:
    - a starter body is rendered summarizing counts and selected theme names
@@ -657,18 +652,18 @@
    - starter body
    - zero image paths
    - `content_texts` containing the region detail blocks
-6. Successful posting sets `guilds.{guild_id}.last_auto_runs.trendbriefing` for today.
+6. Successful posting sets the guild job marker for `trendbriefing` to today.
 7. Final job status is computed separately from the news briefing status.
 
 ### 4.5 Outputs
 - A same-day trend thread per guild when at least one region qualifies
 - Starter message plus follow-up content messages
-- `system.job_last_runs.trend_briefing`
-- `guilds.{guild_id}.last_auto_runs.trendbriefing` or `last_auto_skips.trendbriefing`
+- `bot_job_status` row for `trend_briefing`
+- `bot_guild_job_markers` row for `trendbriefing` run or skip metadata
 
 ### 4.6 Persistence / state interaction
-- Writes `trendbriefing` daily post record with `content_message_ids`
-- Writes per-guild last-run or last-skip metadata
+- Writes `trendbriefing` row in `bot_daily_posts` with `content_message_ids`
+- Writes per-guild last-run or last-skip metadata in `bot_guild_job_markers`
 
 ### 4.7 Error / edge handling (As-Is)
 - Trend posting failure is counted separately from news posting failure and logged.
@@ -695,7 +690,7 @@
 - Post an end-of-day summary thread for eligible guilds when the EOD job is enabled.
 
 ### 4.2 Trigger
-- `intel_scheduler()` exact-minute check when `EOD_SUMMARY_ENABLED` is true and current time matches `EOD_SUMMARY_TIME`
+- `intel_scheduler()` same-day catch-up check when `EOD_SUMMARY_ENABLED` is true and current time is at or after `EOD_SUMMARY_TIME`
 
 ### 4.3 Inputs
 - Config inputs:
@@ -703,13 +698,13 @@
   - `EOD_SUMMARY_TIME`
 - Runtime inputs:
   - current KST datetime
-  - per-guild `eod_forum_channel_id` or fallback `forum_channel_id`
-  - per-guild `last_auto_runs.eodsummary`
+  - per-guild `eod_forum_channel_id` or fallback `forum_channel_id` from `bot_guild_config`
+  - per-guild `eodsummary` run marker from `bot_guild_job_markers`
 - Provider inputs:
   - module-level `eod_provider`, currently set to `MockEodSummaryProvider()`
 
 ### 4.4 Processing flow
-1. `_run_eod_job()` loads state and finds guilds not already marked complete for today.
+1. `_run_eod_job()` reads split-state rows and finds guilds not already marked complete for today.
 2. The target forum is `eod_forum_channel_id` or fallback `forum_channel_id`.
 3. The job checks KRX trading day before attempting forum resolution or posting.
 4. Forum channels are resolved with the same helper used by the news job.
@@ -721,13 +716,12 @@
 
 ### 4.5 Outputs
 - A daily EOD forum thread per guild when the feature is enabled and posting succeeds
-- `system.job_last_runs.eod_summary`
-- `system.provider_status.eod_provider`
+- `bot_job_status` row for `eod_summary`
+- `bot_provider_status` row for `eod_provider`
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `data/state/state.json`
-- Writes daily post records under `commands.eodsummary`
-- Writes per-guild `last_auto_runs.eodsummary`
+- Reads/writes `bot_guild_config`, `bot_guild_job_markers`, and `bot_daily_posts`
+- Writes provider/job status in `bot_provider_status` and `bot_job_status`
 
 ### 4.7 Error / edge handling (As-Is)
 - Provider failure sets `eod_provider` false and marks `eod_summary` failed.
@@ -764,11 +758,10 @@
   - `MARKET_DATA_PROVIDER_KIND`
   - KIS and Massive credentials
 - Runtime inputs:
-  - guild watchlists
-  - guild `watch_forum_channel_id`
-  - `commands.watchpoll.symbol_threads_by_guild`
-  - `system.watch_reference_snapshots`
-  - `system.watch_session_alerts`
+  - `bot_watch_symbols`
+  - guild `watch_forum_channel_id` from `bot_guild_config`
+  - `bot_watch_reference_snapshots`
+  - `bot_watch_session_alerts`
   - current datetime
 - Provider inputs:
   - `quote_provider` module-level singleton
@@ -777,8 +770,8 @@
   - per-symbol forum threads, blank starters, and comments in the configured watch forum
 
 ### 4.4 Processing flow
-1. `_run_watch_poll()` loads state and scans all guilds.
-2. Target symbols are the union of active watchlist entries and inactive symbols that still have an unfinalized session in `system.watch_session_alerts`.
+1. `_run_watch_poll()` scans guilds from split-state rows.
+2. Target symbols are the union of active watch symbol rows and inactive symbols that still have an unfinalized session in `bot_watch_session_alerts`.
 3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
 4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set that is eligible for regular-session updates or KST-due close finalization across pending guilds.
 5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
@@ -809,17 +802,17 @@
 
 ### 4.5 Outputs
 - Blank starter updates and thread comments in per-symbol watch forum threads
-- `system.job_last_runs.watch_poll`
+- `bot_job_status` row for `watch_poll`
 - provider status updates keyed per snapshot fetch
 - watch reference/session state updates
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `guilds.{guild_id}.watch_forum_channel_id`
-- Reads/writes `commands.watchpoll.symbol_threads_by_guild.{guild_id}.{symbol}`
-- Reads/writes `system.watch_reference_snapshots.{guild_id}.{symbol}`
-- Reads/writes `system.watch_session_alerts.{guild_id}.{symbol}`
-- Legacy cooldown/latch and `system.watch_baselines` are kept only for compatibility or cleanup, not as active alert inputs
-- Reads/writes provider/job status in `system`
+- Reads `bot_guild_config.watch_forum_channel_id`
+- Reads/writes `bot_watch_symbols`
+- Reads/writes `bot_watch_reference_snapshots`
+- Reads/writes `bot_watch_session_alerts`
+- Reads/writes `bot_watch_alert_cooldowns`, `bot_watch_alert_latches`, and `bot_watch_baselines` for cleanup/compatibility
+- Reads/writes provider/job status in `bot_provider_status` and `bot_job_status`
 
 ### 4.7 Error / edge handling (As-Is)
 - Snapshot failures increment counters and skip current-price/comment updates for that symbol.
@@ -835,7 +828,7 @@
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints
-- The watchlist is stored under each guild’s state entry rather than under a user-scoped key.
+- The watchlist is stored per guild in `bot_watch_symbols`, not per user.
 - Watch thread reuse is keyed by `(guild_id, canonical_symbol)` and does not rotate daily.
 - Session semantics are market-calendar aware for KRX and US regular sessions.
 - Quote freshness and symbol coverage still depend on the selected provider path and its internal checks.
@@ -847,7 +840,7 @@
 ### 4.10 Evidence notes
 - `bot/features/intel_scheduler.py`
 - `bot/features/watch/service.py`
-- `bot/forum/repository.py`
+- `bot/forum/state_store.py`
 - `bot/intel/providers/market.py`
 - `tests/integration/test_intel_scheduler_logic.py`
 
@@ -889,7 +882,7 @@
    - retry allowed after same-day failure except same-minute repeats and `dart-api-key-missing`
 5. Refresh runs in a background task and does not block watch polling.
 6. In the refresh path, `build_live_registry()` is called with `DART_API_KEY`. If the key is blank, the function raises `dart-api-key-missing`. On successful execution, the code fetches OpenDART, SEC, and KRX source data and then calls `save_registry()`.
-7. Completion or failure updates `system.job_last_runs.instrument_registry_refresh` and `system.provider_status.instrument_registry`.
+7. Completion or failure updates `bot_job_status.instrument_registry_refresh` and `bot_provider_status.instrument_registry`.
 
 ### 4.5 Outputs
 - Searchable in-memory/local registry
@@ -899,7 +892,7 @@
 ### 4.6 Persistence / state interaction
 - Reads bundled and runtime registry JSON files
 - Writes `data/state/instrument_registry.json` on successful refresh
-- Writes registry refresh job/provider status to `data/state/state.json`
+- Writes registry refresh job/provider status to `bot_job_status` and `bot_provider_status`
 
 ### 4.7 Error / edge handling (As-Is)
 - Missing or invalid runtime registry payload can raise when directly loaded.
@@ -968,9 +961,9 @@
 - The bot also retains a legacy `on_message` handler for `!ping`.
 
 ## 5.2 Scheduled execution behavior
-- `auto_screenshot_scheduler()` wakes every 30 seconds and can run heatmap jobs any time after the fixed `15:35` / `06:05` KST schedule has passed, but only once per guild/job/date.
+- `auto_screenshot_scheduler()` wakes every 30 seconds and can run heatmap jobs any time after the fixed `16:00` / `07:00` KST schedule has passed, but only once per guild/job/date.
 - `intel_scheduler()` wakes every 15 seconds.
-- News and EOD jobs are exact-minute checks against configured `HH:MM` values.
+- News and EOD jobs can run after their configured `HH:MM` values until same-day completion/failure status is recorded.
 - Watch polling is elapsed-interval based using `last_watch_run`.
 - Instrument registry refresh is interval-loop driven but has explicit same-day-after-scheduled-time catch-up logic.
 
@@ -988,26 +981,25 @@
 - News posting uses two separate threads for domestic/global plus an optional separate trend thread.
 
 ## 5.5 State persistence behavior
-- The configured app-state backend is the main mutable store for guild routing, image cache metadata, daily post mappings, auto-run metadata, watch runtime state, and job/provider status.
-- Default `STATE_BACKEND=file` reads/writes `data/state/state.json`.
-- File backend `load_state()` returns an empty state on missing file, invalid JSON, non-dict payload, `JSONDecodeError`, or `OSError`.
-- File backend `save_state()` uses atomic temp-file replacement.
-- `STATE_BACKEND=postgres` or `postgresql` reads/writes PostgreSQL table `bot_app_state`, keyed by `POSTGRES_STATE_KEY`, with the full app-state document stored in `state JSONB`.
-- PostgreSQL table schema is `state_key TEXT PRIMARY KEY`, `state JSONB NOT NULL`, `version BIGINT NOT NULL DEFAULT 1`, and `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
-- PostgreSQL backend creates the table on first use, runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1` for older databases, and seeds the row from the current file state with `version = 1` if no row exists.
-- PostgreSQL `load_state()` reads `state` and `version`; the loaded version is tracked outside the persisted `AppState` JSON keys.
-- PostgreSQL `save_state()` for a loaded state updates with `WHERE state_key = ... AND version = ...`, increments `version` on success, and raises `RuntimeError("PostgreSQL state backend concurrent update conflict.")` when the expected version is stale.
-- PostgreSQL saves of untracked ad hoc state retain the public API by reading the current row version before the update; they can still fail if another writer changes the row between that version read and update.
+- The PostgreSQL split-state store is the main mutable store for guild routing, image cache metadata, daily post mappings, auto-run metadata, watch runtime state, and job/provider status.
+- Current bot startup calls `ensure_schema_and_migrate()` before creating the Discord client; it requires effective `STATE_BACKEND=postgres` or `postgresql` and a non-empty `DATABASE_URL`.
+- Split rows are namespaced by `POSTGRES_STATE_KEY`.
+- Schema tables currently include `bot_guild_config`, `bot_guild_job_markers`, `bot_daily_posts`, `bot_command_image_cache`, `bot_watch_symbols`, `bot_watch_reference_snapshots`, `bot_watch_session_alerts`, `bot_watch_alert_cooldowns`, `bot_watch_alert_latches`, `bot_watch_baselines`, `bot_job_status`, `bot_provider_status`, `bot_news_dedup`, and `bot_state_migrations`.
+- `bot_watch_session_alerts` stores same-row complex values such as `intraday_comment_ids`, `close_comment_ids_by_session`, and `pending_close_sessions`.
+- `bot_state_migrations` records `split_state_v1`; migration takes a PostgreSQL advisory transaction lock by `POSTGRES_STATE_KEY`.
+- Migration source priority is existing `bot_app_state.state`, then `data/state/state.json`, then empty state.
+- Migration preserves `bot_app_state` and does not sync split rows back to that legacy JSON row.
+- `bot/forum/repository.py` still contains legacy full-document load/save helpers and optimistic-lock support for the old PostgreSQL JSONB row, but current runtime modules use `bot/forum/state_store.py` granular APIs.
 - PostgreSQL backend failures raise runtime errors instead of returning empty state.
 - Runtime registry is a separate JSON file under `data/state/instrument_registry.json`.
 
 ## 5.6 Failure behavior
 - Heatmap command failures return user-facing text messages.
 - Scheduler loops catch broad exceptions and continue after logging.
-- News/EOD/watch jobs write `system.job_last_runs` with `ok`, `failed`, or `skipped` outcomes.
-- Provider failures usually update `system.provider_status` as well.
+- News/EOD/watch jobs write `bot_job_status` with `ok`, `failed`, or `skipped` outcomes.
+- Provider failures usually update `bot_provider_status` as well.
 - Some Discord fetch/edit/delete failures are swallowed locally and converted into fallback or partial-cleanup behavior.
-- PostgreSQL state writes have stale-version conflict detection, but there is no visible global coordination for job leasing, automatic merge, or serialized multi-process writes.
+- Split-state writes reduce full-document lost-update risk, but there is no visible global coordination for job leasing, automatic merge of Discord side effects, or serialized multi-process scheduler execution.
 
 # 6. Configuration and dependency map
 
@@ -1131,7 +1123,7 @@
 - Name: forum threads and starter/content messages
   - Purpose: concrete posted artifacts for same-day upsert
   - Required vs optional: created as needed
-  - Observed usage: tracked by thread/message IDs in state
+  - Observed usage: tracked by thread/message IDs in split PostgreSQL rows
   - Risk if missing: new thread creation path is used or posting fails
 - Name: slash commands
   - Purpose: user/admin interaction surface
@@ -1141,15 +1133,20 @@
 
 ## Local state files
 - Name: `data/state/state.json`
-  - Purpose: default mutable application state and PostgreSQL seed source
-  - Required vs optional: optional at first run, central after initialization when `STATE_BACKEND=file`
-  - Observed usage: nearly all feature modules through `load_state()` / `save_state()` in file backend
-  - Risk if missing: file backend starts with empty state; PostgreSQL backend seeds an empty row if no database row exists
+  - Purpose: legacy file-state import source for `split_state_v1` when no `bot_app_state` row exists
+  - Required vs optional: optional
+  - Observed usage: not the current runtime source for bot feature paths
+  - Risk if missing: migration starts from an empty state only if no legacy PostgreSQL row exists
 - Name: PostgreSQL `bot_app_state`
-  - Purpose: optional mutable application state backend
-  - Required vs optional: required only when `STATE_BACKEND=postgres` or `postgresql`
-  - Observed usage: `bot/forum/repository.py` stores the full `AppState` document in `state JSONB` and uses a `version BIGINT` optimistic lock for loaded-state saves
-  - Risk if missing: table is created on first use; if the database is unreachable, selected PostgreSQL backend fails closed
+  - Purpose: preserved legacy full-JSON backup/import source
+  - Required vs optional: optional source row; table is created by schema setup
+  - Observed usage: migration source priority before file fallback; not sync-written by current runtime split-state paths
+  - Risk if missing: migration can fall back to `data/state/state.json` or empty state
+- Name: PostgreSQL split-state `bot_*` tables
+  - Purpose: current mutable runtime state backend
+  - Required vs optional: required for current bot runtime
+  - Observed usage: `bot/forum/state_store.py` reads/writes domain rows for route, scheduler, daily post, image cache, watch, status, and dedup state
+  - Risk if missing: schema setup creates tables; if PostgreSQL is unreachable or `STATE_BACKEND` is not postgres/postgresql, startup fails
 - Name: `data/state/instrument_registry.json`
   - Purpose: runtime registry override artifact
   - Required vs optional: optional
@@ -1250,7 +1247,7 @@
   - What cannot be confirmed: whether this openness is deliberate product behavior or an unfinished policy.
   - Why this ambiguity matters: reverse docs should not assume stronger access control than the code provides.
 - Area: Cross-guild isolation under multiple running bot instances
-  - Why ambiguous: state is a shared local JSON file with no visible inter-process locking.
+  - Why ambiguous: state is shared PostgreSQL rows, but there is no visible distributed scheduler lease or side-effect outbox.
   - What seems likely: single-process operation is assumed.
   - What cannot be confirmed: whether multi-instance deployment is supported or intentionally unsupported.
   - Why this ambiguity matters: operational guidance and failure analysis differ sharply between single-writer and multi-writer assumptions.
@@ -1267,28 +1264,23 @@
 
 # 8. Observed gaps in current implementation
 - Gap ID: G-01
-  - Gap: `load_state()` fails open to an empty state on JSON decode or file I/O errors.
-  - Observed evidence: `bot/forum/repository.py::load_state`
-  - Current operational risk: a bad read can make the application behave as if all routes/watchlists/status history were absent.
+  - Gap: distributed scheduler leasing/outbox is not implemented.
+  - Observed evidence: `bot/features/auto_scheduler.py`, `bot/features/intel_scheduler.py`
+  - Current operational risk: duplicate live bot instances can still duplicate Discord side effects even though split rows reduce full-document state lost updates.
   - Confidence: Confirmed
 - Gap ID: G-02
-  - Gap: state writes are plain load-modify-save operations with no visible inter-process or cross-task locking at repository level.
-  - Observed evidence: `bot/forum/repository.py`, multiple direct `load_state()`/`save_state()` call sites across schedulers and commands
-  - Current operational risk: concurrent writers can overwrite unrelated changes.
+  - Gap: legacy full-document repository helpers still exist for migration/test compatibility.
+  - Observed evidence: `bot/forum/repository.py`
+  - Current operational risk: accidental reintroduction into runtime paths would bypass the split-state lost-update reduction.
   - Confidence: Confirmed
 - Gap ID: G-03
-  - Gap: news and EOD schedulers are exact-minute only and do not show same-day catch-up logic after a late start.
-  - Observed evidence: `bot/features/intel_scheduler.py`
-  - Current operational risk: startup or reconnect after the scheduled minute can skip a day’s news/EOD run.
-  - Confidence: Confirmed
-- Gap ID: G-04
   - Gap: route setup commands do not visibly validate the bot’s effective permissions on the chosen channel.
   - Observed evidence: `bot/features/admin/command.py`
   - Current operational risk: configuration can succeed even if later posting will fail.
   - Confidence: Confirmed
-- Gap ID: G-05
-- Gap: watch add/start/stop/list commands do not visibly enforce owner/admin/global-admin authorization.
-- Observed evidence: `bot/features/watch/command.py`
+- Gap ID: G-04
+  - Gap: watch add/start/stop/list commands do not visibly enforce owner/admin/global-admin authorization.
+  - Observed evidence: `bot/features/watch/command.py`
   - Current operational risk: any guild member with command access can add, start, stop, or inspect the shared guild watchlist; only destructive delete is currently restricted.
   - Confidence: Confirmed
 - Gap ID: G-06
@@ -1326,23 +1318,22 @@
 
 | Item | As-Is current behavior | Unknown / ambiguous | Should NOT be assumed from current code |
 | --- | --- | --- | --- |
-| Heatmap routing | Runtime heatmap posting reads per-guild forum route from `data/state/state.json` | Whether env bootstrap is always intended to remain supported | Do not assume env IDs are runtime fallback routing |
+| Heatmap routing | Runtime heatmap posting reads per-guild forum route from `bot_guild_config` | Whether env bootstrap is always intended to remain supported | Do not assume env IDs are runtime fallback routing |
 | Same-day post reuse | Reuse depends on stored thread/message IDs and successful fetch/edit of existing resources | Reliability under transient Discord fetch failures | Do not assume idempotent upsert under all API failure modes |
-| Auto screenshot schedule | Checks every 30s and can run once per guild/job/date any time after fixed `15:35`/`06:05` KST schedule has passed | Whether same-day late execution is operationally acceptable for all guilds | Do not assume an exact-minute-only trigger |
+| Auto screenshot schedule | Checks every 30s and can run once per guild/job/date any time after fixed `16:00`/`07:00` KST schedule has passed | Whether same-day late execution is operationally acceptable for all guilds | Do not assume an exact-minute-only trigger |
 | News posting | Posts separate domestic/global daily threads and an optional trend thread | Whether partial-region success should count as healthy | Do not assume robust regional failure isolation |
 | Trend posting | In current code, the trend thread is skipped unless at least one region has 3+ themes; empty displayed regions are rendered as placeholder content messages | Intended theme-quality guarantee | Do not assume business-quality trend accuracy from current heuristics |
 | EOD summary | Scheduler path exists but provider is mock and feature default is off | Whether live EOD was meant to be production-ready | Do not assume real market-close data |
 | Watch polling | Polls stored watchlist on interval and updates per-symbol forum threads with session-aware band/close comments | Live Discord/forum permissions and vendor payload stability | Do not assume live smoke has already validated the rollout |
 | Watch authorization | Guild-only check is present; explicit admin auth is not | Whether open watchlist mutation is intentional | Do not assume watchlist changes are admin-restricted |
 | Status commands | Return state/default diagnostic rows ephemerally | Intended audience and any future operator-only policy | Do not assume diagnostics are access-controlled |
-| Instrument registry refresh | Has explicit same-day catch-up and writes runtime override file on success | Extent of operational monitoring around refresh | Do not assume other schedulers share the same catch-up behavior |
+| Instrument registry refresh | Has explicit same-day catch-up and writes runtime override file on success | Extent of operational monitoring around refresh | Do not assume provider refresh is live without configured credentials |
 | Provider rows in `/source-status` | Some rows are derived from config defaults, not live activity | Whether every shown provider is actively wired into runtime jobs | Do not assume “configured” means currently used in a job |
-| State safety | JSON state is atomically written per save | Multi-process safety or transactional merge behavior | Do not assume strong concurrency safety |
+| State safety | Runtime state is split into PostgreSQL domain rows | Distributed scheduler leases or Discord side-effect outbox | Do not assume duplicate bot instances are side-effect safe |
 
 # 10. Optional improvement notes
 - The current code would benefit from a separate operator-facing document that explicitly states:
   - which commands are intentionally public vs admin-only
   - what follow/notification expectation operators should set for watch forum threads
   - whether EOD is development-only or supported when enabled
-- The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that distinguishes exact-minute jobs from the registry refresh catch-up path.
-- The current code/docs would also benefit from a dedicated state-schema document for `data/state/state.json` and a scheduler contract document that clearly separates heatmap catch-up behavior from exact-minute news/EOD jobs and the registry refresh catch-up path.
+- The current code/docs would also benefit from a dedicated state-schema document for the PostgreSQL split-state tables and a scheduler contract document that clearly separates heatmap/news/EOD catch-up behavior, registry refresh catch-up behavior, and watch polling.

@@ -1,9 +1,10 @@
 # Session Handoff
 
-- Active carry-forward as of 2026-05-04:
-  - PostgreSQL app-state backend이 opt-in으로 추가됐다. 기본은 계속 `STATE_BACKEND=file` / `data/state/state.json`이고, `STATE_BACKEND=postgres`와 `DATABASE_URL`을 설정하면 `bot_app_state` 테이블의 `state JSONB` row에 기존 `AppState` 문서를 저장한다.
-  - PostgreSQL 첫 load에서 row가 없으면 현재 `data/state/state.json`을 seed로 사용하되 파일은 삭제/수정하지 않는다. PostgreSQL backend 선택 후 DB 오류는 empty state fallback이 아니라 RuntimeError로 fail-closed 처리한다.
-  - v1은 Discord route/thread/message ID와 watch/session/job checkpoint 보존을 목표로 한 JSONB document store다. 여러 프로세스의 load-mutate-save lost update까지 해결하는 transactional repository redesign은 아직 남은 리스크다.
+- Active carry-forward as of 2026-05-05:
+  - Runtime state는 PostgreSQL split rows로 전환됐다. 현재 bot startup은 `STATE_BACKEND=postgres` 또는 `postgresql`과 `DATABASE_URL`이 필요하다.
+  - `split_state_v1` migration은 기존 `bot_app_state.state JSONB` row를 우선 source로 사용하고, 없을 때만 `data/state/state.json`을 fallback import한다. legacy JSON row는 보존되며 runtime에서 다시 sync-back하지 않는다.
+  - Docker smoke 중 이전 live `discord-bot` 컨테이너가 실행 중인 것을 확인해 중지했고, marker를 지운 뒤 migration을 한 번 재실행해 split rows를 legacy row 기준으로 다시 맞췄다. 현재 Compose 상태는 `postgres` healthy와 `adminer` up, `discord-bot` stopped다.
+  - 남은 state safety 리스크는 full-document lost update가 아니라 duplicate bot instances에 대한 distributed scheduler lease/outbox 부재다.
 - Active carry-forward as of 2026-05-04:
   - Repo agent 운영 기본선에 `.codex-harness/` staged workflow가 추가됐다. 추적 대상은 템플릿/프롬프트/helper이고, 실행 중 변하는 `.codex-harness/requirements.md`, `.codex-harness/state.json`, `.codex-harness/reports/*.md`는 git ignore 대상이다.
   - 새 repo-local skill `codex-harness`는 긴 작업을 analysis -> implementation -> code-review -> test -> final-review 세션으로 나눠 운영할 때 사용한다.

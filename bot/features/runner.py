@@ -4,9 +4,8 @@ from pathlib import Path
 
 import discord
 
-from bot.app.types import AppState
 from bot.common.clock import timestamp_text
-from bot.forum.repository import get_guild_forum_channel_id, load_state, save_state
+from bot.forum.state_store import get_guild_forum_channel_id
 from bot.forum.service import upsert_daily_post
 from bot.markets.capture_service import get_or_capture_images
 
@@ -47,8 +46,7 @@ async def execute_heatmap_for_guild(
     title_builder: TitleBuilder,
     body_builder: BodyBuilder,
 ) -> tuple[bool, str]:
-    state: AppState = load_state()
-    forum_channel_id = get_guild_forum_channel_id(state, guild_id)
+    forum_channel_id = get_guild_forum_channel_id(guild_id)
 
     if forum_channel_id is None:
         return False, "이 서버의 포럼 채널이 설정되지 않았습니다. `/setforumchannel`로 먼저 설정해 주세요."
@@ -58,12 +56,11 @@ async def execute_heatmap_for_guild(
         return False, "이 서버에 연결된 포럼 채널 설정이 유효하지 않습니다. `/setforumchannel`로 다시 설정해 주세요."
 
     image_paths, failed, source_map = await get_or_capture_images(
-        state=state,
+        state=None,
         command_key=command_key,
         targets=targets,
         capture_func=capture_func,
     )
-    save_state(state)
 
     if not image_paths and failed:
         detail = "\n".join(f"- {line}" for line in failed)
@@ -83,7 +80,7 @@ async def execute_heatmap_for_guild(
     try:
         thread, action = await upsert_daily_post(
             client=client,
-            state=state,
+            state=None,
             guild_id=guild_id,
             forum_channel_id=resolved_forum.id,
             command_key=command_key,
@@ -91,7 +88,6 @@ async def execute_heatmap_for_guild(
             body_text=body,
             image_paths=image_paths,
         )
-        save_state(state)
     except discord.Forbidden:
         return False, (
             "포럼 채널에 글 작성/수정 권한이 없습니다. "

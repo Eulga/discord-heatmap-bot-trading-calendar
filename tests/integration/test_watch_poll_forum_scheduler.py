@@ -9,6 +9,7 @@ import pytest
 from bot.features import intel_scheduler
 from bot.features.watch import thread_service
 from bot.intel.providers import market as market_provider
+from tests.state_store_adapter import patch_legacy_state_store
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -169,8 +170,7 @@ async def test_watch_poll_updates_starter_and_posts_highest_new_band_comment(mon
         async def get_watch_snapshot(self, symbol, now):
             return _open_snapshot(now, 107.1)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     now = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
@@ -210,8 +210,7 @@ async def test_watch_poll_keeps_same_session_highest_band_and_supports_both_acti
         async def get_watch_snapshot(self, symbol, now):
             return next(snapshots)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
@@ -277,8 +276,7 @@ async def test_watch_poll_updates_current_comment_when_band_comment_send_fails(m
         async def get_watch_snapshot(self, symbol, now):
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
@@ -331,8 +329,7 @@ async def test_watch_poll_recreates_current_comment_when_old_current_delete_fail
         async def get_watch_snapshot(self, symbol, now):
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
@@ -429,8 +426,7 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
         async def get_watch_snapshot(self, symbol, now):
             return next(snapshots)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
@@ -514,8 +510,7 @@ async def test_watch_poll_finalizes_krx_close_only_at_kst_1600(monkeypatch):
                 provider="kis_quote",
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
@@ -598,8 +593,7 @@ async def test_watch_poll_finalizes_us_close_only_at_kst_0700(monkeypatch):
                 provider="kis_quote",
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
@@ -686,8 +680,7 @@ async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_fail
                 provider="kis_quote",
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
@@ -764,8 +757,7 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
                 provider="kis_quote",
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
@@ -795,8 +787,7 @@ async def test_watch_poll_does_not_update_stopped_symbol_during_open_session(mon
             snapshot_calls["count"] += 1
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
@@ -887,8 +878,7 @@ async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_mi
             snapshot_calls.append(now)
             return next(snapshots)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 10, 0, tzinfo=KST))
@@ -991,8 +981,7 @@ async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
                 provider="kis_quote",
             )
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
@@ -1028,8 +1017,7 @@ async def test_watch_poll_invalid_symbol_does_not_abort_other_symbols(monkeypatc
             snapshot_calls.append(symbol)
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     now = datetime(2026, 3, 26, 10, 0, tzinfo=KST)
@@ -1067,8 +1055,7 @@ async def test_watch_poll_re_raises_unexpected_market_session_failure(monkeypatc
             raise RuntimeError("calendar-broken")
         return original_get_watch_market_session(symbol, now)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
     monkeypatch.setattr(intel_scheduler, "get_watch_market_session", broken_get_watch_market_session)
 
@@ -1086,8 +1073,7 @@ async def test_watch_poll_skips_when_only_missing_watch_forum_routes_exist(monke
             called["count"] += 1
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
@@ -1108,8 +1094,7 @@ async def test_watch_poll_records_snapshot_provider_failure(monkeypatch):
         async def get_watch_snapshot(self, symbol, now):
             raise market_provider.MarketDataProviderError("quote provider down", provider_key="kis_quote")
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))
@@ -1142,8 +1127,7 @@ async def test_watch_poll_warms_unique_symbols_once(monkeypatch):
             snapshot_calls.append(symbol)
             return _open_snapshot(now, 104.0)
 
-    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
-    monkeypatch.setattr(intel_scheduler, "save_state", lambda _state: None)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     await intel_scheduler._run_watch_poll(client=FakeClient(forums), now=datetime(2026, 3, 26, 10, 0, tzinfo=KST))

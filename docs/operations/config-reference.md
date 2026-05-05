@@ -7,8 +7,8 @@
 
 ## Secret vs Non-Secret Boundary
 - Secrets, tokens, and credentials belong in env.
-- Mutable per-guild routing and other operational state belong in the configured app-state backend.
-- The default app-state backend is `data/state/state.json`; `STATE_BACKEND=postgres` stores the same state document in PostgreSQL.
+- Mutable per-guild routing and other operational state belong in PostgreSQL runtime state tables.
+- The legacy JSON state document is now migration input/backup only; runtime route, scheduler, daily-post, status, and watch paths use split PostgreSQL rows.
 - Bootstrap/default channel IDs may exist in env, but they are not the primary runtime source of truth in the inspected runtime paths.
 
 ## Required Secrets
@@ -24,7 +24,7 @@
   - `DART_API_KEY`
     - required only when instrument registry refresh actually runs a live rebuild
   - `DATABASE_URL`
-    - required only when `STATE_BACKEND` is `postgres` or `postgresql`
+    - required for current bot startup because runtime state is PostgreSQL-backed
 - Optional provider/status envs with narrower current roles:
   - `MASSIVE_API_KEY` or legacy `POLYGON_API_KEY`
     - optional US quote fallback only when `MARKET_DATA_PROVIDER_KIND` is `kis`
@@ -82,7 +82,7 @@
   - `INTEL_API_RETRY_COUNT = 1`
 - Cache and auto screenshot:
   - `CACHE_TTL_SECONDS = 3600`
-  - auto screenshot runs only on exact-minute checks hard-coded as `15:35` KST for Korea and `06:05` KST for US
+  - auto screenshot can run once per guild/job/date after the hard-coded `16:00` KST Korea schedule and `07:00` KST US schedule
 - News:
   - `NEWS_BRIEFING_ENABLED = True`
   - `NEWS_BRIEFING_TIME = "07:30"`
@@ -103,9 +103,9 @@
   - `LOG_RETENTION_DAYS = 7`
   - `LOG_CONSOLE_ENABLED = True`
 - State persistence:
-  - `STATE_BACKEND = "file"`
+  - `STATE_BACKEND = "postgres"`
   - `POSTGRES_STATE_KEY = "default"`
-  - `DATABASE_URL` has no default and is required only for the PostgreSQL backend
+  - `DATABASE_URL` has no default and is required for the current runtime state backend
 
 ## Code-Confirmed Provider Wiring
 - News provider selection:
@@ -124,13 +124,25 @@
   - `twelvedata_reference` and `openfigi_mapping` are currently status rows, not active runtime providers in the inspected bot code
 
 ## Runtime State Paths
-- Main mutable app state when `STATE_BACKEND=file`:
-  - `data/state/state.json`
-- Main mutable app state when `STATE_BACKEND=postgres` or `postgresql`:
-  - PostgreSQL table `bot_app_state`
-  - row key from `POSTGRES_STATE_KEY`
-  - full `AppState` document stored in `state JSONB`
-  - `version BIGINT` tracks optimistic write version; stale loaded-state saves fail instead of overwriting newer row state
+- Current mutable runtime state when `STATE_BACKEND=postgres` or `postgresql`:
+  - `bot_guild_config`
+  - `bot_guild_job_markers`
+  - `bot_daily_posts`
+  - `bot_command_image_cache`
+  - `bot_watch_symbols`
+  - `bot_watch_reference_snapshots`
+  - `bot_watch_session_alerts`
+  - `bot_watch_alert_cooldowns`
+  - `bot_watch_alert_latches`
+  - `bot_watch_baselines`
+  - `bot_job_status`
+  - `bot_provider_status`
+  - `bot_news_dedup`
+  - all keyed by `POSTGRES_STATE_KEY`
+- Migration/rollback state:
+  - PostgreSQL table `bot_app_state` keeps the legacy full `AppState` JSONB row.
+  - `data/state/state.json` is a one-time import fallback only when no legacy PostgreSQL row exists.
+  - `bot_state_migrations` records `split_state_v1` idempotency.
 - Optional runtime registry artifact:
   - `data/state/instrument_registry.json`
 - Logs:
