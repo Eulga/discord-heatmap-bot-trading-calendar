@@ -157,6 +157,24 @@ def _visible_messages(thread: FakeThread) -> list[FakeMessage]:
     return [message for message in sorted(thread._messages.values(), key=lambda item: item.id) if not message.deleted]
 
 
+async def _run_krx_close_job(client, now: datetime) -> None:
+    await intel_scheduler._run_watch_close_finalization_job(
+        client,
+        now,
+        job_key=intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY,
+        market_prefixes=intel_scheduler.WATCH_CLOSE_KRX_MARKET_PREFIXES,
+    )
+
+
+async def _run_us_close_job(client, now: datetime) -> None:
+    await intel_scheduler._run_watch_close_finalization_job(
+        client,
+        now,
+        job_key=intel_scheduler.WATCH_CLOSE_US_JOB_KEY,
+        market_prefixes=intel_scheduler.WATCH_CLOSE_US_MARKET_PREFIXES,
+    )
+
+
 @pytest.mark.asyncio
 async def test_watch_poll_updates_starter_and_posts_highest_new_band_comment(monkeypatch):
     _patch_discord_types(monkeypatch)
@@ -349,7 +367,7 @@ async def test_watch_poll_recreates_current_comment_when_old_current_delete_fail
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_defers_close_finalization_until_session_close_price_is_available(monkeypatch):
+async def test_watch_close_job_defers_finalization_until_session_close_price_is_available(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -430,13 +448,13 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
     assert intraday_one.deleted is False
     assert intraday_two.deleted is False
     assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
 
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, 30, tzinfo=KST))
+    await _run_krx_close_job(client=client, now=datetime(2026, 3, 26, 16, 0, 30, tzinfo=KST))
     assert intraday_one.deleted is True
     assert intraday_two.deleted is True
     assert current_comment.deleted is True
@@ -447,7 +465,7 @@ async def test_watch_poll_defers_close_finalization_until_session_close_price_is
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_finalizes_krx_close_only_at_kst_1600(monkeypatch):
+async def test_watch_poll_skips_krx_close_and_close_job_finalizes_within_grace(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -514,14 +532,14 @@ async def test_watch_poll_finalizes_krx_close_only_at_kst_1600(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 15, 59, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
     assert snapshot_calls == []
     assert intraday.deleted is False
     assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
 
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
-    assert snapshot_calls == [datetime(2026, 3, 26, 16, 0, tzinfo=KST)]
+    await _run_krx_close_job(client=client, now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
+    assert snapshot_calls == [datetime(2026, 3, 26, 16, 5, tzinfo=KST)]
     assert intraday.deleted is True
     assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-26"
@@ -530,7 +548,7 @@ async def test_watch_poll_finalizes_krx_close_only_at_kst_1600(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_finalizes_us_close_only_at_kst_0700(monkeypatch):
+async def test_watch_poll_skips_us_close_and_close_job_finalizes_within_grace(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -597,14 +615,14 @@ async def test_watch_poll_finalizes_us_close_only_at_kst_0700(monkeypatch):
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
     client = FakeClient({456: forum})
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 27, 6, 59, tzinfo=KST))
+    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 27, 7, 0, tzinfo=KST))
     assert snapshot_calls == []
     assert intraday.deleted is False
     assert current_comment.deleted is False
     assert "last_finalized_session_date" not in state["system"]["watch_session_alerts"]["1"]["NAS:AAPL"]
 
-    await intel_scheduler._run_watch_poll(client=client, now=datetime(2026, 3, 27, 7, 0, tzinfo=KST))
-    assert snapshot_calls == [datetime(2026, 3, 27, 7, 0, tzinfo=KST)]
+    await _run_us_close_job(client=client, now=datetime(2026, 3, 27, 7, 5, tzinfo=KST))
+    assert snapshot_calls == [datetime(2026, 3, 27, 7, 5, tzinfo=KST)]
     assert intraday.deleted is True
     assert current_comment.deleted is True
     assert state["system"]["watch_session_alerts"]["1"]["NAS:AAPL"]["last_finalized_session_date"] == "2026-03-26"
@@ -613,7 +631,7 @@ async def test_watch_poll_finalizes_us_close_only_at_kst_0700(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_failure(monkeypatch):
+async def test_watch_close_job_ignores_current_comment_cleanup_http_failure(monkeypatch):
     _patch_discord_types(monkeypatch)
     monkeypatch.setattr(intel_scheduler.discord, "HTTPException", FakeHTTPException)
     forum = FakeForumChannel(456, 1)
@@ -683,7 +701,7 @@ async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_fail
     patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
 
     alert_entry = state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert current_comment.deleted is False
@@ -692,11 +710,11 @@ async def test_watch_poll_finalization_ignores_current_comment_cleanup_http_fail
     assert alert_entry["last_finalized_session_date"] == "2026-03-26"
     close_comments = [content for content in thread.sent_contents if "마감가 알림" in content]
     assert len(close_comments) == 1
-    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "ok"
+    assert state["system"]["job_last_runs"][intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY]["status"] == "ok"
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_persists_close_price_before_close_comment_failure(monkeypatch):
+async def test_watch_close_job_persists_close_price_before_close_comment_failure(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -767,19 +785,19 @@ async def test_watch_poll_persists_close_price_before_close_comment_failure(monk
     patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
 
     close_price = state["system"]["watch_close_prices"]["KRX:005930"]["2026-03-26"]
     assert close_price["close_price"] == 98.0
     assert close_price["reference_price"] == 100.0
     assert close_price["source"] == "session_close_price"
     assert close_price["collection_reason"] == "finalization"
-    assert state["system"]["job_last_runs"]["watch_poll"]["status"] == "failed"
-    assert "comment_failures=1" in state["system"]["job_last_runs"]["watch_poll"]["detail"]
+    assert state["system"]["job_last_runs"][intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY]["status"] == "failed"
+    assert "comment_failures=1" in state["system"]["job_last_runs"][intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY]["detail"]
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeypatch):
+async def test_watch_close_job_finalizes_inactive_symbol_once_before_stopping(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -843,7 +861,7 @@ async def test_watch_poll_finalizes_inactive_symbol_once_before_stopping(monkeyp
     patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=FakeClient({456: forum}), now=datetime(2026, 3, 26, 16, 5, tzinfo=KST))
 
     assert intraday.deleted is True
     assert current_comment.deleted is True
@@ -1100,11 +1118,11 @@ async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_mi
     assert len(close_comments) == 0
     assert thread.sent_contents == []
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 5, tzinfo=KST))
 
     assert snapshot_calls == [
         datetime(2026, 3, 27, 10, 0, tzinfo=KST),
-        datetime(2026, 3, 27, 16, 0, tzinfo=KST),
+        datetime(2026, 3, 27, 16, 5, tzinfo=KST),
     ]
     assert intraday.deleted is True
     assert current_comment.deleted is True
@@ -1122,7 +1140,7 @@ async def test_watch_poll_keeps_regular_updates_when_prior_session_missed_due_mi
 
 
 @pytest.mark.asyncio
-async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
+async def test_watch_close_job_drops_non_adjacent_pending_close_session(monkeypatch):
     _patch_discord_types(monkeypatch)
     forum = FakeForumChannel(456, 1)
     starter = FakeMessage(3001, "starter")
@@ -1191,7 +1209,7 @@ async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
     patch_legacy_state_store(monkeypatch, intel_scheduler, state)
     monkeypatch.setattr(intel_scheduler, "quote_provider", Provider())
 
-    await intel_scheduler._run_watch_poll(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 0, tzinfo=KST))
+    await _run_krx_close_job(client=FakeClient({456: forum}), now=datetime(2026, 3, 27, 16, 5, tzinfo=KST))
 
     assert intraday.deleted is False
     assert state["system"]["watch_session_alerts"]["1"]["KRX:005930"]["last_finalized_session_date"] == "2026-03-27"
@@ -1199,7 +1217,7 @@ async def test_watch_poll_drops_non_adjacent_pending_close_session(monkeypatch):
     assert state["system"]["watch_reference_snapshots"]["1"]["KRX:005930"]["session_date"] == "2026-03-27"
     assert "pending_close_sessions" not in state["system"]["watch_session_alerts"]["1"]["KRX:005930"]
     assert thread.sent_contents == []
-    run = state["system"]["job_last_runs"]["watch_poll"]
+    run = state["system"]["job_last_runs"][intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY]
     assert run["status"] == "ok"
     assert "finalized_sessions=0" in run["detail"]
     assert "dropped_pending_close_sessions=1" in run["detail"]

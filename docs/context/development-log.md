@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-05-06
+- Context: 사용자가 watch `마감가 알림`을 regular `watch_poll` 루프에서 분리하고, due minute을 짧게 놓친 재시작/지연은 복구하되 장기 중단 backfill은 원치 않는다고 요청했다.
+- Change:
+1. `bot/features/intel_scheduler.py`에 `watch_close_krx`와 `watch_close_us` daily close-finalization job을 추가했다.
+2. KRX close job은 KST `16:00:00 <= now < 16:30:00`, US close job은 KST `07:00:00 <= now < 07:30:00` 안에서만 같은 KST 날짜에 1회 실행된다.
+3. `_run_watch_poll()`은 regular-session current-price/band updates와 post-due DB close-price catch-up만 담당하고, Discord `마감가 알림` 생성/edit은 close job으로 이동했다.
+4. Existing `close_comment_ids_by_session`, `[watch-close:*]` marker, `last_finalized_session_date`, pending adjacent-session protection, and close-price DB persistence are reused.
+5. Current-truth docs, the watch-poll functional spec, and runtime runbook now describe the separated close jobs and 30-minute grace windows.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests/unit/test_watch_cooldown.py tests/integration/test_watch_poll_forum_scheduler.py tests/integration/test_intel_scheduler_logic.py`
+- Status: done
+
 ## 2026-05-05
 - Context: 사용자가 로컬 LLM 서버는 dev bot 전용이 아니라 상시 외부 서비스로 별도 관리해야 하므로 서버 재시작 skill에서 제외해 달라고 요청했다.
 - Change:

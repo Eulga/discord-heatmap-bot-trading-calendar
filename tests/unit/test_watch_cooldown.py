@@ -140,32 +140,75 @@ def test_watch_session_adjacency_uses_trading_calendar():
     ) is False
 
 
-def test_watch_close_finalization_due_time_is_exact_kst_minute_for_krx():
-    assert intel_scheduler._is_watch_close_finalization_due(
+def test_watch_close_finalization_window_allows_krx_grace_period():
+    assert intel_scheduler._is_watch_close_finalization_window(
         "KRX:005930",
         datetime(2026, 3, 26, 15, 59, tzinfo=KST),
     ) is False
-    assert intel_scheduler._is_watch_close_finalization_due(
+    assert intel_scheduler._is_watch_close_finalization_window(
         "KRX:005930",
         datetime(2026, 3, 26, 16, 0, tzinfo=KST),
     ) is True
-    assert intel_scheduler._is_watch_close_finalization_due(
+    assert intel_scheduler._is_watch_close_finalization_window(
         "KRX:005930",
-        datetime(2026, 3, 26, 16, 1, tzinfo=KST),
+        datetime(2026, 3, 26, 16, 29, 59, tzinfo=KST),
+    ) is True
+    assert intel_scheduler._is_watch_close_finalization_window(
+        "KRX:005930",
+        datetime(2026, 3, 26, 16, 30, tzinfo=KST),
     ) is False
 
 
-def test_watch_close_finalization_due_time_is_exact_kst_minute_for_us_markets():
+def test_watch_close_finalization_window_allows_us_grace_period():
     for symbol in ("NAS:AAPL", "NYS:IBM", "AMS:SPY"):
-        assert intel_scheduler._is_watch_close_finalization_due(
+        assert intel_scheduler._is_watch_close_finalization_window(
             symbol,
             datetime(2026, 3, 27, 6, 59, tzinfo=KST),
         ) is False
-        assert intel_scheduler._is_watch_close_finalization_due(
+        assert intel_scheduler._is_watch_close_finalization_window(
             symbol,
             datetime(2026, 3, 27, 7, 0, tzinfo=KST),
         ) is True
-        assert intel_scheduler._is_watch_close_finalization_due(
+        assert intel_scheduler._is_watch_close_finalization_window(
             symbol,
-            datetime(2026, 3, 27, 7, 1, tzinfo=KST),
+            datetime(2026, 3, 27, 7, 29, 59, tzinfo=KST),
+        ) is True
+        assert intel_scheduler._is_watch_close_finalization_window(
+            symbol,
+            datetime(2026, 3, 27, 7, 30, tzinfo=KST),
         ) is False
+
+
+def test_should_run_watch_close_job_only_once_per_kst_date(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "get_job_last_runs", lambda: {})
+
+    assert intel_scheduler._should_run_watch_close_job(
+        datetime(2026, 3, 27, 7, 10, tzinfo=KST),
+        job_key=intel_scheduler.WATCH_CLOSE_US_JOB_KEY,
+        scheduled_hour=7,
+        scheduled_minute=0,
+    ) is True
+    assert intel_scheduler._should_run_watch_close_job(
+        datetime(2026, 3, 27, 7, 31, tzinfo=KST),
+        job_key=intel_scheduler.WATCH_CLOSE_US_JOB_KEY,
+        scheduled_hour=7,
+        scheduled_minute=0,
+    ) is False
+
+    monkeypatch.setattr(
+        intel_scheduler,
+        "get_job_last_runs",
+        lambda: {
+            intel_scheduler.WATCH_CLOSE_US_JOB_KEY: {
+                "status": "failed",
+                "detail": "snapshot_failures=1",
+                "run_at": "2026-03-27T07:05:00+09:00",
+            }
+        },
+    )
+    assert intel_scheduler._should_run_watch_close_job(
+        datetime(2026, 3, 27, 7, 10, tzinfo=KST),
+        job_key=intel_scheduler.WATCH_CLOSE_US_JOB_KEY,
+        scheduled_hour=7,
+        scheduled_minute=0,
+    ) is False

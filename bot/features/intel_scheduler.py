@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import discord
@@ -123,12 +123,17 @@ NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
 WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
 WATCH_PENDING_CLOSE_SESSIONS_KEY = "pending_close_sessions"
+WATCH_CLOSE_KRX_JOB_KEY = "watch_close_krx"
+WATCH_CLOSE_US_JOB_KEY = "watch_close_us"
+WATCH_CLOSE_FINALIZATION_GRACE = timedelta(minutes=30)
 WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
     "KRX": (16, 0),
     "NAS": (7, 0),
     "NYS": (7, 0),
     "AMS": (7, 0),
 }
+WATCH_CLOSE_KRX_MARKET_PREFIXES = frozenset({"KRX"})
+WATCH_CLOSE_US_MARKET_PREFIXES = frozenset({"NAS", "NYS", "AMS"})
 
 
 def _build_news_provider() -> NewsProvider:
@@ -859,12 +864,35 @@ def _watch_close_finalization_due_time(symbol: str) -> tuple[int, int] | None:
     return WATCH_CLOSE_FINALIZATION_DUE_TIMES.get(market_prefix)
 
 
-def _is_watch_close_finalization_due(symbol: str, now: datetime) -> bool:
+def _watch_close_finalization_due_at(symbol: str, now: datetime) -> datetime | None:
     due_time = _watch_close_finalization_due_time(symbol)
     if due_time is None:
+        return None
+    kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
+    due_hour, due_minute = due_time
+    return kst_now.replace(hour=due_hour, minute=due_minute, second=0, microsecond=0)
+
+
+def _is_watch_close_finalization_window(symbol: str, now: datetime) -> bool:
+    due_at = _watch_close_finalization_due_at(symbol, now)
+    if due_at is None:
         return False
     kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
-    return (kst_now.hour, kst_now.minute) == due_time
+    return due_at <= kst_now < due_at + WATCH_CLOSE_FINALIZATION_GRACE
+
+
+def _should_run_watch_close_job(
+    now: datetime,
+    *,
+    job_key: str,
+    scheduled_hour: int,
+    scheduled_minute: int,
+) -> bool:
+    kst_now = now.astimezone(WATCH_CLOSE_FINALIZATION_TIMEZONE)
+    scheduled_at = kst_now.replace(hour=scheduled_hour, minute=scheduled_minute, second=0, microsecond=0)
+    if not (scheduled_at <= kst_now < scheduled_at + WATCH_CLOSE_FINALIZATION_GRACE):
+        return False
+    return _job_status_on_date(job_key, date_key(kst_now)) is None
 
 
 def _is_watch_close_price_catchup_due(symbol: str, now: datetime) -> bool:
@@ -887,6 +915,10 @@ def _watch_poll_target_symbols(guild_id: int) -> tuple[list[str], list[str]]:
         if _has_unfinalized_watch_session(alert):
             targets.append(symbol)
     return active_symbols, targets
+
+
+def _watch_symbol_market_prefix(symbol: str) -> str:
+    return symbol.strip().upper().split(":", maxsplit=1)[0]
 
 
 def _is_invalid_watch_symbol_error(exc: RuntimeError) -> bool:
@@ -1237,12 +1269,129 @@ async def _finalize_pending_watch_close_sessions(
     return finalized_count, dropped_count
 
 
+async def _run_watch_close_finalization_job(
+    client: discord.Client,
+    now: datetime,
+    *,
+    job_key: str,
+    market_prefixes: frozenset[str],
+) -> None:
+    target_symbols_count = 0
+    finalized_sessions = 0
+    dropped_pending_close_sessions = 0
+    unresolved_sessions = 0
+    missing_forum_guilds = 0
+    snapshot_failures = 0
+    comment_failures = 0
+    pending_guilds: list[tuple[int, int, set[str], list[str]]] = []
+    warm_symbols: set[str] = set()
+
+    normalized_prefixes = {prefix.upper() for prefix in market_prefixes}
+    for guild_id in list_guild_ids():
+        active_symbols, target_symbols = _watch_poll_target_symbols(guild_id)
+        close_symbols: list[str] = []
+        for symbol in target_symbols:
+            if _watch_symbol_market_prefix(symbol) not in normalized_prefixes:
+                continue
+            if not _is_watch_close_finalization_window(symbol, now):
+                continue
+            alert_entry = get_watch_session_alert(guild_id, symbol)
+            if not _has_unfinalized_watch_session(alert_entry):
+                continue
+            close_symbols.append(symbol)
+        target_symbols_count += len(close_symbols)
+        if not close_symbols:
+            continue
+        forum_channel_id = get_guild_watch_forum_channel_id(guild_id)
+        if forum_channel_id is None:
+            missing_forum_guilds += 1
+            continue
+        pending_guilds.append((guild_id, forum_channel_id, set(active_symbols), close_symbols))
+        warm_symbols.update(close_symbols)
+
+    warm_watch_snapshots = getattr(quote_provider, "warm_watch_snapshots", None)
+    if warm_symbols and callable(warm_watch_snapshots):
+        try:
+            await warm_watch_snapshots(sorted(warm_symbols), now)
+        except Exception as exc:
+            logger.exception("[intel] watch close warm snapshots failed job=%s: %s", job_key, exc)
+
+    for guild_id, forum_channel_id, active_symbols, symbols in pending_guilds:
+        for symbol in symbols:
+            try:
+                snapshot = await quote_provider.get_watch_snapshot(symbol, now)
+                provider_key = getattr(snapshot, "provider", "") or "kis_quote"
+                set_provider_status(provider_key, True, f"snapshot:{symbol}")
+            except Exception as exc:
+                provider_key = getattr(exc, "provider_key", "kis_quote")
+                set_provider_status(provider_key, False, str(exc))
+                snapshot_failures += 1
+                continue
+
+            try:
+                alert_entry = get_watch_session_alert(guild_id, symbol)
+                pending_finalized, pending_dropped = await _finalize_pending_watch_close_sessions(
+                    client,
+                    now=now,
+                    guild_id=guild_id,
+                    forum_channel_id=forum_channel_id,
+                    symbol=symbol,
+                    snapshot=snapshot,
+                    active=symbol in active_symbols,
+                    alert_entry=alert_entry,
+                )
+                finalized_sessions += pending_finalized
+                dropped_pending_close_sessions += pending_dropped
+                alert_entry = get_watch_session_alert(guild_id, symbol)
+                current_target = _current_watch_close_target(guild_id, symbol, alert_entry)
+                if current_target is None:
+                    continue
+                target_session_date, reference_price, intraday_comment_ids = current_target
+                finalized = await _finalize_watch_session(
+                    client,
+                    now=now,
+                    guild_id=guild_id,
+                    forum_channel_id=forum_channel_id,
+                    symbol=symbol,
+                    snapshot=snapshot,
+                    active=symbol in active_symbols,
+                    target_session_date=target_session_date,
+                    reference_price=reference_price,
+                    intraday_comment_ids=intraday_comment_ids,
+                )
+            except Exception as exc:
+                logger.exception("[intel] watch close finalization failed job=%s guild=%s symbol=%s: %s", job_key, guild_id, symbol, exc)
+                comment_failures += 1
+                continue
+            if finalized:
+                finalized_sessions += 1
+            else:
+                unresolved_sessions += 1
+
+    detail = (
+        f"target_symbols={target_symbols_count} finalized_sessions={finalized_sessions} "
+        f"dropped_pending_close_sessions={dropped_pending_close_sessions} "
+        f"unresolved_sessions={unresolved_sessions} missing_forum_guilds={missing_forum_guilds} "
+        f"snapshot_failures={snapshot_failures} comment_failures={comment_failures}"
+    )
+    if target_symbols_count == 0:
+        status = "skipped"
+        detail = "no-watch-close-targets"
+    elif not pending_guilds and missing_forum_guilds > 0:
+        status = "skipped"
+        detail = f"no-target-forums {detail}"
+    elif snapshot_failures > 0 or comment_failures > 0:
+        status = "failed"
+    else:
+        status = "ok"
+    set_job_last_run(job_key, status, detail)
+    _log_job_result(job_key, status, detail)
+
+
 async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
     active_symbols_count = 0
     updated_threads = 0
     updated_current_comments = 0
-    finalized_sessions = 0
-    dropped_pending_close_sessions = 0
     close_price_catchup_saved = 0
     close_price_catchup_unavailable = 0
     close_price_catchup_failed = 0
@@ -1278,12 +1427,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     exc,
                 )
                 continue
-            alert_entry = get_watch_session_alert(guild_id, symbol)
-            needs_finalization = _has_unfinalized_watch_session(alert_entry)
-            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
             if market_session.is_regular_session_open and symbol in active_symbols:
-                warm_symbols.add(symbol)
-            elif needs_finalization and close_finalization_due:
                 warm_symbols.add(symbol)
             elif (
                 symbol in active_symbols
@@ -1317,7 +1461,6 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                 continue
             alert_entry = get_watch_session_alert(guild_id, symbol)
             needs_finalization = _has_unfinalized_watch_session(alert_entry)
-            close_finalization_due = _is_watch_close_finalization_due(symbol, now)
             catchup_session_date = (
                 market_session.session_date
                 if (
@@ -1335,7 +1478,7 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             if market_session.is_regular_session_open and symbol in active_symbols:
                 pass
             else:
-                if not ((needs_finalization and close_finalization_due) or close_price_catchup_due):
+                if not close_price_catchup_due:
                     continue
 
             try:
@@ -1345,14 +1488,14 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
             except Exception as exc:
                 provider_key = getattr(exc, "provider_key", "kis_quote")
                 set_provider_status(provider_key, False, str(exc))
-                if close_price_catchup_due and not (needs_finalization and close_finalization_due):
+                if close_price_catchup_due:
                     record_watch_close_price_attempt(symbol, catchup_session_date, now, "failed", error=str(exc))
                     close_price_catchup_failed += 1
                     continue
                 snapshot_failures += 1
                 continue
 
-            if close_price_catchup_due and not (needs_finalization and close_finalization_due):
+            if close_price_catchup_due and not market_session.is_regular_session_open:
                 catchup_status = _persist_watch_close_price_catchup(symbol, catchup_session_date, snapshot, now)
                 record_watch_close_price_attempt(
                     symbol,
@@ -1373,43 +1516,18 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     active_session_date = str(alert_entry.get("active_session_date") or "")
                     reference_session_date = str(reference_snapshot.get("session_date") or "") if reference_snapshot is not None else ""
                     if needs_finalization and reference_session_date and reference_session_date < snapshot.session_date:
-                        if not close_finalization_due:
-                            _store_pending_watch_close_session(
-                                guild_id,
-                                symbol,
-                                session_date=reference_session_date,
-                                reference_price=float(reference_snapshot.get("reference_price") or 0.0),
-                                intraday_comment_ids=[
-                                    message_id
-                                    for message_id in alert_entry.get("intraday_comment_ids", [])
-                                    if isinstance(message_id, int)
-                                ],
-                                updated_at=now.isoformat(),
-                            )
-                        else:
-                            finalized = await _finalize_watch_session(
-                                client,
-                                now=now,
-                                guild_id=guild_id,
-                                forum_channel_id=forum_channel_id,
-                                symbol=symbol,
-                                snapshot=snapshot,
-                                active=True,
-                            )
-                            if not finalized:
-                                comment_failures += 1
-                                logger.warning(
-                                    "[intel] watch carry-forward finalization not completed guild=%s symbol=%s target_session=%s new_session=%s",
-                                    guild_id,
-                                    symbol,
-                                    reference_session_date,
-                                    snapshot.session_date,
-                                )
-                                continue
-                            finalized_sessions += 1
-                            alert_entry = get_watch_session_alert(guild_id, symbol)
-                            reference_snapshot = get_watch_reference_snapshot(guild_id, symbol)
-                            active_session_date = str(alert_entry.get("active_session_date") or "")
+                        _store_pending_watch_close_session(
+                            guild_id,
+                            symbol,
+                            session_date=reference_session_date,
+                            reference_price=float(reference_snapshot.get("reference_price") or 0.0),
+                            intraday_comment_ids=[
+                                message_id
+                                for message_id in alert_entry.get("intraday_comment_ids", [])
+                                if isinstance(message_id, int)
+                            ],
+                            updated_at=now.isoformat(),
+                        )
                     if (
                         reference_snapshot is None
                         or str(reference_snapshot.get("session_date") or "") != snapshot.session_date
@@ -1543,50 +1661,9 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
                     comment_failures += 1
                 continue
 
-            if needs_finalization:
-                if not close_finalization_due:
-                    continue
-                try:
-                    pending_finalized, pending_dropped = await _finalize_pending_watch_close_sessions(
-                        client,
-                        now=now,
-                        guild_id=guild_id,
-                        forum_channel_id=forum_channel_id,
-                        symbol=symbol,
-                        snapshot=snapshot,
-                        active=symbol in active_symbols,
-                        alert_entry=alert_entry,
-                    )
-                    finalized_sessions += pending_finalized
-                    dropped_pending_close_sessions += pending_dropped
-                    alert_entry = get_watch_session_alert(guild_id, symbol)
-                    current_target = _current_watch_close_target(guild_id, symbol, alert_entry)
-                    if current_target is None:
-                        continue
-                    target_session_date, reference_price, intraday_comment_ids = current_target
-                    finalized = await _finalize_watch_session(
-                        client,
-                        now=now,
-                        guild_id=guild_id,
-                        forum_channel_id=forum_channel_id,
-                        symbol=symbol,
-                        snapshot=snapshot,
-                        active=symbol in active_symbols,
-                        target_session_date=target_session_date,
-                        reference_price=reference_price,
-                        intraday_comment_ids=intraday_comment_ids,
-                    )
-                except Exception as exc:
-                    logger.exception("[intel] watch finalization failed guild=%s symbol=%s: %s", guild_id, symbol, exc)
-                    comment_failures += 1
-                    continue
-                if finalized:
-                    finalized_sessions += 1
-
     detail = (
         f"active_symbols={active_symbols_count} updated_threads={updated_threads} "
-        f"updated_current_comments={updated_current_comments} finalized_sessions={finalized_sessions} "
-        f"dropped_pending_close_sessions={dropped_pending_close_sessions} "
+        f"updated_current_comments={updated_current_comments} "
         f"close_price_catchup_saved={close_price_catchup_saved} "
         f"close_price_catchup_unavailable={close_price_catchup_unavailable} "
         f"close_price_catchup_failed={close_price_catchup_failed} "
@@ -1655,6 +1732,30 @@ async def intel_scheduler(client: discord.Client) -> None:
                 await _run_eod_job(client, now)
 
             if WATCH_POLL_ENABLED:
+                if _should_run_watch_close_job(
+                    now,
+                    job_key=WATCH_CLOSE_US_JOB_KEY,
+                    scheduled_hour=7,
+                    scheduled_minute=0,
+                ):
+                    await _run_watch_close_finalization_job(
+                        client,
+                        now,
+                        job_key=WATCH_CLOSE_US_JOB_KEY,
+                        market_prefixes=WATCH_CLOSE_US_MARKET_PREFIXES,
+                    )
+                if _should_run_watch_close_job(
+                    now,
+                    job_key=WATCH_CLOSE_KRX_JOB_KEY,
+                    scheduled_hour=16,
+                    scheduled_minute=0,
+                ):
+                    await _run_watch_close_finalization_job(
+                        client,
+                        now,
+                        job_key=WATCH_CLOSE_KRX_JOB_KEY,
+                        market_prefixes=WATCH_CLOSE_KRX_MARKET_PREFIXES,
+                    )
                 if last_watch_run is None or (now - last_watch_run).total_seconds() >= WATCH_POLL_INTERVAL_SECONDS:
                     await _run_watch_poll(client, now)
                     last_watch_run = now

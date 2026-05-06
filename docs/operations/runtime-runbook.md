@@ -115,8 +115,8 @@
 - Watch-specific operator note:
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
-  - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
-  - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
+  - `마감가 알림` is created by separate watch-close jobs, not by the regular watch poll: `watch_close_krx` handles `KRX:*` from 16:00:00 through 16:29:59 KST, and `watch_close_us` handles `NAS:*`/`NYS:*`/`AMS:*` from 07:00:00 through 07:29:59 KST
+  - if the runtime starts or is delayed shortly after the due minute, the 30-minute grace window can still finalize the close; outside that window, long-outage Discord close-comment backfill is not attempted
   - close prices are still accumulated in `bot_watch_close_prices` once a provider snapshot exposes `session_close_price`; after the due minute, DB catch-up can save a missing close price without creating a Discord close comment
   - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
 

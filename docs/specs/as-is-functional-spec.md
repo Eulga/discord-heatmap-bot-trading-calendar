@@ -807,7 +807,7 @@
 ## Feature: Watch poll and per-symbol forum-thread alerting
 
 ### 4.1 Purpose
-- Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and finalizes the session with a close comment only at market-specific KST due minutes.
+- Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and runs separate daily watch-close jobs for Discord `마감가 알림` finalization.
 
 ### 4.2 Trigger
 - `intel_scheduler()` interval check when `WATCH_POLL_ENABLED` is true
@@ -836,9 +836,9 @@
 1. `_run_watch_poll()` scans guilds from split-state rows.
 2. Target symbols are the union of active watch symbol rows and inactive symbols that still have an unfinalized session in `bot_watch_session_alerts`.
 3. Guilds with watch symbols but no configured watch forum are counted as `missing_forum_guilds`.
-4. If the provider exposes `warm_watch_snapshots()`, it is called once with the unique symbol set that is eligible for regular-session updates, KST-due close finalization, or post-due close-price DB catch-up across pending guilds.
+4. If the provider exposes `warm_watch_snapshots()`, `_run_watch_poll()` calls it once with the unique symbol set that is eligible for regular-session updates or post-due close-price DB catch-up across pending guilds.
 5. Malformed or unsupported persisted symbols are treated as per-symbol watch snapshot failures and do not abort processing for other guilds or symbols.
-6. For each guild and symbol, `_run_watch_poll()` calls `quote_provider.get_watch_snapshot()` only when the symbol is eligible for a regular-session active update, a close-finalization due minute, or post-due close-price DB catch-up.
+6. For each guild and symbol, `_run_watch_poll()` calls `quote_provider.get_watch_snapshot()` only when the symbol is eligible for a regular-session active update or post-due close-price DB catch-up.
 7. During market regular-session hours:
    - the current-price comment is updated from the latest snapshot
    - when a band comment is created, the current-price comment is recreated after it so the latest watch state remains at the bottom of the thread
@@ -851,24 +851,23 @@
    - the rendered band label uses the effective threshold `max(0.1, WATCH_ALERT_THRESHOLD_PCT) * band` with trailing-zero trimming, while the trailing signed percent still uses the exact `change_pct`
 8. Outside regular-session hours:
    - current-price and intraday updates are skipped
-   - close finalization is attempted only when the poll tick is in the configured KST due minute
-   - `KRX:*` close finalization is due only at KST `16:00`, while `NAS:*`, `NYS:*`, and `AMS:*` close finalization is due only at KST `07:00`
-   - due-minute matching uses the KST hour and minute; if the scheduler misses that minute, close finalization remains pending until the next due minute
-   - once the due minute has passed, active symbols can fetch a post-close snapshot to populate `bot_watch_close_prices` without creating Discord close comments
+   - Discord close finalization is handled by separate daily jobs: `watch_close_krx` for `KRX:*` at KST `16:00` and `watch_close_us` for `NAS:*`, `NYS:*`, and `AMS:*` at KST `07:00`
+   - each watch-close job may run only inside its 30-minute grace window (`16:00:00 <= now < 16:30:00` or `07:00:00 <= now < 07:30:00`) and records a same-day job status after one attempt
+   - after the due time has passed, active symbols can fetch a post-close snapshot through `_run_watch_poll()` to populate `bot_watch_close_prices` without creating Discord close comments
    - close-price catch-up is throttled by `bot_watch_close_price_attempts` and retries a missing row only after 15 minutes
    - when a later regular session starts before a missed close is finalized, the old close target is preserved under `pending_close_sessions` and regular-session current-price/band processing continues against the new session
-   - if a later due-minute snapshot can close both a pending old session and the current active session, pending close comments are created first and the current session close comment is created after them
-   - if a pending old close target is no longer the immediately adjacent previous trading session for the due-minute snapshot, the pending retry entry is dropped without creating a close comment
+   - if a later watch-close job snapshot can close both a pending old session and the current active session, pending close comments are created first and the current session close comment is created after them
+   - if a pending old close target is no longer the immediately adjacent previous trading session for the watch-close job snapshot, the pending retry entry is dropped without creating a close comment
    - the latest unfinalized session is finalized by deleting the tracked current-price comment plus tracked intraday comments, then reusing or creating a same-session close comment
    - `snapshot.previous_close` is only used as a close-price fallback when the snapshot belongs to the immediately adjacent next trading session
    - the resolved close price is upserted into `bot_watch_close_prices` before Discord close-comment side effects, so DB history can survive Discord comment failures
    - post-close snapshots are allowed to reuse last-trade `asof` timestamps without failing stale-quote validation when `session_close_price` exists for the current off-hours session
    - band-label `%` text follows the same effective-threshold rule even when the configured threshold is fractional or below `1.0`; the trailing signed percent remains the exact `change_pct`
-9. Final job status is derived from counts of `active_symbols`, `updated_threads`, `updated_current_comments`, `finalized_sessions`, `dropped_pending_close_sessions`, close-price catch-up counters, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`.
+9. `watch_poll` final job status is derived from counts of `active_symbols`, `updated_threads`, `updated_current_comments`, close-price catch-up counters, `missing_forum_guilds`, `thread_failures`, `snapshot_failures`, and `comment_failures`; `watch_close_krx` and `watch_close_us` status rows track target, finalized, dropped-pending, unresolved, missing-forum, snapshot-failure, and comment-failure counts separately.
 
 ### 4.5 Outputs
 - Blank starter updates and thread comments in per-symbol watch forum threads
-- `bot_job_status` row for `watch_poll`
+- `bot_job_status` rows for `watch_poll`, `watch_close_krx`, and `watch_close_us`
 - provider status updates keyed per snapshot fetch
 - watch reference/session state updates
 - accumulated close-price rows in `bot_watch_close_prices`
@@ -890,10 +889,10 @@
 - Current-price comment recreate cleanup failures are best-effort and do not block replacement current-price comment sends.
 - `/watch stop` current-price comment cleanup is best-effort and does not block inactive status persistence.
 - Close-finalization current-price comment cleanup is best-effort and does not block close comment creation or `last_finalized_session_date` persistence.
-- Close finalization remains pending when `session_close_price` is unavailable and is retried on a later KST due-minute poll.
+- Close finalization remains pending when `session_close_price` is unavailable and can be attempted by a later watch-close job inside its same-day grace window.
 - Close-price DB catch-up records `close-unavailable` attempts without failing the whole `watch_poll` job when a post-due snapshot lacks `session_close_price`.
-- If a prior session is still unfinalized at the next regular-session open and the current tick is not the market-specific KST due minute, the bot queues the old close target under `pending_close_sessions`, rotates current reference/session state, and keeps regular-session monitoring active.
-- Pending close targets that have aged beyond the adjacent-session `previous_close` fallback window are removed from retry state on a later KST due-minute poll.
+- If a prior session is still unfinalized at the next regular-session open, the bot queues the old close target under `pending_close_sessions`, rotates current reference/session state, and keeps regular-session monitoring active.
+- Pending close targets that have aged beyond the adjacent-session `previous_close` fallback window are removed from retry state by a later watch-close job.
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints
@@ -1034,6 +1033,7 @@
 - `intel_scheduler()` wakes every 15 seconds.
 - News and EOD jobs can run after their configured `HH:MM` values until same-day completion/failure status is recorded.
 - Watch polling is elapsed-interval based using `last_watch_run`.
+- Watch close-finalization jobs are checked independently of `WATCH_POLL_INTERVAL_SECONDS` and run at most once per KST date inside their 30-minute KST grace windows.
 - Instrument registry refresh is interval-loop driven but has explicit same-day-after-scheduled-time catch-up logic.
 
 ## 5.3 Manual/admin command behavior

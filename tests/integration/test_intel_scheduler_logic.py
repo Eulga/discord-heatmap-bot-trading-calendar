@@ -1443,3 +1443,111 @@ async def test_intel_scheduler_keeps_watch_poll_running_while_registry_refresh_i
         await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
 
     assert watch_calls == [now]
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_runs_us_watch_close_job_during_grace_window(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    now = datetime(2026, 3, 27, 7, 10, tzinfo=KST)
+    close_calls: list[tuple[str, frozenset[str], datetime]] = []
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_close_job(_client, run_now, *, job_key, market_prefixes):
+        close_calls.append((job_key, market_prefixes, run_now))
+
+    async def fake_watch_poll(_client, _run_now):
+        return None
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_close_finalization_job", fake_close_job)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_poll", fake_watch_poll)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert close_calls == [(intel_scheduler.WATCH_CLOSE_US_JOB_KEY, intel_scheduler.WATCH_CLOSE_US_MARKET_PREFIXES, now)]
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_runs_krx_watch_close_job_during_grace_window(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    now = datetime(2026, 3, 26, 16, 10, tzinfo=KST)
+    close_calls: list[tuple[str, frozenset[str], datetime]] = []
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_close_job(_client, run_now, *, job_key, market_prefixes):
+        close_calls.append((job_key, market_prefixes, run_now))
+
+    async def fake_watch_poll(_client, _run_now):
+        return None
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_close_finalization_job", fake_close_job)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_poll", fake_watch_poll)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert close_calls == [(intel_scheduler.WATCH_CLOSE_KRX_JOB_KEY, intel_scheduler.WATCH_CLOSE_KRX_MARKET_PREFIXES, now)]
+
+
+@pytest.mark.asyncio
+async def test_intel_scheduler_skips_watch_close_job_after_grace_window(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {"job_last_runs": {}}}
+    now = datetime(2026, 3, 27, 7, 31, tzinfo=KST)
+    close_calls: list[str] = []
+    original_sleep = intel_scheduler.asyncio.sleep
+
+    class StopLoop(BaseException):
+        pass
+
+    async def fake_close_job(_client, _run_now, *, job_key, market_prefixes):
+        close_calls.append(job_key)
+
+    async def fake_watch_poll(_client, _run_now):
+        return None
+
+    async def stop_sleep(_seconds):
+        await original_sleep(0)
+        raise StopLoop()
+
+    monkeypatch.setattr(intel_scheduler, "INSTRUMENT_REGISTRY_REFRESH_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
+    monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
+    patch_legacy_state_store(monkeypatch, intel_scheduler, state)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_close_finalization_job", fake_close_job)
+    monkeypatch.setattr(intel_scheduler, "_run_watch_poll", fake_watch_poll)
+    monkeypatch.setattr(intel_scheduler.asyncio, "sleep", stop_sleep)
+
+    with pytest.raises(StopLoop):
+        await intel_scheduler.intel_scheduler(client=object())  # type: ignore[arg-type]
+
+    assert close_calls == []

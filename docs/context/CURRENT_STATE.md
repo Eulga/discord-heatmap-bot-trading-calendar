@@ -35,8 +35,8 @@
   - `/watch add` only adds a new tracked symbol and creates its persistent thread
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
   - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
-  - close finalization is now KST exact-minute gated: KRX symbols only attempt `마감가 알림` at 16:00 KST, and NAS/NYS/AMS symbols only attempt it at 07:00 KST; missed due minutes leave close finalization pending until the next due minute without blocking later regular-session current-price/band updates, but pending close targets are dropped from retry state once a later snapshot is no longer the immediately adjacent trading session
-  - watch close prices are accumulated in PostgreSQL per `POSTGRES_STATE_KEY + symbol + session_date`; DB history is saved as soon as a close price is resolved, while Discord close comments remain governed by the due-minute finalization path
+  - Discord close finalization is split from regular watch polling into `watch_close_krx` and `watch_close_us`; `KRX:*` attempts `마감가 알림` from 16:00:00 through 16:29:59 KST, while NAS/NYS/AMS attempts it from 07:00:00 through 07:29:59 KST, once per KST date/job
+  - watch close prices are accumulated in PostgreSQL per `POSTGRES_STATE_KEY + symbol + session_date`; DB history is saved as soon as a close price is resolved, while Discord close comments remain governed by the 30-minute watch-close job grace windows
   - after the due minute has passed, active symbols can perform best-effort close-price DB catch-up until the next regular session, without creating Discord close comments
   - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
@@ -97,7 +97,7 @@
 - Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
-- This summary was last updated on 2026-05-05 from:
+- This summary was last updated on 2026-05-06 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`
@@ -110,5 +110,9 @@
   - `../../.codex-harness/README.md`
   - `../../bot/forum/repository.py`
   - `../../bot/forum/state_store.py`
+  - `../../bot/features/intel_scheduler.py`
   - `../../tests/unit/test_state_atomic.py`
+  - `../../tests/unit/test_watch_cooldown.py`
+  - `../../tests/integration/test_watch_poll_forum_scheduler.py`
+  - `../../tests/integration/test_intel_scheduler_logic.py`
 - Exact query-list defaults, ranking heuristics, and any future provider/runtime expansions still require direct code verification before being promoted into summary-level docs.
