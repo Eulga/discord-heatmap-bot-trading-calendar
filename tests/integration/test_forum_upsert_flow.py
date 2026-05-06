@@ -181,7 +181,7 @@ async def test_upsert_syncs_content_messages(monkeypatch):
 
     state = {
         "commands": {
-            "trendbriefing": {
+            "multi-content-post": {
                 "daily_posts_by_guild": {
                     "1": {
                         service.date_key(): {
@@ -202,14 +202,14 @@ async def test_upsert_syncs_content_messages(monkeypatch):
         state,
         1,
         123,
-        "trendbriefing",
-        "trend title",
+        "multi-content-post",
+        "multi content title",
         "starter body",
         [],
         content_texts=["domestic chunk", "global chunk"],
     )
 
-    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    record = state["commands"]["multi-content-post"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert starter.edited is True
     assert old_message.edited is True
     assert old_message.content == "domestic chunk"
@@ -234,7 +234,7 @@ async def test_upsert_deletes_extra_content_messages(monkeypatch):
 
     state = {
         "commands": {
-            "trendbriefing": {
+            "multi-content-post": {
                 "daily_posts_by_guild": {
                     "1": {
                         service.date_key(): {
@@ -255,14 +255,14 @@ async def test_upsert_deletes_extra_content_messages(monkeypatch):
         state,
         1,
         123,
-        "trendbriefing",
-        "trend title",
+        "multi-content-post",
+        "multi content title",
         "starter body",
         [],
         content_texts=["only one chunk"],
     )
 
-    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    record = state["commands"]["multi-content-post"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert record["content_message_ids"] == [30]
     assert second.deleted is True
 
@@ -285,7 +285,7 @@ async def test_upsert_removes_stale_missing_content_message_ids(monkeypatch):
 
     state = {
         "commands": {
-            "trendbriefing": {
+            "multi-content-post": {
                 "daily_posts_by_guild": {
                     "1": {
                         service.date_key(): {
@@ -306,14 +306,14 @@ async def test_upsert_removes_stale_missing_content_message_ids(monkeypatch):
         state,
         1,
         123,
-        "trendbriefing",
-        "trend title",
+        "multi-content-post",
+        "multi content title",
         "starter body",
         [],
         content_texts=["only one chunk"],
     )
 
-    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    record = state["commands"]["multi-content-post"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert record["content_message_ids"] == [30]
 
 
@@ -326,7 +326,7 @@ async def test_upsert_persists_thread_state_when_followup_content_fails(monkeypa
     channel = FakeForumChannel(existing_thread=None, created_thread=thread)
     client = FakeClient(channel)
 
-    state = {"commands": {"trendbriefing": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
+    state = {"commands": {"multi-content-post": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
 
     with pytest.raises(RuntimeError, match="send failed"):
         await service.upsert_daily_post(
@@ -334,14 +334,14 @@ async def test_upsert_persists_thread_state_when_followup_content_fails(monkeypa
             state,
             1,
             123,
-            "trendbriefing",
-            "trend title",
+            "multi-content-post",
+            "multi content title",
             "starter body",
             [],
             content_texts=["domestic chunk", "global chunk"],
         )
 
-    record = state["commands"]["trendbriefing"]["daily_posts_by_guild"]["1"][service.date_key()]
+    record = state["commands"]["multi-content-post"]["daily_posts_by_guild"]["1"][service.date_key()]
     assert record["thread_id"] == 77
     assert record["starter_message_id"] == 88
     assert record["content_message_ids"] == [89]

@@ -23,7 +23,7 @@
   - This is not the current runtime truth.
 
 ## Current System Snapshot
-- The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news, trend, watch-poll, and instrument-registry-refresh flows.
+- The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news collection, EOD, watch-poll, and instrument-registry-refresh flows.
 - Per-guild mutable routing and runtime state now use the PostgreSQL split-state store at runtime.
   - `STATE_BACKEND=postgres` or `postgresql` and `DATABASE_URL` are required for bot startup.
   - `POSTGRES_STATE_KEY` namespaces all split rows.
@@ -45,6 +45,14 @@
   - `/watch delete` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/local ask` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - status commands do not currently apply a visible authorization gate
+- News collection:
+  - `news_collection` and `news_collection_close` are the active scheduled news job keys
+  - default schedules are `07:30` KST for morning collection and `16:10` KST for close-slot collection when news collection is enabled
+  - it fetches provider articles, applies basic quality filtering, and upserts normalized fields plus raw provider payloads into `bot_news_articles`
+  - watchlist symbols now expand the provider stock query universe dynamically; KIS ranking expansion is opt-in through `NEWS_DYNAMIC_RANKING_ENABLED=false` by default
+  - KIS ranking failures or missing credentials update `kis_news_ranking` status/detail but degrade to static macro/fallback plus watchlist queries instead of failing the news job
+  - it does not resolve Discord news forums, call `upsert_daily_post()`, post domestic/global briefing threads, or produce trend-theme threads
+  - `/setnewsforum` and `NEWS_TARGET_FORUM_ID` have been removed from the active runtime/config surface; legacy `news_forum_channel_id` and `bot_news_dedup` remain inert for migration safety
 - Local model slash command:
   - `/local ask` is disabled by default through `LOCAL_MODEL_ENABLED=false`
   - when enabled, it calls an already-running OpenAI-compatible local model endpoint at `LOCAL_MODEL_BASE_URL`
@@ -77,7 +85,7 @@
 - Same-row watch alert updates use row-level/compound repository operations where current behavior needs merge-like semantics.
 - The implementation still does not include distributed scheduler leases or a Discord side-effect outbox, so duplicate bot instances can still duplicate external side effects.
 - Heatmap auto screenshot uses same-day catch-up after its fixed KST schedule: `kheatmap` after 16:00 and `usheatmap` after 07:00, once per guild/job/date.
-- News and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
+- News collection, news close collection, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
 - The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`, so watch forum migration is still an active rollout concern.
@@ -97,7 +105,7 @@
 - Do not assume `python3` itself is the upgraded interpreter on macOS; on the current host it is still `3.9.6`, while `.venv` runs on Homebrew `python3.11`.
 
 ## Last Verified
-- This summary was last updated on 2026-05-06 from:
+- This summary was last updated on 2026-05-07 from:
   - `session-handoff.md`
   - `goals.md`
   - `../specs/as-is-functional-spec.md`
@@ -110,7 +118,12 @@
   - `../../.codex-harness/README.md`
   - `../../bot/forum/repository.py`
   - `../../bot/forum/state_store.py`
+  - `../../bot/intel/providers/news.py`
+  - `../../bot/intel/providers/market.py`
   - `../../bot/features/intel_scheduler.py`
+  - `../../tests/unit/test_news_provider.py`
+  - `../../tests/unit/test_news_query_universe.py`
+  - `../../tests/unit/test_market_provider.py`
   - `../../tests/unit/test_state_atomic.py`
   - `../../tests/unit/test_watch_cooldown.py`
   - `../../tests/integration/test_watch_poll_forum_scheduler.py`

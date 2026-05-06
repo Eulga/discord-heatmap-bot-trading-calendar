@@ -9,7 +9,6 @@ from bot.forum.state_store import (
     set_guild_auto_screenshot_enabled,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
-    set_guild_news_forum_channel_id,
     set_guild_watch_forum_channel_id,
 )
 
@@ -63,30 +62,6 @@ def register(tree: app_commands.CommandTree, client) -> None:
         set_guild_forum_channel_id(guild.id, forum_channel.id)
         logger.info("[command] setforumchannel result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"기본 포럼 채널을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
-
-    @tree.command(name="setnewsforum", description="Set news briefing forum channel for this server.")
-    async def set_news_forum_command(interaction: discord.Interaction, forum_channel: discord.ForumChannel) -> None:
-        guild = interaction.guild
-        if guild is None:
-            logger.warning("[command] setnewsforum rejected reason=no-guild user=%s", _interaction_user_id(interaction))
-            await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
-            return
-        if not _is_authorized_admin(interaction):
-            logger.warning("[command] setnewsforum rejected reason=unauthorized guild=%s user=%s", guild.id, _interaction_user_id(interaction))
-            await interaction.response.send_message("권한이 없습니다.", ephemeral=True)
-            return
-        if forum_channel.guild.id != guild.id:
-            logger.warning(
-                "[command] setnewsforum rejected reason=foreign-channel guild=%s user=%s channel=%s",
-                guild.id,
-                _interaction_user_id(interaction),
-                forum_channel.id,
-            )
-            await interaction.response.send_message("같은 서버의 포럼 채널만 설정할 수 있습니다.", ephemeral=True)
-            return
-        set_guild_news_forum_channel_id(guild.id, forum_channel.id)
-        logger.info("[command] setnewsforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
-        await interaction.response.send_message(f"뉴스 브리핑 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
 
     @tree.command(name="seteodforum", description="Set EOD summary forum channel for this server.")
     async def set_eod_forum_command(interaction: discord.Interaction, forum_channel: discord.ForumChannel) -> None:

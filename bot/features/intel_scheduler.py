@@ -25,14 +25,18 @@ from bot.app.settings import (
     NAVER_NEWS_CLIENT_SECRET,
     NAVER_NEWS_DOMESTIC_QUERIES,
     NAVER_NEWS_DOMESTIC_STOCK_QUERIES,
-    NAVER_NEWS_GLOBAL_QUERY,
     NAVER_NEWS_GLOBAL_QUERIES,
     NAVER_NEWS_GLOBAL_STOCK_QUERIES,
     NAVER_NEWS_LIMIT_PER_REGION,
     NAVER_NEWS_MAX_AGE_HOURS,
-    NEWS_BRIEFING_ENABLED,
-    NEWS_BRIEFING_TIME,
-    NEWS_BRIEFING_TRADING_DAYS_ONLY,
+    NEWS_COLLECTION_CLOSE_ENABLED,
+    NEWS_COLLECTION_CLOSE_TIME,
+    NEWS_COLLECTION_ENABLED,
+    NEWS_COLLECTION_TIME,
+    NEWS_COLLECTION_TRADING_DAYS_ONLY,
+    NEWS_DYNAMIC_INCLUDE_OVERSEAS,
+    NEWS_DYNAMIC_RANKING_ENABLED,
+    NEWS_DYNAMIC_SYMBOL_LIMIT,
     NEWS_PROVIDER_KIND,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
@@ -40,13 +44,6 @@ from bot.app.settings import (
 from bot.common.clock import date_key, now_kst, timestamp_text
 from bot.features.eod.policy import build_body as build_eod_body
 from bot.features.eod.policy import build_post_title as build_eod_title
-from bot.features.news.policy import build_region_body as build_news_region_body
-from bot.features.news.policy import build_post_title as build_news_title
-from bot.features.news.trend_policy import (
-    build_trend_post_title,
-    build_trend_region_messages,
-    build_trend_starter_body,
-)
 from bot.features.watch.service import (
     calculate_change_pct,
     evaluate_band_event,
@@ -59,13 +56,9 @@ from bot.features.watch.session import get_watch_market_session, is_adjacent_wat
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.state_store import (
     clear_watch_current_comment_id,
-    copy_daily_post_if_missing,
-    get_daily_post_record,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
     get_guild_last_auto_run_date,
-    get_guild_last_auto_skip_date,
-    get_guild_news_forum_channel_id,
     get_guild_watch_forum_channel_id,
     get_job_last_runs,
     get_watch_reference_snapshot,
@@ -75,7 +68,6 @@ from bot.forum.state_store import (
     list_watch_tracked_symbols,
     mutate_watch_session_alert,
     record_watch_close_price_attempt,
-    set_guild_last_auto_skip,
     set_guild_last_auto_run_date,
     set_job_last_run,
     set_provider_status,
@@ -83,23 +75,28 @@ from bot.forum.state_store import (
     set_watch_reference_snapshot,
     should_attempt_watch_close_price,
     update_watch_session_alert,
+    upsert_news_articles,
     upsert_watch_close_price,
     watch_close_price_exists,
 )
 from bot.forum.service import upsert_daily_post
 from bot.intel.instrument_registry import (
+    InstrumentRecord,
     RUNTIME_REGISTRY_FILE,
     build_live_registry,
     load_registry,
+    normalize_stored_watch_symbol,
     registry_status,
     save_registry,
 )
 from bot.intel.providers.market import (
     ErrorMarketDataProvider,
     KisMarketDataProvider,
+    KisNewsRankingClient,
     MassiveSnapshotMarketDataProvider,
     MockEodSummaryProvider,
     MockMarketDataProvider,
+    NewsRankingInstrument,
     RoutedMarketDataProvider,
     WatchSnapshot,
 )
@@ -109,18 +106,14 @@ from bot.intel.providers.news import (
     MarketauxNewsProvider,
     MockNewsProvider,
     NaverNewsProvider,
-    NewsAnalysis,
-    NewsItem,
+    NewsQueryUniverse,
     NewsProvider,
-    TrendThemeReport,
 )
 from bot.markets.trading_calendar import safe_check_krx_trading_day
 
 logger = logging.getLogger(__name__)
-NEWS_BRIEFING_COMMAND_KEY = "newsbriefing"
-NEWS_BRIEFING_DOMESTIC_COMMAND_KEY = "newsbriefing-domestic"
-NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
-TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
+NEWS_COLLECTION_JOB_KEY = "news_collection"
+NEWS_COLLECTION_CLOSE_JOB_KEY = "news_collection_close"
 WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
 WATCH_PENDING_CLOSE_SESSIONS_KEY = "pending_close_sessions"
 WATCH_CLOSE_KRX_JOB_KEY = "watch_close_krx"
@@ -227,9 +220,21 @@ def _build_market_data_provider():
     )
 
 
+def _build_kis_news_ranking_client():
+    if not KIS_APP_KEY or not KIS_APP_SECRET:
+        return None
+    return KisNewsRankingClient(
+        app_key=KIS_APP_KEY,
+        app_secret=KIS_APP_SECRET,
+        timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+        retry_count=INTEL_API_RETRY_COUNT,
+    )
+
+
 news_provider = _build_news_provider()
 eod_provider = MockEodSummaryProvider()
 quote_provider = _build_market_data_provider()
+kis_news_ranking_client = _build_kis_news_ranking_client()
 
 
 def _parse_time(text: str, default_h: int, default_m: int) -> tuple[int, int]:
@@ -352,18 +357,189 @@ async def _run_instrument_registry_refresh(now: datetime) -> None:
     )
 
 
-def _has_news_post_for_date(command_key: str, guild_id: int, run_date: str) -> bool:
-    return get_daily_post_record(command_key, guild_id, run_date) is not None
+def _news_provider_fetch_stats(provider: NewsProvider) -> dict[str, int]:
+    raw_stats = getattr(provider, "last_fetch_stats", {})
+    stats = raw_stats if isinstance(raw_stats, dict) else {}
+
+    def _int_stat(key: str) -> int:
+        try:
+            return int(stats.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "fetched": _int_stat("fetched"),
+        "accepted": _int_stat("accepted"),
+        "skipped": _int_stat("skipped"),
+    }
 
 
-def _is_trend_complete_for_date(guild_id: int, run_date: str) -> bool:
-    return _has_news_post_for_date(TREND_BRIEFING_COMMAND_KEY, guild_id, run_date) or (
-        get_guild_last_auto_skip_date(guild_id, TREND_BRIEFING_COMMAND_KEY) == run_date
+async def _fetch_news_articles(
+    provider: NewsProvider,
+    now: datetime,
+    *,
+    query_universe: NewsQueryUniverse,
+) -> list:
+    try:
+        return list(await provider.fetch(now, query_universe=query_universe))
+    except TypeError as exc:
+        if "query_universe" not in str(exc):
+            raise
+        return list(await provider.fetch(now))  # type: ignore[call-arg]
+
+
+def _news_query_for_record(record: InstrumentRecord) -> str:
+    ticker = record.ticker_or_code.strip().upper()
+    if record.market_code == "KRX":
+        return (record.display_name_ko or record.display_name_en or ticker).strip()
+    name = (record.display_name_en or record.display_name_ko).strip()
+    if name and name.upper() != ticker:
+        return f"{name} OR {ticker}"
+    return ticker
+
+
+def _news_query_for_ranking(item: NewsRankingInstrument) -> str:
+    ticker = item.ticker_or_code.strip().upper()
+    if item.market_code == "KRX":
+        return (item.display_name_ko or item.display_name_en or ticker).strip()
+    name = (item.display_name_en or item.display_name_ko).strip()
+    if name and name.upper() != ticker:
+        return f"{name} OR {ticker}"
+    return ticker
+
+
+def _collect_watchlist_records_for_news(*, include_overseas: bool) -> tuple[list[InstrumentRecord], str]:
+    try:
+        registry = load_registry()
+    except Exception as exc:
+        return [], f"watchlist_registry=failed:{exc}"
+
+    records: list[InstrumentRecord] = []
+    seen: set[str] = set()
+    for guild_id in list_guild_ids():
+        for symbol in list_watch_tracked_symbols(guild_id):
+            normalized, _warning = normalize_stored_watch_symbol(symbol, registry=registry)
+            record = registry.get(normalized)
+            if record is None:
+                continue
+            if record.market_code == "KRX":
+                pass
+            elif include_overseas and record.market_code in {"NAS", "NYS", "AMS"}:
+                pass
+            else:
+                continue
+            if record.canonical_symbol in seen:
+                continue
+            seen.add(record.canonical_symbol)
+            records.append(record)
+    return records, f"watchlist={len(records)}"
+
+
+def _build_news_query_universe_from_sources(
+    *,
+    domestic_ranked: list[NewsRankingInstrument],
+    global_ranked: list[NewsRankingInstrument],
+    watch_records: list[InstrumentRecord],
+    include_overseas: bool,
+) -> NewsQueryUniverse:
+    domestic_queries: list[str] = []
+    global_queries: list[str] = []
+    domestic_seen: set[str] = set()
+    global_seen: set[str] = set()
+
+    for item in domestic_ranked:
+        if item.market_code != "KRX" or item.canonical_symbol in domestic_seen:
+            continue
+        query = _news_query_for_ranking(item)
+        if not query:
+            continue
+        domestic_seen.add(item.canonical_symbol)
+        domestic_queries.append(query)
+
+    if include_overseas:
+        for item in global_ranked:
+            if item.market_code not in {"NAS", "NYS", "AMS"} or item.canonical_symbol in global_seen:
+                continue
+            query = _news_query_for_ranking(item)
+            if not query:
+                continue
+            global_seen.add(item.canonical_symbol)
+            global_queries.append(query)
+
+    for record in watch_records:
+        query = _news_query_for_record(record)
+        if not query:
+            continue
+        if record.market_code == "KRX":
+            if record.canonical_symbol in domestic_seen:
+                continue
+            domestic_seen.add(record.canonical_symbol)
+            domestic_queries.append(query)
+        elif include_overseas and record.market_code in {"NAS", "NYS", "AMS"}:
+            if record.canonical_symbol in global_seen:
+                continue
+            global_seen.add(record.canonical_symbol)
+            global_queries.append(query)
+
+    return NewsQueryUniverse(
+        domestic_stock_queries=tuple(domestic_queries),
+        global_stock_queries=tuple(global_queries),
     )
 
 
-def _migrate_legacy_news_post_if_needed(guild_id: int, run_date: str) -> None:
-    copy_daily_post_if_missing(NEWS_BRIEFING_COMMAND_KEY, NEWS_BRIEFING_DOMESTIC_COMMAND_KEY, guild_id, run_date)
+async def _fetch_kis_news_rankings() -> tuple[list[NewsRankingInstrument], list[NewsRankingInstrument], str]:
+    if not NEWS_DYNAMIC_RANKING_ENABLED:
+        return [], [], "kis_news_ranking=disabled"
+    if kis_news_ranking_client is None:
+        detail = "kis_news_ranking=false reason=kis-credentials-missing"
+        set_provider_status("kis_news_ranking", False, "kis-credentials-missing")
+        return [], [], detail
+
+    domestic: list[NewsRankingInstrument] = []
+    global_ranked: list[NewsRankingInstrument] = []
+    details: list[str] = []
+    successful_calls = 0
+
+    async def collect(label: str, target: list[NewsRankingInstrument], fetcher) -> None:
+        nonlocal successful_calls
+        try:
+            rows = await fetcher(limit=NEWS_DYNAMIC_SYMBOL_LIMIT)
+        except Exception as exc:
+            details.append(f"{label}=failed:{exc}")
+            return
+        target.extend(rows)
+        successful_calls += 1
+        details.append(f"{label}={len(rows)}")
+
+    await collect("domestic_volume", domestic, kis_news_ranking_client.fetch_domestic_volume_rank)
+    await collect("domestic_turnover", domestic, kis_news_ranking_client.fetch_domestic_turnover_rank)
+    if NEWS_DYNAMIC_INCLUDE_OVERSEAS:
+        await collect("overseas_volume", global_ranked, kis_news_ranking_client.fetch_overseas_volume_rank)
+        await collect("overseas_turnover", global_ranked, kis_news_ranking_client.fetch_overseas_turnover_rank)
+    else:
+        details.append("overseas=disabled")
+
+    ok = successful_calls > 0
+    status_detail = f"kis_news_ranking={'true' if ok else 'false'} " + " ".join(details)
+    set_provider_status("kis_news_ranking", ok, status_detail)
+    return domestic, global_ranked, status_detail
+
+
+async def _build_news_query_universe() -> tuple[NewsQueryUniverse, str]:
+    domestic_ranked, global_ranked, ranking_detail = await _fetch_kis_news_rankings()
+    watch_records, watch_detail = _collect_watchlist_records_for_news(include_overseas=NEWS_DYNAMIC_INCLUDE_OVERSEAS)
+    query_universe = _build_news_query_universe_from_sources(
+        domestic_ranked=domestic_ranked,
+        global_ranked=global_ranked,
+        watch_records=watch_records,
+        include_overseas=NEWS_DYNAMIC_INCLUDE_OVERSEAS,
+    )
+    detail = (
+        f"{ranking_detail} {watch_detail} "
+        f"dynamic_domestic_queries={len(query_universe.domestic_stock_queries)} "
+        f"dynamic_global_queries={len(query_universe.global_stock_queries)}"
+    )
+    return query_universe, detail
 
 
 async def _resolve_guild_forum_channel_id(
@@ -387,237 +563,66 @@ async def _resolve_guild_forum_channel_id(
     return forum_channel_id
 
 
-async def _run_news_job(client: discord.Client, now: datetime) -> None:
-    run_date = date_key(now)
-    pending_guilds: list[tuple[int, int]] = []
-    unresolved_pending_guilds: list[tuple[int, int]] = []
-    completed_guilds = 0
-    missing_forum = 0
-    resolution_failures = 0
-
-    for guild_id in list_guild_ids():
-        _migrate_legacy_news_post_if_needed(guild_id, run_date)
-        if (
-            get_guild_last_auto_run_date(guild_id, NEWS_BRIEFING_COMMAND_KEY) == run_date
-            and _has_news_post_for_date(NEWS_BRIEFING_DOMESTIC_COMMAND_KEY, guild_id, run_date)
-            and _has_news_post_for_date(NEWS_BRIEFING_GLOBAL_COMMAND_KEY, guild_id, run_date)
-            and _is_trend_complete_for_date(guild_id, run_date)
-        ):
-            completed_guilds += 1
-            continue
-        forum_channel_id = get_guild_news_forum_channel_id(guild_id)
-        if forum_channel_id is None:
-            missing_forum += 1
-            continue
-        unresolved_pending_guilds.append((guild_id, forum_channel_id))
-
-    if not unresolved_pending_guilds:
-        if resolution_failures > 0:
-            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
-            set_job_last_run("news_briefing", "failed", detail)
-            set_job_last_run("trend_briefing", "failed", detail)
-            _log_job_result("news_briefing", "failed", detail)
-            _log_job_result("trend_briefing", "failed", detail)
-            return
-        if missing_forum > 0 and completed_guilds == 0:
-            detail = f"no-target-forums missing_forum={missing_forum}"
-            set_job_last_run("news_briefing", "skipped", detail)
-            set_job_last_run("trend_briefing", "skipped", detail)
-            _log_job_result("news_briefing", "skipped", detail)
-            _log_job_result("trend_briefing", "skipped", detail)
-        return
-
-    if NEWS_BRIEFING_TRADING_DAYS_ONLY:
+async def _run_news_collection_job(
+    now: datetime,
+    *,
+    job_key: str = NEWS_COLLECTION_JOB_KEY,
+) -> None:
+    if NEWS_COLLECTION_TRADING_DAYS_ONLY:
         is_trading_day, err = safe_check_krx_trading_day(now)
         if is_trading_day is not True:
             reason = "holiday" if is_trading_day is False else f"calendar-failed:{err}"
-            set_job_last_run("news_briefing", "skipped", reason)
-            set_job_last_run("trend_briefing", "skipped", reason)
-            _log_job_result("news_briefing", "skipped", reason)
-            _log_job_result("trend_briefing", "skipped", reason)
+            set_job_last_run(job_key, "skipped", reason)
+            _log_job_result(job_key, "skipped", reason)
             return
 
-    for guild_id, forum_channel_id in unresolved_pending_guilds:
-        try:
-            resolved_forum_channel_id = await _resolve_guild_forum_channel_id(client, guild_id, forum_channel_id)
-        except Exception as exc:
-            resolution_failures += 1
-            logger.exception("[intel] news forum resolution failed guild=%s: %s", guild_id, exc)
-            continue
-        if resolved_forum_channel_id is None:
-            missing_forum += 1
-            continue
-        pending_guilds.append((guild_id, resolved_forum_channel_id))
-
-    if not pending_guilds:
-        if resolution_failures > 0:
-            detail = f"forum-resolution-failed count={resolution_failures} missing_forum={missing_forum}"
-            set_job_last_run("news_briefing", "failed", detail)
-            set_job_last_run("trend_briefing", "failed", detail)
-            _log_job_result("news_briefing", "failed", detail)
-            _log_job_result("trend_briefing", "failed", detail)
-            return
-        if missing_forum > 0 and completed_guilds == 0:
-            detail = f"no-target-forums missing_forum={missing_forum}"
-            set_job_last_run("news_briefing", "skipped", detail)
-            set_job_last_run("trend_briefing", "skipped", detail)
-            _log_job_result("news_briefing", "skipped", detail)
-            _log_job_result("trend_briefing", "skipped", detail)
+    query_universe, universe_detail = await _build_news_query_universe()
+    try:
+        articles = await _fetch_news_articles(news_provider, now, query_universe=query_universe)
+        stats = _news_provider_fetch_stats(news_provider)
+        fetched = stats["fetched"] or len(articles)
+        accepted = len(articles)
+        skipped = stats["skipped"]
+        provider_detail = (
+            f"provider={NEWS_PROVIDER_KIND} fetched={fetched} accepted={accepted} "
+            f"skipped={skipped} {universe_detail}"
+        )
+        set_provider_status("news_provider", True, provider_detail)
+        if NEWS_PROVIDER_KIND in {"naver", "hybrid"}:
+            naver_count = len([article for article in articles if article.provider == "naver"])
+            set_provider_status("naver_news", True, f"fetched={naver_count}")
+        if NEWS_PROVIDER_KIND in {"marketaux", "hybrid"}:
+            marketaux_count = len([article for article in articles if article.provider == "marketaux"])
+            set_provider_status("marketaux_news", True, f"fetched={marketaux_count}")
+    except Exception as exc:
+        detail = f"{exc} {universe_detail}"
+        set_provider_status("news_provider", False, detail)
+        if "naver" in detail:
+            set_provider_status("naver_news", False, detail)
+        if "marketaux" in detail:
+            set_provider_status("marketaux_news", False, detail)
+        set_job_last_run(job_key, "failed", detail)
+        _log_job_result(job_key, "failed", detail)
+        logger.exception("[intel] news collection fetch failed: %s", exc)
         return
 
     try:
-        analysis = await _analyze_news_provider(news_provider, now)
-        items = list(analysis.briefing_items)
-        set_provider_status("news_provider", True, f"fetched={len(items)}")
-        if NEWS_PROVIDER_KIND in {"naver", "hybrid"}:
-            set_provider_status("naver_news", True, f"fetched={len([item for item in items if item.region == 'domestic'])}")
-        if NEWS_PROVIDER_KIND in {"marketaux", "hybrid"}:
-            set_provider_status("marketaux_news", True, f"fetched={len([item for item in items if item.region == 'global'])}")
+        write_result = upsert_news_articles(articles, now)
     except Exception as exc:
-        set_provider_status("news_provider", False, str(exc))
-        if "naver" in str(exc):
-            set_provider_status("naver_news", False, str(exc))
-        if "marketaux" in str(exc):
-            set_provider_status("marketaux_news", False, str(exc))
-        set_job_last_run("news_briefing", "failed", str(exc))
-        set_job_last_run("trend_briefing", "failed", str(exc))
-        _log_job_result("news_briefing", "failed", str(exc))
-        _log_job_result("trend_briefing", "failed", str(exc))
-        logger.exception("[intel] news fetch failed: %s", exc)
+        detail = f"db-write-failed:{exc}"
+        set_job_last_run(job_key, "failed", detail)
+        _log_job_result(job_key, "failed", detail)
+        logger.exception("[intel] news collection db write failed: %s", exc)
         return
 
-    deduped: list[NewsItem] = []
-    seen_keys: set[str] = set()
-    for item in items:
-        key = item.story_key()
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        deduped.append(item)
-
-    domestic = [x for x in deduped if x.region == "domestic"][:NAVER_NEWS_LIMIT_PER_REGION]
-    global_items = [x for x in deduped if x.region == "global"][:NAVER_NEWS_LIMIT_PER_REGION]
-    domestic_body = build_news_region_body(timestamp_text(now), "domestic", domestic)
-    global_body = build_news_region_body(timestamp_text(now), "global", global_items)
-    trend_domestic = analysis.trend_report.for_region("domestic")
-    trend_global = analysis.trend_report.for_region("global")
-    trend_domestic_display = trend_domestic if len(trend_domestic) >= 3 else ()
-    trend_global_display = trend_global if len(trend_global) >= 3 else ()
-    trend_can_post = bool(trend_domestic_display or trend_global_display)
-    trend_skip_reason = f"insufficient-themes domestic={len(trend_domestic)} global={len(trend_global)}"
-    trend_display_report = TrendThemeReport(
-        generated_at=analysis.trend_report.generated_at,
-        themes_by_region={"domestic": trend_domestic_display, "global": trend_global_display},
+    inserted = int(write_result.get("inserted") or 0)
+    updated = int(write_result.get("updated") or 0)
+    detail = (
+        f"provider={NEWS_PROVIDER_KIND} fetched={fetched} "
+        f"inserted={inserted} updated={updated} skipped={skipped} {universe_detail}"
     )
-    trend_starter = build_trend_starter_body(timestamp_text(now), trend_display_report)
-    trend_content_texts = [
-        *build_trend_region_messages("domestic", trend_domestic_display),
-        *build_trend_region_messages("global", trend_global_display),
-    ]
-    posted = 0
-    failed = 0
-    trend_posted = 0
-    trend_failed = 0
-    trend_skipped = 0
-
-    for guild_id, forum_channel_id in pending_guilds:
-        guild_failed = 0
-        try:
-            await upsert_daily_post(
-                client=client,
-                state=None,
-                guild_id=guild_id,
-                forum_channel_id=forum_channel_id,
-                command_key=NEWS_BRIEFING_DOMESTIC_COMMAND_KEY,
-                post_title=build_news_title("domestic", now),
-                body_text=domestic_body,
-                image_paths=[],
-            )
-            await upsert_daily_post(
-                client=client,
-                state=None,
-                guild_id=guild_id,
-                forum_channel_id=forum_channel_id,
-                command_key=NEWS_BRIEFING_GLOBAL_COMMAND_KEY,
-                post_title=build_news_title("global", now),
-                body_text=global_body,
-                image_paths=[],
-            )
-            set_guild_last_auto_run_date(guild_id, NEWS_BRIEFING_COMMAND_KEY, run_date)
-            posted += 1
-            if trend_can_post:
-                try:
-                    await upsert_daily_post(
-                        client=client,
-                        state=None,
-                        guild_id=guild_id,
-                        forum_channel_id=forum_channel_id,
-                        command_key=TREND_BRIEFING_COMMAND_KEY,
-                        post_title=build_trend_post_title(now),
-                        body_text=trend_starter,
-                        image_paths=[],
-                        content_texts=trend_content_texts,
-                    )
-                    set_guild_last_auto_run_date(guild_id, TREND_BRIEFING_COMMAND_KEY, run_date)
-                    trend_posted += 1
-                except Exception as exc:
-                    trend_failed += 1
-                    logger.exception("[intel] trend post failed guild=%s: %s", guild_id, exc)
-            else:
-                set_guild_last_auto_skip(guild_id, TREND_BRIEFING_COMMAND_KEY, run_date, trend_skip_reason)
-                trend_skipped += 1
-        except Exception as exc:
-            guild_failed += 1
-            failed += 1
-            logger.exception("[intel] news post failed guild=%s: %s", guild_id, exc)
-        if guild_failed > 0:
-            continue
-
-    total_failures = failed + resolution_failures
-    news_status = "ok" if posted > 0 and total_failures == 0 else "failed"
-    news_detail = (
-        f"posted={posted} failed={total_failures} missing_forum={missing_forum} "
-        f"forum_resolution_failures={resolution_failures} domestic={len(domestic)} global={len(global_items)}"
-    )
-    set_job_last_run(
-        "news_briefing",
-        news_status,
-        news_detail,
-    )
-    if trend_can_post:
-        trend_total_failures = trend_failed + resolution_failures
-        trend_status = "ok" if trend_posted > 0 and trend_total_failures == 0 else "failed"
-        trend_detail = (
-            f"posted={trend_posted} failed={trend_total_failures} missing_forum={missing_forum} "
-            f"forum_resolution_failures={resolution_failures} "
-            f"domestic_themes={len(trend_domestic)} global_themes={len(trend_global)}"
-        )
-        set_job_last_run(
-            "trend_briefing",
-            trend_status,
-            trend_detail,
-        )
-    else:
-        set_job_last_run("trend_briefing", "skipped", trend_skip_reason)
-    _log_job_result("news_briefing", news_status, news_detail)
-    if trend_can_post:
-        _log_job_result("trend_briefing", trend_status, trend_detail)
-    else:
-        _log_job_result("trend_briefing", "skipped", trend_skip_reason)
-
-
-async def _analyze_news_provider(provider: NewsProvider, now: datetime) -> NewsAnalysis:
-    analyze = getattr(provider, "analyze", None)
-    if callable(analyze):
-        return await analyze(now)
-    items = await provider.fetch(now)
-    return NewsAnalysis(
-        briefing_items=tuple(items),
-        trend_report=TrendThemeReport(
-            generated_at=now,
-            themes_by_region={"domestic": (), "global": ()},
-        ),
-    )
+    set_job_last_run(job_key, "ok", detail)
+    _log_job_result(job_key, "ok", detail)
 
 
 async def _run_eod_job(client: discord.Client, now: datetime) -> None:
@@ -1685,7 +1690,8 @@ async def _run_watch_poll(client: discord.Client, now: datetime) -> None:
 
 
 async def intel_scheduler(client: discord.Client) -> None:
-    news_h, news_m = _parse_time(NEWS_BRIEFING_TIME, 7, 30)
+    news_h, news_m = _parse_time(NEWS_COLLECTION_TIME, 7, 30)
+    news_close_h, news_close_m = _parse_time(NEWS_COLLECTION_CLOSE_TIME, 16, 10)
     eod_h, eod_m = _parse_time(EOD_SUMMARY_TIME, 16, 20)
     registry_h, registry_m = _parse_time(INSTRUMENT_REGISTRY_REFRESH_TIME, 6, 20)
     last_watch_run: datetime | None = None
@@ -1716,13 +1722,20 @@ async def intel_scheduler(client: discord.Client) -> None:
                 ):
                     logger.info("[intel] instrument_registry_refresh status=started scheduled_for=%02d:%02d", registry_h, registry_m)
                     registry_refresh_task = asyncio.create_task(_refresh_instrument_registry())
-            if NEWS_BRIEFING_ENABLED and _should_run_daily_job(
+            if NEWS_COLLECTION_ENABLED and _should_run_daily_job(
                 now,
-                job_key="news_briefing",
+                job_key=NEWS_COLLECTION_JOB_KEY,
                 scheduled_hour=news_h,
                 scheduled_minute=news_m,
             ):
-                await _run_news_job(client, now)
+                await _run_news_collection_job(now)
+            if NEWS_COLLECTION_ENABLED and NEWS_COLLECTION_CLOSE_ENABLED and _should_run_daily_job(
+                now,
+                job_key=NEWS_COLLECTION_CLOSE_JOB_KEY,
+                scheduled_hour=news_close_h,
+                scheduled_minute=news_close_m,
+            ):
+                await _run_news_collection_job(now, job_key=NEWS_COLLECTION_CLOSE_JOB_KEY)
             if EOD_SUMMARY_ENABLED and _should_run_daily_job(
                 now,
                 job_key="eod_summary",

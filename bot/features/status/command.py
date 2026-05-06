@@ -12,6 +12,11 @@ from bot.app.settings import (
     MASSIVE_API_KEY,
     MARKETAUX_API_TOKEN,
     MARKET_DATA_PROVIDER_KIND,
+    NEWS_COLLECTION_CLOSE_ENABLED,
+    NEWS_COLLECTION_CLOSE_TIME,
+    NEWS_COLLECTION_ENABLED,
+    NEWS_COLLECTION_TIME,
+    NEWS_DYNAMIC_RANKING_ENABLED,
     NEWS_PROVIDER_KIND,
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
@@ -57,6 +62,20 @@ def _fmt_dict_rows(value: dict[str, dict]) -> str:
 
 def _default_job_rows() -> dict[str, dict[str, str]]:
     rows: dict[str, dict[str, str]] = {}
+    rows["news_collection"] = {
+        "status": "scheduled" if NEWS_COLLECTION_ENABLED else "paused",
+        "detail": f"daily-collection {NEWS_COLLECTION_TIME} KST" if NEWS_COLLECTION_ENABLED else "news-collection-disabled",
+        "run_at": "",
+    }
+    rows["news_collection_close"] = {
+        "status": "scheduled" if NEWS_COLLECTION_ENABLED and NEWS_COLLECTION_CLOSE_ENABLED else "paused",
+        "detail": (
+            f"daily-close-collection {NEWS_COLLECTION_CLOSE_TIME} KST"
+            if NEWS_COLLECTION_ENABLED and NEWS_COLLECTION_CLOSE_ENABLED
+            else "news-close-collection-disabled"
+        ),
+        "run_at": "",
+    }
     if not EOD_SUMMARY_ENABLED:
         rows["eod_summary"] = {"status": "paused", "detail": "eod-summary-paused", "run_at": ""}
     rows["instrument_registry_refresh"] = {
@@ -105,6 +124,13 @@ def _default_provider_rows() -> dict[str, dict[str, str]]:
             "configured" if MARKETAUX_API_TOKEN else "disabled",
             "global finance news provider",
         )
+    if NEWS_DYNAMIC_RANKING_ENABLED:
+        rows["kis_news_ranking"] = _provider_row(
+            "configured" if KIS_APP_KEY and KIS_APP_SECRET else "disabled",
+            "dynamic news query universe" if KIS_APP_KEY and KIS_APP_SECRET else "dynamic-ranking-credentials-missing",
+        )
+    else:
+        rows["kis_news_ranking"] = _provider_row("paused", "dynamic-ranking-disabled")
     if not EOD_SUMMARY_ENABLED:
         rows["eod_provider"] = _provider_row("paused", "eod-summary-paused")
     return rows

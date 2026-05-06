@@ -8,18 +8,15 @@ from bot.app.command_sync import format_command_sync_error, record_command_sync
 from bot.app.settings import (
     DEFAULT_FORUM_CHANNEL_ID,
     EOD_TARGET_FORUM_ID,
-    NEWS_TARGET_FORUM_ID,
 )
 from bot.common.logging import setup_logging
 from bot.forum.state_store import (
     ensure_schema_and_migrate,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
-    get_guild_news_forum_channel_id,
     list_legacy_watch_route_migrations_needed,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
-    set_guild_news_forum_channel_id,
 )
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
@@ -51,13 +48,6 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
             discord.ForumChannel,
             get_guild_forum_channel_id,
             set_guild_forum_channel_id,
-        ),
-        (
-            NEWS_TARGET_FORUM_ID,
-            "NEWS_TARGET_FORUM_ID",
-            discord.ForumChannel,
-            get_guild_news_forum_channel_id,
-            set_guild_news_forum_channel_id,
         ),
         (
             EOD_TARGET_FORUM_ID,

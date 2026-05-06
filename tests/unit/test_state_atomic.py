@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from bot.forum import repository, state_store
+from bot.intel.providers.news import CollectedNewsArticle
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -261,11 +262,147 @@ def test_split_state_schema_creates_watch_close_price_tables():
     state_store._ensure_schema(cursor)
 
     executed = "\n".join(cursor.statements)
+    assert "CREATE TABLE IF NOT EXISTS bot_news_articles" in executed
+    assert "PRIMARY KEY (state_key, article_key)" in executed
+    assert "idx_bot_news_articles_published_at" in executed
     assert "CREATE TABLE IF NOT EXISTS bot_watch_close_prices" in executed
     assert "PRIMARY KEY (state_key, symbol, session_date)" in executed
     assert "CREATE TABLE IF NOT EXISTS bot_watch_close_price_attempts" in executed
     assert "idx_bot_watch_close_prices_symbol_date" in executed
     assert "idx_bot_watch_close_prices_date" in executed
+
+
+class NewsArticleCursor:
+    def __init__(self, rows: dict[tuple[str, str], dict[str, object]]):
+        self.rows = rows
+        self._row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def execute(self, query: str, params: tuple | None = None):
+        assert params is not None
+        assert "INSERT INTO bot_news_articles" in query
+        assert "ON CONFLICT (state_key, article_key) DO UPDATE" in query
+        (
+            state_key,
+            article_key,
+            provider,
+            region,
+            title,
+            description,
+            url,
+            canonical_url,
+            source,
+            published_at,
+            query_text,
+            raw_payload_json,
+            first_seen_at,
+            last_seen_at,
+        ) = params
+        key = (state_key, article_key)
+        existing = self.rows.get(key)
+        inserted = existing is None
+        self.rows[key] = {
+            "provider": provider,
+            "region": region,
+            "title": title,
+            "description": description,
+            "url": url,
+            "canonical_url": canonical_url,
+            "source": source,
+            "published_at": published_at,
+            "query": query_text,
+            "raw_payload": json.loads(raw_payload_json),
+            "first_seen_at": first_seen_at if inserted else existing["first_seen_at"],
+            "last_seen_at": last_seen_at,
+        }
+        self._row = (inserted,)
+
+    def fetchone(self):
+        return self._row
+
+
+class NewsArticleConnection:
+    def __init__(self, rows: dict[tuple[str, str], dict[str, object]]):
+        self.rows = rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def cursor(self):
+        return NewsArticleCursor(self.rows)
+
+
+def test_news_article_upsert_inserts_then_updates_preserving_first_seen(monkeypatch):
+    rows: dict[tuple[str, str], dict[str, object]] = {}
+    connection = NewsArticleConnection(rows)
+    first_seen = datetime(2026, 2, 13, 7, 30, tzinfo=KST)
+    second_seen = datetime(2026, 2, 13, 8, 30, tzinfo=KST)
+
+    monkeypatch.setattr(state_store, "POSTGRES_STATE_KEY", "bot-1")
+    monkeypatch.setattr(state_store, "ensure_schema_and_migrate", lambda: None)
+    monkeypatch.setattr(state_store, "_connect", lambda: connection)
+
+    first_article = CollectedNewsArticle(
+        provider="naver",
+        region="domestic",
+        title="첫 제목",
+        description="첫 설명",
+        url="https://news.example.com/a",
+        canonical_url="https://news.example.com/a",
+        source="news.example.com",
+        published_at=first_seen,
+        query="경제",
+        raw_payload={"title": "첫 제목"},
+    )
+    updated_article = CollectedNewsArticle(
+        provider="naver",
+        region="domestic",
+        title="수정 제목",
+        description="수정 설명",
+        url="https://news.example.com/a",
+        canonical_url="https://news.example.com/a",
+        source="news.example.com",
+        published_at=second_seen,
+        query="증시",
+        raw_payload={"title": "수정 제목"},
+    )
+
+    first_result = state_store.upsert_news_articles([first_article], first_seen)
+    second_result = state_store.upsert_news_articles([updated_article], second_seen)
+
+    assert first_result == {"inserted": 1, "updated": 0}
+    assert second_result == {"inserted": 0, "updated": 1}
+    row = rows[("bot-1", first_article.article_key())]
+    assert row["title"] == "수정 제목"
+    assert row["query"] == "증시"
+    assert row["raw_payload"] == {"title": "수정 제목"}
+    assert row["first_seen_at"] == first_seen
+    assert row["last_seen_at"] == second_seen
+
+
+def test_split_state_clear_preserves_collected_news_articles():
+    class DeleteCursor:
+        def __init__(self):
+            self.statements: list[str] = []
+
+        def execute(self, query: str, params: tuple | None = None):
+            self.statements.append(query)
+
+    cursor = DeleteCursor()
+
+    state_store._clear_split_rows(cursor, "bot-1")
+
+    executed = "\n".join(cursor.statements)
+    assert "bot_news_articles" not in executed
+    assert "bot_news_dedup" in executed
 
 
 def test_watch_close_price_upsert_replaces_existing_symbol_session(monkeypatch):

@@ -16,7 +16,7 @@
   - Some large heuristic sections inside `bot/intel/providers/news.py` were sampled enough to confirm structure and output shape, but not every ranking constant was reverse-listed here.
 
 # 2. System overview (As-Is)
-- The current system is a Discord bot that can post daily Korea/US heatmap images into Discord forum threads and can also run scheduled news, trend, watch-alert, and registry-refresh jobs. This is confirmed by `bot/main.py`, `bot/app/bot_client.py`, `bot/features/runner.py`, `bot/features/auto_scheduler.py`, and `bot/features/intel_scheduler.py`.
+- The current system is a Discord bot that can post daily Korea/US heatmap images into Discord forum threads and can also run scheduled news collection, EOD, watch-alert, and registry-refresh jobs. This is confirmed by `bot/main.py`, `bot/app/bot_client.py`, `bot/features/runner.py`, `bot/features/auto_scheduler.py`, and `bot/features/intel_scheduler.py`.
 - The main runtime model is event-driven plus background polling:
   - slash commands trigger manual heatmap posting, route setup, watchlist changes, and status reads
   - `auto_screenshot_scheduler()` runs every 30 seconds and can catch up once per day after the fixed KST schedule has passed
@@ -47,13 +47,13 @@
 | --- | --- | --- | --- | --- | --- |
 | F-01 | Bot startup, command sync, and bootstrap routing | Implemented | process start and Discord `on_ready` | command sync, state bootstrap, background scheduler start, logs | Confirmed |
 | F-02 | Manual heatmap posting (`/kheatmap`, `/usheatmap`) | Implemented | slash command | daily forum thread create/update with captured images | Confirmed |
-| F-03 | Daily forum upsert and content-message sync | Implemented | called by heatmap/news/eod flows | thread reuse or creation, starter message edit, optional follow-up content sync | Confirmed |
+| F-03 | Daily forum upsert and content-message sync | Implemented | called by heatmap/eod/manual flows | thread reuse or creation, starter message edit, optional follow-up content sync | Confirmed |
 | F-04 | Auto screenshot scheduler | Implemented | background scheduler | scheduled Korea/US heatmap execution, skip metadata, logs | Confirmed |
 | F-05 | Admin route configuration and autoscreenshot toggle commands | Implemented | slash command | per-guild route state updates and auto-scheduler enable flag | Confirmed |
 | F-06 | Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`) | Implemented | slash command | per-guild watchlist state update/read plus watch status/thread lifecycle control | Confirmed |
 | F-07 | Status and diagnostic commands (`/health`, `/last-run`, `/source-status`) | Implemented | slash command | ephemeral text status summaries | Confirmed |
-| F-08 | Scheduled news briefing posting | Implemented | intel scheduler same-day catch-up check | domestic/global daily forum threads and job/provider status updates | Confirmed |
-| F-09 | Scheduled trend briefing posting | Implemented | nested inside news scheduler | trend summary thread with starter + region content messages | Confirmed |
+| F-08 | Scheduled news collection | Implemented | intel scheduler same-day catch-up check | normalized provider articles stored in PostgreSQL plus job/provider status updates | Confirmed |
+| F-09 | Scheduled trend briefing posting | Removed | n/a | no active runtime path | Confirmed |
 | F-10 | Scheduled EOD summary posting | Partially implemented | intel scheduler same-day catch-up check | daily EOD forum thread using mock summary provider | Confirmed |
 | F-11 | Watch poll and per-symbol forum-thread alerting | Implemented | intel scheduler interval check | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
 | F-12 | Instrument registry load/search/runtime refresh | Implemented | startup lookup, watch commands, scheduler when enabled | local search, status rows, runtime registry rebuild file | Confirmed |
@@ -75,7 +75,6 @@
 - Config inputs:
   - `DISCORD_BOT_TOKEN`
   - `DEFAULT_FORUM_CHANNEL_ID`
-  - `NEWS_TARGET_FORUM_ID`
   - `EOD_TARGET_FORUM_ID`
   - logging env vars
 - Runtime inputs:
@@ -208,7 +207,7 @@
 - Current code attempts to reuse a same-date thread when a stored thread/message record can be fetched; otherwise it creates a new thread and updates state to point at the new resources.
 
 ### 4.2 Trigger
-- Internal call from heatmap, news, trend, or EOD posting flows
+- Internal call from heatmap, EOD, manual posting, or other forum-upsert flows
 
 ### 4.3 Inputs
 - Runtime inputs:
@@ -341,7 +340,6 @@
 ### 4.2 Trigger
 - Slash commands:
   - `/setforumchannel`
-  - `/setnewsforum`
   - `/seteodforum`
   - `/setwatchforum`
   - `/autoscreenshot`
@@ -372,7 +370,6 @@
 
 ### 4.6 Persistence / state interaction
 - Writes `bot_guild_config.forum_channel_id`
-- Writes `bot_guild_config.news_forum_channel_id`
 - Writes `bot_guild_config.eod_forum_channel_id`
 - Writes `bot_guild_config.watch_forum_channel_id`
 - Writes `bot_guild_config.auto_screenshot_enabled`
@@ -503,8 +500,8 @@
 ### 4.4 Processing flow
 1. The command reads stored job/provider rows from `bot_job_status` and `bot_provider_status`.
 2. It merges stored status rows with built-in defaults:
-   - default job rows include paused/scheduled placeholders for EOD and registry refresh
-   - default provider rows include `instrument_registry`, `kis_quote`, `massive_reference`, `twelvedata_reference`, `openfigi_mapping`, plus news-provider rows depending on `NEWS_PROVIDER_KIND`
+   - default job rows include paused/scheduled placeholders for news collection, close-slot news collection, EOD, and registry refresh
+   - default provider rows include `instrument_registry`, `kis_quote`, `kis_news_ranking`, `massive_reference`, `twelvedata_reference`, `openfigi_mapping`, plus news-provider rows depending on `NEWS_PROVIDER_KIND`
 3. Legacy provider keys are remapped to newer names where needed.
 4. The command formats rows as plain text lines of `key: status | detail | timestamp`.
 5. The text is returned ephemerally.
@@ -597,153 +594,126 @@
 - `bot/features/local_model/client.py`
 - `bot/app/settings.py`
 
-## Feature: Scheduled news briefing posting
+## Feature: Scheduled news collection
 
 ### 4.1 Purpose
-- Current code attempts to fetch news from the configured provider, build region-specific briefing text, and post separate domestic/global threads per guild at the scheduled minute.
+- Current code fetches news from the configured provider, normalizes provider items into article rows, and stores them in PostgreSQL without Discord posting.
 
 ### 4.2 Trigger
-- `intel_scheduler()` same-day catch-up check when `NEWS_BRIEFING_ENABLED` is true and current time is at or after `NEWS_BRIEFING_TIME`
+- `intel_scheduler()` same-day catch-up check when `NEWS_COLLECTION_ENABLED` is true and current time is at or after `NEWS_COLLECTION_TIME`
+- A second close-slot check runs when both `NEWS_COLLECTION_ENABLED` and `NEWS_COLLECTION_CLOSE_ENABLED` are true and current time is at or after `NEWS_COLLECTION_CLOSE_TIME`
 
 ### 4.3 Inputs
 - Config inputs:
-  - `NEWS_BRIEFING_ENABLED`
-  - `NEWS_BRIEFING_TIME`
-  - `NEWS_BRIEFING_TRADING_DAYS_ONLY`
+  - `NEWS_COLLECTION_ENABLED`
+  - `NEWS_COLLECTION_TIME`
+  - `NEWS_COLLECTION_CLOSE_ENABLED`
+  - `NEWS_COLLECTION_CLOSE_TIME`
+  - `NEWS_COLLECTION_TRADING_DAYS_ONLY`
+  - `NEWS_DYNAMIC_RANKING_ENABLED`
+  - `NEWS_DYNAMIC_SYMBOL_LIMIT`
+  - `NEWS_DYNAMIC_INCLUDE_OVERSEAS`
   - `NEWS_PROVIDER_KIND`
   - Naver/Marketaux query, limit, age, timeout, and retry env vars
 - Runtime inputs:
   - current KST datetime
-  - per-guild `news_forum_channel_id` from `bot_guild_config`, including values explicitly configured by command or initialized by startup `NEWS_TARGET_FORUM_ID` bootstrap
-  - previous job status and per-guild last auto-run dates
+  - previous `bot_job_status` row for `news_collection` or `news_collection_close`
+  - watchlist symbols from `bot_watch_symbols` for dynamic query expansion
+  - local instrument registry records for watchlist/ranking display names
 - Provider inputs:
   - `news_provider` singleton built at module import time
-  - `NewsAnalysis` containing `briefing_items`
-- Discord resource inputs:
-  - forum channel for each guild
+  - provider `fetch(now, query_universe=...)` returning `CollectedNewsArticle` instances
+  - optional `KisNewsRankingClient` when dynamic ranking is enabled and KIS credentials are configured
 
 ### 4.4 Processing flow
-1. `_run_news_job()` enumerates guild IDs from split-state rows.
-2. For each guild:
-   - it copies legacy `newsbriefing` daily post rows into `newsbriefing-domestic` if needed
-   - it treats the guild as already complete only when:
-     - the guild job marker for `newsbriefing` equals today
-     - both domestic and global daily threads exist for today
-     - trend briefing is complete or was explicitly skipped for today
-   - otherwise it requires `news_forum_channel_id`; `forum_channel_id` alone does not make the guild eligible for news/trend posting
-3. If `NEWS_BRIEFING_TRADING_DAYS_ONLY` is true, the job checks KRX trading day before forum resolution/posting.
-4. For pending guilds, the forum channel is resolved through `_resolve_guild_forum_channel_id()`.
-5. The job calls the provider analysis path:
-   - `news_provider.analyze(now)` when available
-   - otherwise `provider.fetch(now)` plus empty trend report wrapper
-6. On provider success, job/provider status rows are updated.
-7. Briefing items are deduplicated by `story_key()`, then split by `region`.
-8. Domestic and global bodies are rendered separately with `build_news_region_body()`.
-9. For each pending guild, two separate `upsert_daily_post()` calls are made:
-   - `newsbriefing-domestic`
-   - `newsbriefing-global`
-10. If both region upserts succeed for that guild, the guild’s `last_auto_runs.newsbriefing` is set to today.
-11. At the end, job status for `news_briefing` is computed from counts of `posted`, posting failures, forum resolution failures, and missing forums.
+1. `intel_scheduler()` checks `news_collection` once per day after `NEWS_COLLECTION_TIME` and `news_collection_close` once per day after `NEWS_COLLECTION_CLOSE_TIME`.
+2. If `NEWS_COLLECTION_TRADING_DAYS_ONLY` is true, `_run_news_collection_job()` checks KRX trading day before fetching for either slot.
+3. The scheduler builds a `NewsQueryUniverse` from watchlist symbols and, when enabled, best-effort KIS ranking rows.
+4. Watchlist-derived queries use KRX Korean display names for domestic stocks and `English Name OR TICKER` for NAS/NYS/AMS stocks.
+5. KIS ranking attempts currently include domestic volume ranking, overseas volume ranking, and overseas turnover ranking. Domestic turnover ranking is recorded as unavailable in this implementation because no confirmed endpoint is wired.
+6. KIS ranking credential errors or ranking endpoint failures update `kis_news_ranking` provider status and job detail but do not fail the news collection job.
+7. The scheduler calls `news_provider.fetch(now, query_universe=...)`.
+8. Naver appends dynamic domestic/global stock queries after macro queries and before static fallback stock queries. Marketaux appends dynamic global stock queries after configured global macro queries.
+9. Providers apply only basic quality filtering:
+   - required title/url/published timestamp
+   - valid HTTP(S) canonical URL
+   - timezone-aware published timestamp within the configured age window and not meaningfully in the future
+   - obvious photo/opinion/promo hard blocks
+10. Providers do not apply the previous briefing scoring, trend/theme analysis, source caps, topic dedupe, or stock-topic filtering.
+11. `upsert_news_articles()` writes articles to `bot_news_articles` using `(state_key, article_key)` as the primary key.
+12. `article_key` is derived from `sha256(provider + region + canonical_url)`.
+13. On conflict, current article fields and raw payload are updated, `first_seen_at` is preserved, and `last_seen_at` is refreshed.
+14. The scheduler records `bot_job_status.news_collection` or `bot_job_status.news_collection_close` with detail like `provider=hybrid fetched=72 inserted=48 updated=12 skipped=12 kis_news_ranking=true ...`.
+15. Provider status rows such as `news_provider`, `naver_news`, `marketaux_news`, and `kis_news_ranking` are updated from fetch/ranking results.
 
 ### 4.5 Outputs
-- Two daily forum threads per guild when posting succeeds:
-  - domestic news thread
-  - global news thread
-- `bot_job_status` row for `news_briefing`
+- `bot_news_articles` rows containing normalized fields plus provider `raw_payload JSONB`
+- `bot_job_status` row for `news_collection` or `news_collection_close`
 - provider status rows such as `naver_news` or `marketaux_news`
 - logs
 
 ### 4.6 Persistence / state interaction
-- Reads/writes `bot_guild_config`, `bot_guild_job_markers`, and `bot_daily_posts`
-- Writes daily post records under `newsbriefing-domestic` and `newsbriefing-global`
+- Writes `bot_news_articles`
 - Writes provider/job status in `bot_provider_status` and `bot_job_status`
+- Does not read or write `bot_guild_config.news_forum_channel_id`
+- Does not write `bot_daily_posts` for news
+- Legacy `bot_news_dedup` remains in schema but is not used by the news collection path
 
 ### 4.7 Error / edge handling (As-Is)
-- Provider failure marks `news_briefing` and `trend_briefing` as failed and returns immediately.
-- If no unresolved target forums exist:
-  - forum-resolution failure can mark failed
-  - only-missing-forum with no completed guilds can mark skipped
-- Per-guild posting failure increments `failed` and continues with later guilds.
-- Job status is `ok` only when at least one guild posted and total failures are zero; otherwise it is `failed`.
-- Same-day catch-up exists after the configured scheduled time until the job records a same-day status.
+- Provider failure marks only the active news collection job key as `failed` and returns.
+- Trading-day gating skip marks only the active news collection job key as `skipped`.
+- Database write failure marks the active news collection job key as `failed` with `db-write-failed:...` detail.
+- Same-day catch-up exists after each configured scheduled time until that job key records a same-day status.
+- KIS ranking failures are degraded to static macro/fallback plus watchlist query collection, not `news_collection*` failure.
 
 ### 4.8 Operational constraints
 - Provider objects are built once at import time in `bot/features/intel_scheduler.py`.
-- Routing depends on per-guild forum state.
-- Domestic/global posts are separate threads, not sections of one thread.
-- Trading-day gating, when enabled, is based on KRX only.
+- News collection does not resolve Discord forums and does not call `upsert_daily_post()`.
+- Domestic/global Discord news briefing and trend-theme briefing are removed from the active runtime path.
+- `news_forum_channel_id`, old `newsbriefing-*` command keys, `trendbriefing`, and `bot_news_dedup` are legacy/inert for the current collection path.
 
 ### 4.9 Confidence
 - Confirmed
 
 ### 4.10 Evidence notes
 - `bot/features/intel_scheduler.py`
-- `bot/features/news/policy.py`
 - `bot/intel/providers/news.py`
+- `bot/forum/state_store.py`
+- `tests/unit/test_news_provider.py`
+- `tests/unit/test_state_atomic.py`
 - `tests/integration/test_intel_scheduler_logic.py`
 
 ## Feature: Scheduled trend briefing posting
 
 ### 4.1 Purpose
-- Current code attempts to generate a separate trend-theme thread from the news analysis and stores region details in follow-up content messages when the trend posting path runs.
+- Removed from the active runtime path.
 
 ### 4.2 Trigger
-- Nested inside `_run_news_job()` after briefing analysis
+- None.
 
 ### 4.3 Inputs
-- Runtime inputs:
-  - `analysis.trend_report`
-  - same pending guild list computed for the news job
-- Provider inputs:
-  - trend themes produced by the configured news provider analysis
-- Discord resource inputs:
-  - same forum channel used for news briefing
+- None in current runtime.
 
 ### 4.4 Processing flow
-1. The news analysis provides `trend_report` for `domestic` and `global`.
-2. The scheduler only displays a region’s themes when that region has at least 3 themes.
-3. If both regions are below 3 themes, the trend job is not posted:
-   - `bot_guild_job_markers` records `trendbriefing` skip metadata with `insufficient-themes ...`
-   - final `trend_briefing` job status becomes `skipped`
-4. If at least one region qualifies:
-   - a starter body is rendered summarizing counts and selected theme names
-   - region content messages are rendered with `build_trend_region_messages()`
-   - regions with no displayed themes produce a placeholder content message
-5. `upsert_daily_post()` is called with:
-   - command key `trendbriefing`
-   - starter body
-   - zero image paths
-   - `content_texts` containing the region detail blocks
-6. Successful posting sets the guild job marker for `trendbriefing` to today.
-7. Final job status is computed separately from the news briefing status.
+- No current scheduler or command path posts trend-theme briefing threads.
 
 ### 4.5 Outputs
-- A same-day trend thread per guild when at least one region qualifies
-- Starter message plus follow-up content messages
-- `bot_job_status` row for `trend_briefing`
-- `bot_guild_job_markers` row for `trendbriefing` run or skip metadata
+- None.
 
 ### 4.6 Persistence / state interaction
-- Writes `trendbriefing` row in `bot_daily_posts` with `content_message_ids`
-- Writes per-guild last-run or last-skip metadata in `bot_guild_job_markers`
+- No current runtime writes `trendbriefing` rows or `trend_briefing` job status.
 
 ### 4.7 Error / edge handling (As-Is)
-- Trend posting failure is counted separately from news posting failure and logged.
-- If one region has fewer than 3 themes but the other qualifies, the non-qualifying region is rendered as placeholder content rather than suppressing the whole trend thread.
-- There is no separate scheduler trigger or retry path for trend outside the news job.
+- Not applicable.
 
 ### 4.8 Operational constraints
-- Depends entirely on the current news analysis result.
-- Message splitting/truncation is handled inside `trend_policy.py` with a 2000-character limit.
-- Theme quality depends on provider heuristics and taxonomy scoring, which are implementation-specific.
+- Legacy historical rows may remain in PostgreSQL or migrated JSON state, but current code does not create or update them.
 
 ### 4.9 Confidence
 - Confirmed
 
 ### 4.10 Evidence notes
 - `bot/features/intel_scheduler.py`
-- `bot/features/news/trend_policy.py`
-- `bot/intel/providers/news.py`
 - `tests/integration/test_intel_scheduler_logic.py`
 
 ## Feature: Scheduled EOD summary posting
@@ -1084,7 +1054,7 @@
   - Required vs optional: optional
   - Observed usage: admin route/toggle command authorization
   - Risk if missing: only guild-owner/admin authorization remains
-- Name: `DEFAULT_FORUM_CHANNEL_ID`, `NEWS_TARGET_FORUM_ID`, `EOD_TARGET_FORUM_ID`
+- Name: `DEFAULT_FORUM_CHANNEL_ID`, `EOD_TARGET_FORUM_ID`
   - Purpose: bootstrap/default route IDs
   - Required vs optional: optional
   - Observed usage: startup bootstrap into per-guild state, not direct runtime routing in the inspected paths
@@ -1094,11 +1064,16 @@
   - Required vs optional: optional with defaults
   - Observed usage: `bot/common/logging.py`
   - Risk if missing: defaults used
-- Name: `NEWS_BRIEFING_ENABLED`, `NEWS_BRIEFING_TIME`, `NEWS_BRIEFING_TRADING_DAYS_ONLY`
-  - Purpose: enable and schedule the news job
+- Name: `NEWS_COLLECTION_ENABLED`, `NEWS_COLLECTION_TIME`, `NEWS_COLLECTION_CLOSE_ENABLED`, `NEWS_COLLECTION_CLOSE_TIME`, `NEWS_COLLECTION_TRADING_DAYS_ONLY`
+  - Purpose: enable and schedule the morning and close news collection jobs
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`
   - Risk if missing: defaults apply; if disabled the job does not run
+- Name: `NEWS_DYNAMIC_RANKING_ENABLED`, `NEWS_DYNAMIC_SYMBOL_LIMIT`, `NEWS_DYNAMIC_INCLUDE_OVERSEAS`
+  - Purpose: control KIS/watchlist-backed dynamic stock query expansion for news collection
+  - Required vs optional: optional with defaults
+  - Observed usage: `bot/features/intel_scheduler.py`, `bot/intel/providers/market.py`
+  - Risk if missing: KIS ranking stays disabled by default; watchlist-derived dynamic queries and static provider query defaults still apply
 - Name: `NEWS_PROVIDER_KIND`
   - Purpose: choose `mock`, `naver`, `marketaux`, or `hybrid`
   - Required vs optional: optional with default `mock`
@@ -1169,8 +1144,8 @@
 
 ## Provider interfaces
 - Name: `NewsProvider`
-  - Purpose: fetch and/or analyze news into `NewsAnalysis`
-  - Required vs optional: required for news job execution
+  - Purpose: fetch news into `CollectedNewsArticle` rows
+  - Required vs optional: required for news collection execution
   - Observed usage: implemented by `MockNewsProvider`, `NaverNewsProvider`, `MarketauxNewsProvider`, `HybridNewsProvider`, `ErrorNewsProvider`
   - Risk if missing: news job fails or uses mock/error behavior
 - Name: `MarketDataProvider`
@@ -1186,7 +1161,7 @@
 
 ## Discord resources
 - Name: per-guild forum channels
-  - Purpose: target for heatmap, news, trend, and EOD threads
+  - Purpose: target for heatmap and EOD threads
   - Required vs optional: required per feature/guild
   - Observed usage: stored in state and resolved before posting
   - Risk if missing: feature is skipped or command fails for that guild
@@ -1220,7 +1195,7 @@
 - Name: PostgreSQL split-state `bot_*` tables
   - Purpose: current mutable runtime state backend
   - Required vs optional: required for current bot runtime
-  - Observed usage: `bot/forum/state_store.py` reads/writes domain rows for route, scheduler, daily post, image cache, watch, status, and dedup state
+  - Observed usage: `bot/forum/state_store.py` reads/writes domain rows for route, scheduler, daily post, image cache, watch, status, news articles, and legacy dedup state
   - Risk if missing: schema setup creates tables; if PostgreSQL is unreachable or `STATE_BACKEND` is not postgres/postgresql, startup fails
 - Name: `data/state/instrument_registry.json`
   - Purpose: runtime registry override artifact

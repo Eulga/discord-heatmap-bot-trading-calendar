@@ -90,7 +90,7 @@
   - `POSTGRES_STATE_KEY` defaults to `default` and namespaces split rows
 - Development PostgreSQL timezone is `Asia/Seoul`.
 - Startup creates/migrates PostgreSQL tables before the Discord client is created.
-- Runtime reads/writes split domain tables for guild routes, scheduler markers, daily posts, image cache, watch state, job/provider status, and news dedup.
+- Runtime reads/writes split domain tables for guild routes, scheduler markers, daily posts, image cache, watch state, job/provider status, legacy news dedup, and collected news articles.
 - Legacy backup/import behavior:
   - `bot_app_state.state` keeps the old full JSONB document for rollback/audit.
   - if that row is absent, `data/state/state.json` can be imported once during `split_state_v1`.
@@ -103,7 +103,7 @@
 - When features beyond the base heatmap flow are enabled, configure their specific target channels/forums as needed.
 - The bot must be able to use application commands and post/send in the configured Discord resources.
 - Code-confirmed command boundary:
-  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - `/setforumchannel`, `/seteodforum`, `/setwatchforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/kheatmap`, `/usheatmap`, and `/watch *` require guild context but are not admin-gated
   - `/local ask` requires guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - `/health`, `/last-run`, and `/source-status` do not currently apply a visible authorization gate in code
@@ -119,6 +119,14 @@
   - if the runtime starts or is delayed shortly after the due minute, the 30-minute grace window can still finalize the close; outside that window, long-outage Discord close-comment backfill is not attempted
   - close prices are still accumulated in `bot_watch_close_prices` once a provider snapshot exposes `session_close_price`; after the due minute, DB catch-up can save a missing close price without creating a Discord close comment
   - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
+- News-specific operator note:
+  - scheduled news uses `news_collection` at `NEWS_COLLECTION_TIME` and, when enabled, `news_collection_close` at `NEWS_COLLECTION_CLOSE_TIME`
+  - both jobs fetch provider articles and store normalized article fields plus provider raw payloads in PostgreSQL `bot_news_articles`
+  - dynamic company query expansion always includes configured watchlist symbols; setting `NEWS_DYNAMIC_RANKING_ENABLED=true` additionally attempts KIS ranking queries using `KIS_APP_KEY` and `KIS_APP_SECRET`
+  - KIS ranking failure or missing credentials records `kis_news_ranking` status/detail but does not stop news collection; the provider still runs with macro/static fallback queries plus watchlist queries
+  - current code records KIS domestic turnover ranking as unavailable until a confirmed endpoint is wired
+  - it does not post Discord domestic/global news threads and does not run trend-theme briefing
+  - `/setnewsforum` and `NEWS_TARGET_FORUM_ID` are no longer part of the runtime configuration surface
 
 ## Logs and State Paths
 - Main mutable state, PostgreSQL backend:

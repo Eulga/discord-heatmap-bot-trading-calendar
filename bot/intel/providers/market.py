@@ -40,6 +40,22 @@ _OVERSEAS_EXCHANGE_ALIASES = {
     "NYS": ("AMS",),
     "AMS": ("NYS",),
 }
+_DOMESTIC_VOLUME_RANK_PATH = "/uapi/domestic-stock/v1/quotations/volume-rank"
+_DOMESTIC_VOLUME_RANK_TR_ID = "FHPST01710000"
+_OVERSEAS_VOLUME_RANK_PATH = "/uapi/overseas-stock/v1/ranking/trade-vol"
+_OVERSEAS_VOLUME_RANK_TR_ID = "HHDFS76310010"
+_OVERSEAS_TURNOVER_RANK_PATH = "/uapi/overseas-stock/v1/ranking/trade-pbmn"
+_OVERSEAS_TURNOVER_RANK_TR_ID = "HHDFS76320010"
+_RANKING_OVERSEAS_EXCHANGES = ("NAS", "NYS", "AMS")
+_OVERSEAS_EXCHANGE_NORMALIZE = {
+    "NASD": "NAS",
+    "NASDAQ": "NAS",
+    "NAS": "NAS",
+    "NYSE": "NYS",
+    "NYS": "NYS",
+    "AMEX": "AMS",
+    "AMS": "AMS",
+}
 
 
 @dataclass
@@ -77,6 +93,17 @@ class EodSummary:
     top_gainers: list[EodRow]
     top_losers: list[EodRow]
     top_turnover: list[EodRow]
+
+
+@dataclass(frozen=True)
+class NewsRankingInstrument:
+    canonical_symbol: str
+    market_code: str
+    ticker_or_code: str
+    display_name_ko: str
+    display_name_en: str
+    source: str
+    raw_payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -762,6 +789,110 @@ class RoutedMarketDataProvider:
         await self.warm_watch_snapshots(symbols, now)
 
 
+class KisNewsRankingClient(KisMarketDataProvider):
+    def __init__(
+        self,
+        *,
+        app_key: str,
+        app_secret: str,
+        timeout_seconds: int = 5,
+        retry_count: int = 1,
+        base_url: str = _DEFAULT_KIS_BASE_URL,
+    ) -> None:
+        super().__init__(
+            app_key=app_key,
+            app_secret=app_secret,
+            timeout_seconds=timeout_seconds,
+            retry_count=retry_count,
+            base_url=base_url,
+        )
+        self.provider_key = "kis_news_ranking"
+
+    async def fetch_domestic_volume_rank(self, *, limit: int) -> list[NewsRankingInstrument]:
+        payload = await self._request_kis_json(
+            path=_DOMESTIC_VOLUME_RANK_PATH,
+            tr_id=_DOMESTIC_VOLUME_RANK_TR_ID,
+            params={
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE": "20171",
+                "FID_INPUT_ISCD": "0000",
+                "FID_DIV_CLS_CODE": "0",
+                "FID_BLNG_CLS_CODE": "0",
+                "FID_TRGT_CLS_CODE": "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+                "FID_INPUT_PRICE_1": "",
+                "FID_INPUT_PRICE_2": "",
+                "FID_VOL_CNT": "",
+                "FID_INPUT_DATE_1": "",
+            },
+        )
+        return _normalize_domestic_ranking_rows(payload, source="domestic_volume", limit=limit)
+
+    async def fetch_domestic_turnover_rank(self, *, limit: int) -> list[NewsRankingInstrument]:
+        raise MarketDataProviderError(
+            "domestic-turnover-rank-unavailable",
+            provider_key=self.provider_key,
+        )
+
+    async def fetch_overseas_volume_rank(self, *, limit: int) -> list[NewsRankingInstrument]:
+        return await self._fetch_overseas_rank(
+            path=_OVERSEAS_VOLUME_RANK_PATH,
+            tr_id=_OVERSEAS_VOLUME_RANK_TR_ID,
+            source="overseas_volume",
+            limit=limit,
+        )
+
+    async def fetch_overseas_turnover_rank(self, *, limit: int) -> list[NewsRankingInstrument]:
+        return await self._fetch_overseas_rank(
+            path=_OVERSEAS_TURNOVER_RANK_PATH,
+            tr_id=_OVERSEAS_TURNOVER_RANK_TR_ID,
+            source="overseas_turnover",
+            limit=limit,
+        )
+
+    async def _fetch_overseas_rank(
+        self,
+        *,
+        path: str,
+        tr_id: str,
+        source: str,
+        limit: int,
+    ) -> list[NewsRankingInstrument]:
+        results: list[NewsRankingInstrument] = []
+        seen: set[str] = set()
+        last_error: RuntimeError | None = None
+        for exchange in _RANKING_OVERSEAS_EXCHANGES:
+            try:
+                payload = await self._request_kis_json(
+                    path=path,
+                    tr_id=tr_id,
+                    params={
+                        "AUTH": "",
+                        "EXCD": exchange,
+                        "NATION": "",
+                    },
+                )
+            except RuntimeError as exc:
+                last_error = exc
+                continue
+            rows = _normalize_overseas_ranking_rows(
+                payload,
+                source=source,
+                limit=limit,
+                default_exchange=exchange,
+            )
+            for item in rows:
+                if item.canonical_symbol in seen:
+                    continue
+                seen.add(item.canonical_symbol)
+                results.append(item)
+                if len(results) >= limit:
+                    return results
+        if not results and last_error is not None:
+            raise MarketDataProviderError(str(last_error), provider_key=self.provider_key) from last_error
+        return results
+
+
 class MockEodSummaryProvider:
     async def get_summary(self, now: datetime) -> EodSummary:
         gainers = [
@@ -812,6 +943,162 @@ def _resolve_registry_record(record: InstrumentRecord) -> _ResolvedSymbol:
         return _ResolvedSymbol(canonical_symbol, market_code, ticker_or_code, exchange_code)
 
     raise RuntimeError(f"unsupported-market:{canonical_symbol}")
+
+
+def _normalize_domestic_ranking_rows(
+    payload: dict[str, Any],
+    *,
+    source: str,
+    limit: int,
+) -> list[NewsRankingInstrument]:
+    registry = load_registry()
+    rows = _extract_ranking_rows(payload)
+    results: list[NewsRankingInstrument] = []
+    seen: set[str] = set()
+    for row in rows:
+        ticker = _first_text(
+            row,
+            (
+                "mksc_shrn_iscd",
+                "stck_shrn_iscd",
+                "pdno",
+                "iscd",
+                "fid_input_iscd",
+                "symbol",
+                "code",
+            ),
+        )
+        if not ticker or not ticker.isdigit() or len(ticker) != 6:
+            continue
+        canonical_symbol = f"KRX:{ticker}"
+        if canonical_symbol in seen:
+            continue
+        seen.add(canonical_symbol)
+        record = registry.get(canonical_symbol)
+        name_ko = _first_text(row, ("hts_kor_isnm", "kor_isnm", "prdt_name", "name", "stck_kor_isnm"))
+        if record is not None:
+            name_ko = record.display_name_ko or name_ko
+        results.append(
+            NewsRankingInstrument(
+                canonical_symbol=canonical_symbol,
+                market_code="KRX",
+                ticker_or_code=ticker,
+                display_name_ko=name_ko,
+                display_name_en=record.display_name_en if record is not None else "",
+                source=source,
+                raw_payload=dict(row),
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _normalize_overseas_ranking_rows(
+    payload: dict[str, Any],
+    *,
+    source: str,
+    limit: int,
+    default_exchange: str,
+) -> list[NewsRankingInstrument]:
+    registry = load_registry()
+    rows = _extract_ranking_rows(payload)
+    results: list[NewsRankingInstrument] = []
+    seen: set[str] = set()
+    for row in rows:
+        exchange, ticker = _overseas_symbol_from_rank_row(row, default_exchange=default_exchange)
+        if not exchange or not ticker:
+            continue
+        canonical_symbol = f"{exchange}:{ticker}"
+        record = registry.get(canonical_symbol) or _find_registry_record_by_ticker(registry, exchange, ticker)
+        if record is not None:
+            canonical_symbol = record.canonical_symbol
+        if canonical_symbol in seen:
+            continue
+        seen.add(canonical_symbol)
+        name_en = _first_text(row, ("ovrs_item_name", "eng_name", "name", "prdt_name", "stck_eng_name"))
+        results.append(
+            NewsRankingInstrument(
+                canonical_symbol=canonical_symbol,
+                market_code=record.market_code if record is not None else exchange,
+                ticker_or_code=record.ticker_or_code if record is not None else ticker,
+                display_name_ko=record.display_name_ko if record is not None else "",
+                display_name_en=(record.display_name_en if record is not None else "") or name_en,
+                source=source,
+                raw_payload=dict(row),
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _extract_ranking_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("output", "output1", "output2"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            rows.extend(item for item in value if isinstance(item, dict))
+    if not rows and isinstance(payload.get("data"), list):
+        rows.extend(item for item in payload["data"] if isinstance(item, dict))
+    return rows
+
+
+def _overseas_symbol_from_rank_row(row: dict[str, Any], *, default_exchange: str) -> tuple[str, str]:
+    raw_rsym = _first_text(row, ("rsym",))
+    exchange = _normalize_overseas_exchange(
+        _first_text(row, ("excd", "ovrs_excg_cd", "tr_mket_name", "exchange", "market")) or default_exchange
+    )
+    ticker = _first_text(row, ("symb", "ovrs_pdno", "pdno", "ticker", "symbol"))
+    if not ticker and raw_rsym:
+        rsym_exchange, rsym_ticker = _split_overseas_rsym(raw_rsym)
+        exchange = exchange or rsym_exchange
+        ticker = rsym_ticker
+    ticker = ticker.strip().upper()
+    if ":" in ticker:
+        maybe_exchange, maybe_ticker = ticker.split(":", maxsplit=1)
+        exchange = _normalize_overseas_exchange(maybe_exchange) or exchange
+        ticker = maybe_ticker.strip().upper()
+    return exchange, ticker
+
+
+def _split_overseas_rsym(value: str) -> tuple[str, str]:
+    raw = value.strip().upper()
+    if len(raw) > 4 and raw.startswith("D"):
+        exchange = _normalize_overseas_exchange(raw[1:4])
+        if exchange:
+            return exchange, raw[4:]
+    return "", raw
+
+
+def _normalize_overseas_exchange(value: str) -> str:
+    return _OVERSEAS_EXCHANGE_NORMALIZE.get(value.strip().upper(), "")
+
+
+def _find_registry_record_by_ticker(
+    registry: Any,
+    market_code: str,
+    ticker: str,
+) -> InstrumentRecord | None:
+    exact = [
+        record
+        for record in getattr(registry, "records", ())
+        if record.market_code == market_code and record.ticker_or_code == ticker
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    return None
+
+
+def _first_text(row: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
 
 
 def _parse_positive_float(value: Any) -> float | None:

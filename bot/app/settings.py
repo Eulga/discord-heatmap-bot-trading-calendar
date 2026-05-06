@@ -107,9 +107,14 @@ US_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
-NEWS_BRIEFING_ENABLED = _env_bool("NEWS_BRIEFING_ENABLED", True)
-NEWS_BRIEFING_TIME = os.getenv("NEWS_BRIEFING_TIME", "07:30").strip() or "07:30"
-NEWS_BRIEFING_TRADING_DAYS_ONLY = _env_bool("NEWS_BRIEFING_TRADING_DAYS_ONLY", False)
+NEWS_COLLECTION_ENABLED = _env_bool("NEWS_COLLECTION_ENABLED", True)
+NEWS_COLLECTION_TIME = os.getenv("NEWS_COLLECTION_TIME", "07:30").strip() or "07:30"
+NEWS_COLLECTION_CLOSE_ENABLED = _env_bool("NEWS_COLLECTION_CLOSE_ENABLED", True)
+NEWS_COLLECTION_CLOSE_TIME = os.getenv("NEWS_COLLECTION_CLOSE_TIME", "16:10").strip() or "16:10"
+NEWS_COLLECTION_TRADING_DAYS_ONLY = _env_bool("NEWS_COLLECTION_TRADING_DAYS_ONLY", False)
+NEWS_DYNAMIC_RANKING_ENABLED = _env_bool("NEWS_DYNAMIC_RANKING_ENABLED", False)
+NEWS_DYNAMIC_SYMBOL_LIMIT = _env_bounded_int("NEWS_DYNAMIC_SYMBOL_LIMIT", 30, 1, 100)
+NEWS_DYNAMIC_INCLUDE_OVERSEAS = _env_bool("NEWS_DYNAMIC_INCLUDE_OVERSEAS", True)
 NEWS_PROVIDER_KIND = os.getenv("NEWS_PROVIDER_KIND", "mock").strip().lower() or "mock"
 MARKET_DATA_PROVIDER_KIND = os.getenv("MARKET_DATA_PROVIDER_KIND", "mock").strip().lower() or "mock"
 DART_API_KEY = os.getenv("DART_API_KEY", "").strip()
@@ -134,11 +139,11 @@ NAVER_NEWS_GLOBAL_QUERIES = _env_list(
 )
 NAVER_NEWS_DOMESTIC_STOCK_QUERIES = _env_list(
     "NAVER_NEWS_DOMESTIC_STOCK_QUERIES",
-    ["삼성전자", "SK하이닉스", "현대차", "한화에어로스페이스", "셀트리온"],
+    ["반도체", "2차전지", "자동차", "방산", "바이오", "금융주"],
 )
 NAVER_NEWS_GLOBAL_STOCK_QUERIES = _env_list(
     "NAVER_NEWS_GLOBAL_STOCK_QUERIES",
-    ["엔비디아", "애플", "마이크로소프트", "테슬라", "마이크론"],
+    ["미국 반도체", "AI 반도체", "전기차", "빅테크", "미국 바이오"],
 )
 MARKETAUX_NEWS_GLOBAL_QUERY = (
     os.getenv("MARKETAUX_NEWS_GLOBAL_QUERY", "Nasdaq OR S&P 500 OR Federal Reserve OR FOMC OR Treasury yields").strip()
@@ -170,5 +175,4 @@ INSTRUMENT_REGISTRY_REFRESH_ENABLED = _env_bool("INSTRUMENT_REGISTRY_REFRESH_ENA
 INSTRUMENT_REGISTRY_REFRESH_TIME = os.getenv("INSTRUMENT_REGISTRY_REFRESH_TIME", "06:20").strip() or "06:20"
 
 ADMIN_STATUS_CHANNEL_ID = _env_channel_id("ADMIN_STATUS_CHANNEL_ID")
-NEWS_TARGET_FORUM_ID = _env_channel_id("NEWS_TARGET_FORUM_ID")
 EOD_TARGET_FORUM_ID = _env_channel_id("EOD_TARGET_FORUM_ID")

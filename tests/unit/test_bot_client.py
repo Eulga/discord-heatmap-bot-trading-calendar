@@ -38,10 +38,8 @@ def _patch_route_state(monkeypatch, state: dict, calls: list[tuple[str, int, int
         return _set
 
     monkeypatch.setattr(bot_client, "get_guild_forum_channel_id", getter("forum_channel_id"))
-    monkeypatch.setattr(bot_client, "get_guild_news_forum_channel_id", getter("news_forum_channel_id"))
     monkeypatch.setattr(bot_client, "get_guild_eod_forum_channel_id", getter("eod_forum_channel_id"))
     monkeypatch.setattr(bot_client, "set_guild_forum_channel_id", setter("forum_channel_id"))
-    monkeypatch.setattr(bot_client, "set_guild_news_forum_channel_id", setter("news_forum_channel_id"))
     monkeypatch.setattr(bot_client, "set_guild_eod_forum_channel_id", setter("eod_forum_channel_id"))
 
 
@@ -52,14 +50,12 @@ async def test_bootstrap_guild_channel_routes_from_env_persists_missing_state(mo
 
     monkeypatch.setattr(bot_client.discord, "ForumChannel", FakeForumChannel)
     monkeypatch.setattr(bot_client, "DEFAULT_FORUM_CHANNEL_ID", 101)
-    monkeypatch.setattr(bot_client, "NEWS_TARGET_FORUM_ID", 102)
     monkeypatch.setattr(bot_client, "EOD_TARGET_FORUM_ID", 103)
     _patch_route_state(monkeypatch, state, calls)
 
     client = FakeClient(
         {
             101: FakeForumChannel(101, 1),
-            102: FakeForumChannel(102, 1),
             103: FakeForumChannel(103, 1),
         }
     )
@@ -68,11 +64,9 @@ async def test_bootstrap_guild_channel_routes_from_env_persists_missing_state(mo
 
     guild = state["guilds"]["1"]
     assert guild["forum_channel_id"] == 101
-    assert guild["news_forum_channel_id"] == 102
     assert guild["eod_forum_channel_id"] == 103
     assert calls == [
         ("forum_channel_id", 1, 101),
-        ("news_forum_channel_id", 1, 102),
         ("eod_forum_channel_id", 1, 103),
     ]
 
@@ -93,14 +87,12 @@ async def test_bootstrap_guild_channel_routes_from_env_does_not_override_existin
 
     monkeypatch.setattr(bot_client.discord, "ForumChannel", FakeForumChannel)
     monkeypatch.setattr(bot_client, "DEFAULT_FORUM_CHANNEL_ID", 101)
-    monkeypatch.setattr(bot_client, "NEWS_TARGET_FORUM_ID", 102)
     monkeypatch.setattr(bot_client, "EOD_TARGET_FORUM_ID", 103)
     _patch_route_state(monkeypatch, state, calls)
 
     client = FakeClient(
         {
             101: FakeForumChannel(101, 1),
-            102: FakeForumChannel(102, 1),
             103: FakeForumChannel(103, 1),
         }
     )

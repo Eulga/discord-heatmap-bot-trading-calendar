@@ -1,6 +1,58 @@
 # Development Log
 
+## 2026-05-07
+- Context: 사용자가 고정 stock query 대신 KIS 거래량/거래대금 랭킹과 기존 watchlist를 합친 동적 뉴스 query universe로 전환하라고 요청했다.
+- Change:
+1. `NEWS_COLLECTION_CLOSE_ENABLED`, `NEWS_COLLECTION_CLOSE_TIME`, `NEWS_DYNAMIC_RANKING_ENABLED`, `NEWS_DYNAMIC_SYMBOL_LIMIT`, `NEWS_DYNAMIC_INCLUDE_OVERSEAS` 설정을 추가하고, `news_collection_close` job key를 도입했다.
+2. Naver/Marketaux provider `fetch()`가 optional `NewsQueryUniverse`를 받아 macro query 뒤에 동적 stock query를 추가하도록 확장했다.
+3. `KisNewsRankingClient`를 추가해 기존 KIS OAuth/request helper를 재사용하고 국내 거래량/해외 거래량/해외 거래대금 ranking row를 `NewsRankingInstrument`로 정규화한다. 국내 거래대금 ranking은 confirmed endpoint가 없어 unavailable로 처리한다.
+4. Scheduler가 watchlist + optional KIS ranking으로 query universe를 만들고, KIS ranking 실패/credential 누락은 `kis_news_ranking` provider status와 job detail에만 남긴 뒤 뉴스 수집은 계속 진행하게 했다.
+5. `NAVER_NEWS_*_STOCK_QUERIES` 기본값을 개별 종목 중심에서 broad sector fallback 중심으로 조정했고, status/docs/tests를 새 job/config 경계에 맞췄다.
+- Verification:
+1. `.venv/bin/python -m pytest tests/unit/test_news_query_universe.py tests/unit/test_news_provider.py tests/unit/test_market_provider.py tests/integration/test_intel_scheduler_logic.py -q`
+2. `.venv/bin/python scripts/run_repo_checks.py unit`
+3. `.venv/bin/python scripts/run_repo_checks.py integration`
+4. `.venv/bin/python scripts/run_repo_checks.py collect`
+5. `git diff --check`
+- Status: done
+
 ## 2026-05-06
+- Context: 사용자가 기존 뉴스 관련 기능을 전면 수정해 Discord 국내/해외 뉴스 브리핑과 트렌드 테마 송출을 제거하고, 뉴스 수집 후 PostgreSQL 저장까지만 다시 구현하자고 요청했다.
+- Change:
+1. `news_briefing`/`trend_briefing` 스케줄러 경로와 `/setnewsforum`, `NEWS_TARGET_FORUM_ID`, 뉴스/트렌드 Discord 렌더러를 제거했다.
+2. 새 `news_collection` job과 `NEWS_COLLECTION_*` env를 추가했고, scheduler는 forum route 없이 provider fetch 후 DB 저장만 수행한다.
+3. `CollectedNewsArticle` 모델과 provider raw payload 보존 경로를 추가하고, Naver/Marketaux provider를 기본 품질필터 중심 수집 경로로 단순화했다.
+4. `bot_news_articles` PostgreSQL 테이블과 `(state_key, article_key)` upsert helper를 추가했다. legacy `news_forum_channel_id`와 `bot_news_dedup`은 inert 상태로 남겼고, legacy split-state 재마이그레이션이 수집 기사 테이블을 지우지 않도록 했다.
+5. 관련 unit/integration 테스트와 canonical docs/config/runbook/current-state/design decision/handoff를 갱신했다.
+- Verification:
+1. `.venv/bin/python -m pytest tests/unit/test_news_provider.py tests/unit/test_state_atomic.py tests/unit/test_bot_client.py tests/integration/test_intel_scheduler_logic.py -q`
+2. `.venv/bin/python scripts/run_repo_checks.py collect`
+3. `.venv/bin/python scripts/run_repo_checks.py unit`
+4. `.venv/bin/python scripts/run_repo_checks.py integration`
+5. `git diff --check`
+- Note:
+1. `python3 scripts/run_repo_checks.py collect`는 현재 macOS 기본 `python3`에서 usable pytest interpreter를 찾지 못해 실패했고, repo `.venv` interpreter로 동일 표준 스크립트를 실행해 통과했다.
+- Status: done
+
+- Context: 사용자가 로컬 LLM 뉴스 요약 성능 참고 문서를 정밀 분석해 현재 저장소에 도입 가능한 범위를 추려 달라고 요청했다.
+- Change:
+1. `docs/reports/local-llm-news-summary-adoption-scope-2026-05-06.md`를 추가해 reference memo의 각 제안을 현재 뉴스 provider, scheduler, local model client 구조와 대조했다.
+2. 1차 도입 범위를 article-body extraction이 아닌 기존 `NewsItem` metadata 기반 optional regional digest LLM overlay로 좁혔다.
+3. `trafilatura`, 뉴스용 `Playwright`, Redis/Celery queue, API LLM hybrid, model tiering은 별도 설계가 필요한 후속 범위로 분리했다.
+- Verification:
+1. `git diff --check`
+- Status: done
+
+- Context: 사용자가 로컬 LLM 기반 경제뉴스 100건 요약 성능 병목 분석과 개선 우선순위 메모를 Markdown 참고 문서로 보관해 달라고 요청했다.
+- Change:
+1. `docs/references/external/local-llm-news-summary-performance-2026-05-06.md`를 추가해 사용자 제공 분석 메모를 reference-only 문서로 정리했다.
+2. 외부 링크와 벤더별 주장, 성능 추정치는 이 작업에서 재검증하지 않았다는 상태 문구를 문서 상단에 추가했다.
+3. `docs/references/external/README.md`에 새 참고 문서 항목을 추가했다.
+4. `docs/references/external/*` ignore 정책은 유지하되 이번 Markdown 참고 문서만 추적되도록 `.gitignore` 예외를 추가했다.
+- Verification:
+1. `git diff --check`
+- Status: done
+
 - Context: 사용자가 watch `마감가 알림`을 regular `watch_poll` 루프에서 분리하고, due minute을 짧게 놓친 재시작/지연은 복구하되 장기 중단 backfill은 원치 않는다고 요청했다.
 - Change:
 1. `bot/features/intel_scheduler.py`에 `watch_close_krx`와 `watch_close_us` daily close-finalization job을 추가했다.

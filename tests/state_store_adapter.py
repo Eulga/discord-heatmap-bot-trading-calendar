@@ -198,6 +198,35 @@ def patch_legacy_state_store(
         repository.get_daily_posts_for_guild(state, command_key, guild_id)[post_date] = post
         save(state)
 
+    def upsert_news_articles(articles: list[Any], collected_at: datetime) -> dict[str, int]:
+        state = load()
+        store = state.setdefault("system", {}).setdefault("news_articles", {})
+        inserted = 0
+        updated = 0
+        for article in articles:
+            key = article.article_key()
+            if key in store:
+                updated += 1
+            else:
+                inserted += 1
+            first_seen_at = store.get(key, {}).get("first_seen_at", collected_at)
+            store[key] = {
+                "provider": article.provider,
+                "region": article.region,
+                "title": article.title,
+                "description": article.description,
+                "url": article.url,
+                "canonical_url": article.canonical_url,
+                "source": article.source,
+                "published_at": article.published_at,
+                "query": article.query,
+                "raw_payload": article.raw_payload,
+                "first_seen_at": first_seen_at,
+                "last_seen_at": collected_at,
+            }
+        save(state)
+        return {"inserted": inserted, "updated": updated}
+
     async def upsert_daily_post(**kwargs):
         kwargs["state"] = load()
         result = await real_upsert_daily_post(**kwargs)
@@ -247,6 +276,7 @@ def patch_legacy_state_store(
         "get_command_image_cache": get_command_image_cache,
         "upsert_command_image_cache": upsert_command_image_cache,
         "upsert_daily_post_record": upsert_daily_post_record,
+        "upsert_news_articles": upsert_news_articles,
         "set_job_last_run": mutate(repository.set_job_last_run),
         "get_job_last_runs": get(repository.get_job_last_runs),
         "set_provider_status": mutate(repository.set_provider_status),

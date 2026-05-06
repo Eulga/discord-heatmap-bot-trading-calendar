@@ -1,5 +1,31 @@
 # Design Decisions
 
+## 2026-05-07
+- Context: 사용자가 고정 stock query로는 등록 종목 밖의 기업 뉴스가 빠진다고 지적했고, KIS 거래량/거래대금 랭킹과 기존 watchlist를 이용한 동적 query universe 전환을 요청했다.
+- Decision: 뉴스 수집은 `news_collection` 아침 slot과 `news_collection_close` 장마감 slot을 유지하고, provider fetch 전에 watchlist + optional KIS ranking 기반 `NewsQueryUniverse`를 구성한다. `NEWS_DYNAMIC_RANKING_ENABLED`는 기본 false로 두되 watchlist query는 항상 포함한다.
+- Why:
+1. Watchlist는 사용자가 명시한 관심 종목이므로 ranking credential이나 endpoint 상태와 무관하게 query coverage에 반영돼야 한다.
+2. KIS ranking은 외부 API/entitlement/endpoint 변동 가능성이 있으므로 수집 job의 hard dependency로 두지 않는다.
+3. 기사 저장 v1은 ranking snapshot 저장이 아니라 article row 저장이 목표이므로 ranking 결과는 provider query 입력과 job/provider status detail까지만 남긴다.
+- Impact:
+1. `NEWS_COLLECTION_CLOSE_ENABLED`, `NEWS_COLLECTION_CLOSE_TIME`, `NEWS_DYNAMIC_RANKING_ENABLED`, `NEWS_DYNAMIC_SYMBOL_LIMIT`, `NEWS_DYNAMIC_INCLUDE_OVERSEAS`가 active config surface에 추가됐다.
+2. KIS ranking 실패 또는 KIS credential 누락은 `kis_news_ranking` status/detail에 기록되고, 뉴스 수집은 static macro/fallback query + watchlist query로 계속 진행된다.
+3. KIS 국내 거래대금 랭킹은 현재 confirmed endpoint가 없어 `domestic-turnover-rank-unavailable`로 기록한다.
+- Status: accepted
+
+## 2026-05-06
+- Context: news summarization performance work showed that the old scheduled news/trend Discord posting path was the wrong base for the next iteration; the user asked to restart from collection and PostgreSQL storage only.
+- Decision: Replace active scheduled news/trend posting with a single `news_collection` job that stores provider articles in `bot_news_articles`.
+- Why:
+1. Collection and durable storage are the stable foundation for later ranking, extraction, caching, and summarization work.
+2. Removing Discord news/trend side effects avoids coupling provider ingestion to forum routing and message rendering.
+3. Preserving provider raw JSONB keeps future normalization/debug options open without re-fetching external APIs.
+- Impact:
+1. `NEWS_COLLECTION_*` is the active news schedule surface.
+2. `/setnewsforum`, `NEWS_TARGET_FORUM_ID`, `news_briefing`, `trend_briefing`, `newsbriefing-*`, and `trendbriefing` are removed from active runtime behavior.
+3. Legacy `news_forum_channel_id` and `bot_news_dedup` remain inert for migration safety rather than being dropped immediately.
+- Status: accepted
+
 ## 2026-05-05
 - Context: watch close comments preserve Discord-visible session history, but users now also want accumulated close-price rows in PostgreSQL for inspection and future analytics.
 - Decision: Store watch close prices as historical PostgreSQL rows keyed by `(state_key, symbol, session_date)`, separate from mutable runtime state and legacy `AppState` snapshots.
@@ -161,7 +187,7 @@
 1. `news_forum_channel_id`가 없는 길드는 `forum_channel_id`만 있어도 뉴스/트렌드 자동 게시 대상이 아니다.
 2. `/setnewsforum`으로 explicit route를 넣거나 startup bootstrap이 `news_forum_channel_id`를 채운 경우에만 뉴스/트렌드 게시가 가능하다.
 3. heatmap, EOD, watch routing 정책은 이번 결정 범위에 포함되지 않는다.
-- Status: accepted
+- Status: superseded on 2026-05-06 by collection-only `news_collection`; news/trend Discord posting and `NEWS_TARGET_FORUM_ID` are no longer active runtime behavior
 
 ## 2026-03-23
 - Context: 사용자가 `watch_poll`에서 같은 방향으로 이미 한 번 보낸 변동 알림이 10분 cooldown 뒤 다시 오는 것은 원치 않는다고 보고했다.

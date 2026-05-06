@@ -7,3 +7,7 @@
 2. 프로젝트가 직접 작성한 내부 산출물은 `docs/context/`, `docs/specs/`, `docs/reports/`에 둔다.
 3. 큰 원본 파일이나 임시 참고 파일은 기본적으로 Git 추적 대상에서 제외한다.
 4. 필요한 경우 이 디렉터리 아래에 공급자별 하위 폴더를 만들어도 된다.
+
+## Files
+
+- `local-llm-news-summary-performance-2026-05-06.md`: 로컬 LLM 기반 경제뉴스 요약 성능 병목, `trafilatura`/`Playwright` fallback, 캐시/큐/모델 tiering 개선 방향에 대한 사용자 제공 참고 메모.

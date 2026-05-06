@@ -617,6 +617,40 @@ def _ensure_schema(cursor: Any) -> None:
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bot_news_articles (
+            state_key TEXT NOT NULL,
+            article_key TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            region TEXT NOT NULL CHECK (region IN ('domestic', 'global')),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL,
+            canonical_url TEXT NOT NULL,
+            source TEXT NOT NULL,
+            published_at TIMESTAMPTZ NOT NULL,
+            query TEXT NOT NULL DEFAULT '',
+            raw_payload JSONB NOT NULL,
+            first_seen_at TIMESTAMPTZ NOT NULL,
+            last_seen_at TIMESTAMPTZ NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (state_key, article_key)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_bot_news_articles_published_at
+        ON bot_news_articles (state_key, published_at DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_bot_news_articles_provider_region
+        ON bot_news_articles (state_key, provider, region)
+        """
+    )
 
 
 def _clear_split_rows(cursor: Any, state_key: str) -> None:
@@ -1925,6 +1959,64 @@ def mark_news_dedup_seen(dedup_key: str, date_text: str) -> None:
         """,
         (_state_key(), date_text, dedup_key),
     )
+
+
+def upsert_news_articles(articles: list[Any], collected_at: datetime) -> dict[str, int]:
+    ensure_schema_and_migrate()
+    inserted = 0
+    updated = 0
+    with _connect() as conn:
+        with conn.cursor() as cursor:
+            for article in articles:
+                cursor.execute(
+                    """
+                    INSERT INTO bot_news_articles (
+                        state_key, article_key, provider, region, title, description, url,
+                        canonical_url, source, published_at, query, raw_payload,
+                        first_seen_at, last_seen_at, updated_at
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                        %s, %s, now()
+                    )
+                    ON CONFLICT (state_key, article_key) DO UPDATE SET
+                        provider = EXCLUDED.provider,
+                        region = EXCLUDED.region,
+                        title = EXCLUDED.title,
+                        description = EXCLUDED.description,
+                        url = EXCLUDED.url,
+                        canonical_url = EXCLUDED.canonical_url,
+                        source = EXCLUDED.source,
+                        published_at = EXCLUDED.published_at,
+                        query = EXCLUDED.query,
+                        raw_payload = EXCLUDED.raw_payload,
+                        last_seen_at = EXCLUDED.last_seen_at,
+                        updated_at = now()
+                    RETURNING (xmax = 0) AS inserted
+                    """,
+                    (
+                        _state_key(),
+                        article.article_key(),
+                        article.provider,
+                        article.region,
+                        article.title,
+                        article.description,
+                        article.url,
+                        article.canonical_url,
+                        article.source,
+                        article.published_at,
+                        article.query,
+                        json.dumps(article.raw_payload, ensure_ascii=False),
+                        collected_at,
+                        collected_at,
+                    ),
+                )
+                row = cursor.fetchone()
+                if row and bool(row[0]):
+                    inserted += 1
+                else:
+                    updated += 1
+    return {"inserted": inserted, "updated": updated}
 
 
 def cleanup_news_dedup(keep_recent_days: int = 7) -> None:

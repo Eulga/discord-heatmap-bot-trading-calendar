@@ -26,6 +26,7 @@ output/
 !.codex-harness/reports/README.md
 docs/references/external/*
 !docs/references/external/README.md
+!docs/references/external/local-llm-news-summary-performance-2026-05-06.md
 
 # IDE/editor
 .vscode/

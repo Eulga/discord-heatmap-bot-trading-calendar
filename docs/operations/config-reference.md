@@ -21,6 +21,7 @@
     - required when `NEWS_PROVIDER_KIND` is `marketaux` or `hybrid`
   - `KIS_APP_KEY`, `KIS_APP_SECRET`
     - required when `MARKET_DATA_PROVIDER_KIND` is `kis`
+    - also required for KIS-backed dynamic news ranking when `NEWS_DYNAMIC_RANKING_ENABLED=True`
   - `DART_API_KEY`
     - required only when instrument registry refresh actually runs a live rebuild
   - `DATABASE_URL`
@@ -40,11 +41,11 @@
 ## Bootstrap-only Env Vars
 - The inspected runtime docs currently treat these as bootstrap/default route IDs rather than the primary runtime routing source:
   - `DEFAULT_FORUM_CHANNEL_ID`
-  - `NEWS_TARGET_FORUM_ID`
   - `EOD_TARGET_FORUM_ID`
 - Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
 - Runtime routing should be checked in the configured app-state backend when validating actual behavior.
 - Watch routing no longer has an env bootstrap/default channel; current code requires per-guild `watch_forum_channel_id` in state.
+- News collection has no Discord route bootstrap; legacy `news_forum_channel_id` may remain in the database but is inert for the current collection path.
 
 ## Active Runtime Request Knobs
 - Shared live-provider request behavior:
@@ -54,9 +55,14 @@
 
 ## Feature Toggles
 - News:
-  - `NEWS_BRIEFING_ENABLED`
-  - `NEWS_BRIEFING_TIME`
-  - `NEWS_BRIEFING_TRADING_DAYS_ONLY`
+  - `NEWS_COLLECTION_ENABLED`
+  - `NEWS_COLLECTION_TIME`
+  - `NEWS_COLLECTION_CLOSE_ENABLED`
+  - `NEWS_COLLECTION_CLOSE_TIME`
+  - `NEWS_COLLECTION_TRADING_DAYS_ONLY`
+  - `NEWS_DYNAMIC_RANKING_ENABLED`
+  - `NEWS_DYNAMIC_SYMBOL_LIMIT`
+  - `NEWS_DYNAMIC_INCLUDE_OVERSEAS`
   - `NEWS_PROVIDER_KIND`
 - Watch:
   - `WATCH_POLL_ENABLED`
@@ -94,9 +100,14 @@
   - `CACHE_TTL_SECONDS = 3600`
   - auto screenshot can run once per guild/job/date after the hard-coded `16:00` KST Korea schedule and `07:00` KST US schedule
 - News:
-  - `NEWS_BRIEFING_ENABLED = True`
-  - `NEWS_BRIEFING_TIME = "07:30"`
-  - `NEWS_BRIEFING_TRADING_DAYS_ONLY = False`
+  - `NEWS_COLLECTION_ENABLED = True`
+  - `NEWS_COLLECTION_TIME = "07:30"`
+  - `NEWS_COLLECTION_CLOSE_ENABLED = True`
+  - `NEWS_COLLECTION_CLOSE_TIME = "16:10"`
+  - `NEWS_COLLECTION_TRADING_DAYS_ONLY = False`
+  - `NEWS_DYNAMIC_RANKING_ENABLED = False`
+  - `NEWS_DYNAMIC_SYMBOL_LIMIT = 30`
+  - `NEWS_DYNAMIC_INCLUDE_OVERSEAS = True`
   - `NEWS_PROVIDER_KIND = "mock"`
 - Watch:
   - `WATCH_POLL_ENABLED = True`
@@ -131,6 +142,11 @@
   - `NEWS_PROVIDER_KIND = "naver"` -> `NaverNewsProvider` or `ErrorNewsProvider` when credentials are missing
   - `NEWS_PROVIDER_KIND = "marketaux"` -> `MarketauxNewsProvider` or `ErrorNewsProvider` when the token is missing
   - `NEWS_PROVIDER_KIND = "hybrid"` -> `HybridNewsProvider` combining Naver for domestic and Marketaux for global, or `ErrorNewsProvider` when either credential set is missing
+  - providers return `CollectedNewsArticle` rows for `news_collection`; the scheduler stores normalized article fields plus provider raw JSONB in `bot_news_articles`
+  - `news_collection_close` is a second scheduled collection slot that uses the same provider/storage path at `NEWS_COLLECTION_CLOSE_TIME`
+  - dynamic stock/company query expansion always includes existing watchlist symbols from state, and when `NEWS_DYNAMIC_RANKING_ENABLED=True` also attempts KIS domestic/overseas ranking fetches before provider fetch
+  - KIS dynamic ranking failures or missing KIS credentials update `kis_news_ranking` status and job detail but do not fail the news collection job; providers still run with static macro/fallback queries plus watchlist-derived queries
+  - current code treats KIS domestic turnover ranking as unavailable unless a confirmed endpoint is added later; domestic volume ranking and overseas ranking calls are best-effort dynamic query inputs, not stored ranking snapshots
 - Market data provider selection:
   - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`
   - `MARKET_DATA_PROVIDER_KIND = "kis"` -> `KisMarketDataProvider` or `ErrorMarketDataProvider` when KIS credentials are missing

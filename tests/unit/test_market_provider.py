@@ -36,12 +36,114 @@ def _record(
     )
 
 
+def _named_record(
+    canonical_symbol: str,
+    *,
+    market_code: str,
+    ticker_or_code: str,
+    kis_exchange_code: str,
+    display_name_ko: str = "",
+    display_name_en: str = "",
+) -> InstrumentRecord:
+    return InstrumentRecord(
+        canonical_symbol=canonical_symbol,
+        market_code=market_code,
+        ticker_or_code=ticker_or_code,
+        display_name_ko=display_name_ko,
+        display_name_en=display_name_en,
+        aliases=(canonical_symbol, ticker_or_code),
+        provider_ids=ProviderIds(kis_exchange_code=kis_exchange_code),
+        source="test",
+    )
+
+
 @pytest.mark.asyncio
 async def test_error_market_data_provider_raises_message():
     provider = market_provider.ErrorMarketDataProvider("kis-credentials-missing")
 
     with pytest.raises(RuntimeError, match="kis-credentials-missing"):
         await provider.get_quote("KRX:005930", datetime(2026, 3, 23, 10, 0, tzinfo=KST))
+
+
+@pytest.mark.asyncio
+async def test_kis_news_ranking_client_normalizes_domestic_volume_rows(monkeypatch):
+    provider = market_provider.KisNewsRankingClient(app_key="key", app_secret="secret")
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(
+            _named_record(
+                "KRX:005930",
+                market_code="KRX",
+                ticker_or_code="005930",
+                kis_exchange_code="KRX",
+                display_name_ko="삼성전자",
+            )
+        ),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        calls.append(kwargs)
+        return {
+            "rt_cd": "0",
+            "output": [
+                {"mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자"},
+                {"mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자 중복"},
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    rows = await provider.fetch_domestic_volume_rank(limit=30)
+
+    assert [row.canonical_symbol for row in rows] == ["KRX:005930"]
+    assert rows[0].display_name_ko == "삼성전자"
+    assert rows[0].source == "domestic_volume"
+    assert calls[0]["path"] == "/uapi/domestic-stock/v1/quotations/volume-rank"
+    assert calls[0]["tr_id"] == "FHPST01710000"
+
+
+@pytest.mark.asyncio
+async def test_kis_news_ranking_client_normalizes_overseas_rank_rows(monkeypatch):
+    provider = market_provider.KisNewsRankingClient(app_key="key", app_secret="secret")
+    monkeypatch.setattr(
+        market_provider,
+        "load_registry",
+        lambda: _registry(
+            _named_record(
+                "NAS:AAPL",
+                market_code="NAS",
+                ticker_or_code="AAPL",
+                kis_exchange_code="NAS",
+                display_name_en="Apple",
+            )
+        ),
+    )
+
+    async def fake_request_kis_json(**kwargs):
+        return {
+            "rt_cd": "0",
+            "output2": [
+                {"rsym": "DNASAAPL", "ovrs_item_name": "Apple Inc."},
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_request_kis_json", fake_request_kis_json)
+
+    rows = await provider.fetch_overseas_volume_rank(limit=1)
+
+    assert [row.canonical_symbol for row in rows] == ["NAS:AAPL"]
+    assert rows[0].display_name_en == "Apple"
+    assert rows[0].source == "overseas_volume"
+
+
+@pytest.mark.asyncio
+async def test_kis_news_ranking_client_reports_domestic_turnover_unavailable():
+    provider = market_provider.KisNewsRankingClient(app_key="key", app_secret="secret")
+
+    with pytest.raises(market_provider.MarketDataProviderError, match="domestic-turnover-rank-unavailable"):
+        await provider.fetch_domestic_turnover_rank(limit=30)
 
 
 @pytest.mark.asyncio
