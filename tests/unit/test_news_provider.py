@@ -5,7 +5,15 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.intel.providers import news as news_module
-from bot.intel.providers.news import HybridNewsProvider, MarketauxNewsProvider, NewsAnalysis, NewsItem, NaverNewsProvider, TrendThemeReport
+from bot.intel.providers.news import (
+    DashboardNewsProvider,
+    HybridNewsProvider,
+    MarketauxNewsProvider,
+    NewsAnalysis,
+    NewsItem,
+    NaverNewsProvider,
+    TrendThemeReport,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -55,6 +63,61 @@ class StubMarketauxNewsProvider(MarketauxNewsProvider):
 
     def _request_json(self, query: str) -> dict:
         return self.payloads.get(query, {"data": []})
+
+
+class StubDashboardNewsProvider(DashboardNewsProvider):
+    def __init__(self, payload: dict) -> None:
+        super().__init__(
+            base_url="http://dashboard.local",
+            internal_token="internal-token",
+            limit_per_region=5,
+            timeout_seconds=5,
+            retry_count=0,
+        )
+        self.payload = payload
+
+    def _request_json(self) -> dict:
+        return self.payload
+
+
+@pytest.mark.asyncio
+async def test_dashboard_news_provider_reads_dashboard_delivery_payload():
+    provider = StubDashboardNewsProvider(
+        {
+            "data": [
+                {
+                    "title": "삼성전자 반도체 투자 확대",
+                    "url": "https://news.example.com/samsung",
+                    "source": "news.example.com",
+                    "publishedAt": "2026-06-15T08:10:00+09:00",
+                    "market": "국장",
+                },
+                {
+                    "title": "NVIDIA earnings optimism lifts chips",
+                    "url": "https://global.example.com/nvidia",
+                    "source": "global.example.com",
+                    "publishedAt": "2026-06-15T00:05:00Z",
+                    "market": "미장",
+                },
+                {
+                    "title": "잘못된 링크",
+                    "url": "javascript:alert(1)",
+                    "source": "bad.example.com",
+                    "publishedAt": "2026-06-15T08:00:00+09:00",
+                    "market": "국장",
+                },
+            ]
+        }
+    )
+
+    now = datetime(2026, 6, 15, 8, 30, tzinfo=KST)
+    items = await provider.fetch(now)
+
+    assert len(items) == 2
+    assert items[0].region == "domestic"
+    assert items[0].title == "삼성전자 반도체 투자 확대"
+    assert items[1].region == "global"
+    assert items[1].source == "global.example.com"
 
 
 @pytest.mark.asyncio

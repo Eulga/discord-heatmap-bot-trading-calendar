@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from hashlib import sha1
 from html import unescape
@@ -487,6 +487,123 @@ class HybridNewsProvider:
                     "global": global_analysis.trend_report.for_region("global"),
                 },
             ),
+        )
+
+
+class DashboardNewsProvider:
+    def __init__(
+        self,
+        base_url: str,
+        internal_token: str,
+        *,
+        limit_per_region: int = 20,
+        timeout_seconds: int = 5,
+        retry_count: int = 1,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.internal_token = internal_token.strip()
+        self.limit_per_region = max(1, min(limit_per_region, 20))
+        self.timeout_seconds = max(1, min(timeout_seconds, 10))
+        self.retry_count = max(0, min(retry_count, 1))
+
+    async def fetch(self, now: datetime) -> list[NewsItem]:
+        analysis = await self.analyze(now)
+        return list(analysis.briefing_items)
+
+    async def analyze(self, now: datetime) -> NewsAnalysis:
+        payload = await asyncio.to_thread(self._request_json)
+        raw_items = payload.get("data")
+        if not isinstance(raw_items, list):
+            raise RuntimeError("dashboard-news-invalid-response")
+
+        items_by_region: dict[str, list[NewsItem]] = {"domestic": [], "global": []}
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            item = self._normalize_item(raw_item)
+            if item is None:
+                continue
+            items_by_region.setdefault(item.region, []).append(item)
+
+        selected_items: list[NewsItem] = []
+        for region_items in items_by_region.values():
+            selected_items.extend(
+                sorted(region_items, key=lambda item: item.published_at, reverse=True)[: self.limit_per_region]
+            )
+
+        return _build_news_analysis(
+            items=selected_items,
+            candidates_by_region=_fallback_candidates_by_region(selected_items, now),
+            generated_at=now,
+        )
+
+    def _request_json(self) -> dict[str, Any]:
+        if not self.base_url or not self.internal_token:
+            raise RuntimeError("dashboard-news-config-missing")
+
+        request = Request(
+            f"{self.base_url}/api/discord/deliveries/news",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "discord-heatmap-bot/1.0",
+                "x-internal-token": self.internal_token,
+            },
+        )
+
+        for attempt in range(self.retry_count + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise RuntimeError("dashboard-news-invalid-response")
+                return payload
+            except HTTPError as exc:
+                if exc.code in {401, 403}:
+                    raise RuntimeError(f"dashboard-news-auth-failed:{exc.code}") from exc
+                if exc.code == 429:
+                    raise RuntimeError("dashboard-news-rate-limited") from exc
+                if attempt >= self.retry_count:
+                    raise RuntimeError(f"dashboard-news-upstream-error:{exc.code}") from exc
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("dashboard-news-invalid-response") from exc
+            except URLError as exc:
+                if attempt >= self.retry_count:
+                    raise RuntimeError("dashboard-news-unreachable") from exc
+
+        raise RuntimeError("dashboard-news-unreachable")
+
+    def _normalize_item(self, raw_item: dict[str, Any]) -> NewsItem | None:
+        title = str(raw_item.get("title") or "").strip()
+        link = str(raw_item.get("url") or raw_item.get("link") or "").strip()
+        source = str(raw_item.get("source") or "").strip()
+        published_at_text = str(raw_item.get("publishedAt") or raw_item.get("createdAt") or "").strip()
+        market = str(raw_item.get("market") or "").strip()
+        region = str(raw_item.get("region") or "").strip().lower()
+
+        if not title or not link or not published_at_text:
+            return None
+
+        parsed_link = urlparse(link)
+        if parsed_link.scheme not in {"http", "https"} or not parsed_link.netloc:
+            return None
+
+        try:
+            published_at = datetime.fromisoformat(published_at_text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+
+        if region not in {"domestic", "global"}:
+            region = "domestic" if market == "국장" else "global"
+
+        return NewsItem(
+            title=title,
+            link=link,
+            source=source or _source_from_link(link),
+            published_at=published_at,
+            region=region,
         )
 
 

@@ -19,6 +19,8 @@
     - required when `NEWS_PROVIDER_KIND` is `naver` or `hybrid`
   - `MARKETAUX_API_TOKEN`
     - required when `NEWS_PROVIDER_KIND` is `marketaux` or `hybrid`
+  - `STOCK_DASHBOARD_API_BASE_URL`, `STOCK_DASHBOARD_INTERNAL_TOKEN`
+    - required when `NEWS_PROVIDER_KIND` is `dashboard`
   - `KIS_APP_KEY`, `KIS_APP_SECRET`
     - required when `MARKET_DATA_PROVIDER_KIND` is `kis`
   - `DART_API_KEY`
@@ -56,6 +58,8 @@
   - `NEWS_BRIEFING_TIME`
   - `NEWS_BRIEFING_TRADING_DAYS_ONLY`
   - `NEWS_PROVIDER_KIND`
+  - `STOCK_DASHBOARD_API_BASE_URL`
+  - `STOCK_DASHBOARD_INTERNAL_TOKEN`
 - Watch:
   - `WATCH_FEATURE_ENABLED`
   - `WATCH_POLL_ENABLED`
@@ -112,6 +116,7 @@
 ## Code-Confirmed Provider Wiring
 - News provider selection:
   - `NEWS_PROVIDER_KIND = "mock"` -> `MockNewsProvider`
+  - `NEWS_PROVIDER_KIND = "dashboard"` -> `DashboardNewsProvider`, reading `GET /api/discord/deliveries/news` from the stock dashboard
   - `NEWS_PROVIDER_KIND = "naver"` -> `NaverNewsProvider` or `ErrorNewsProvider` when credentials are missing
   - `NEWS_PROVIDER_KIND = "marketaux"` -> `MarketauxNewsProvider` or `ErrorNewsProvider` when the token is missing
   - `NEWS_PROVIDER_KIND = "hybrid"` -> `HybridNewsProvider` combining Naver for domestic and Marketaux for global, or `ErrorNewsProvider` when either credential set is missing

@@ -34,6 +34,8 @@ from bot.app.settings import (
     NEWS_BRIEFING_TIME,
     NEWS_BRIEFING_TRADING_DAYS_ONLY,
     NEWS_PROVIDER_KIND,
+    STOCK_DASHBOARD_API_BASE_URL,
+    STOCK_DASHBOARD_INTERNAL_TOKEN,
     WATCH_FEATURE_ENABLED,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
@@ -101,6 +103,7 @@ from bot.intel.providers.market import (
     WatchSnapshot,
 )
 from bot.intel.providers.news import (
+    DashboardNewsProvider,
     ErrorNewsProvider,
     HybridNewsProvider,
     MarketauxNewsProvider,
@@ -131,6 +134,16 @@ WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
 def _build_news_provider() -> NewsProvider:
     if NEWS_PROVIDER_KIND == "mock":
         return MockNewsProvider()
+    if NEWS_PROVIDER_KIND == "dashboard":
+        if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+            return ErrorNewsProvider("dashboard-news-config-missing")
+        return DashboardNewsProvider(
+            base_url=STOCK_DASHBOARD_API_BASE_URL,
+            internal_token=STOCK_DASHBOARD_INTERNAL_TOKEN,
+            limit_per_region=NAVER_NEWS_LIMIT_PER_REGION,
+            timeout_seconds=INTEL_API_TIMEOUT_SECONDS,
+            retry_count=INTEL_API_RETRY_COUNT,
+        )
     if NEWS_PROVIDER_KIND == "naver":
         if not NAVER_NEWS_CLIENT_ID or not NAVER_NEWS_CLIENT_SECRET:
             return ErrorNewsProvider("naver-news-credentials-missing")

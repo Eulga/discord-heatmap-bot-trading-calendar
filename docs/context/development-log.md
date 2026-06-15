@@ -1881,6 +1881,18 @@
 1. 남아 있는 로컬 미커밋 변경은 별도 흐름으로 정리한다.
 - Status: done
 
+## 2026-06-15
+- Context: Stock Dashboard가 선별한 뉴스만 Discord 봇이 전송하도록 provider 경계를 정리하는 작업
+- Change:
+1. `NEWS_PROVIDER_KIND=dashboard`를 추가해 Discord 봇이 Stock Dashboard의 `GET /api/discord/deliveries/news`를 읽어 기존 뉴스 브리핑 포럼 게시 흐름에 태우도록 했다.
+2. `STOCK_DASHBOARD_API_BASE_URL`, `STOCK_DASHBOARD_INTERNAL_TOKEN` 설정을 추가하고 `.env.example`, config reference, 현재 기능 명세에 반영했다.
+3. `/source-status` 기본 provider row에 `dashboard_news`를 추가했다.
+- Verification:
+1. `DISCORD_BOT_TOKEN=ci-placeholder-token` 기준 `py -3 scripts/run_repo_checks.py unit` 통과
+- Next:
+1. 운영 환경에서는 Dashboard와 Bot에 동일한 내부 토큰을 넣고 `NEWS_PROVIDER_KIND=dashboard`로 전환한다.
+- Status: done
+
 ## 2026-03-17
 - Context: 현재 브랜치 변경을 재검토하고 `develop` PR 흐름으로 넘기려는 작업
 - Change:

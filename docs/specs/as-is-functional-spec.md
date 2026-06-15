@@ -500,6 +500,7 @@
   - `MARKET_DATA_PROVIDER_KIND`
   - provider credentials and tokens
   - `NEWS_PROVIDER_KIND`
+  - `STOCK_DASHBOARD_API_BASE_URL`, `STOCK_DASHBOARD_INTERNAL_TOKEN` when `NEWS_PROVIDER_KIND=dashboard`
 - Runtime inputs:
   - `system.job_last_runs`
   - `system.provider_status`
@@ -605,6 +606,7 @@
 
 ### 4.7 Error / edge handling (As-Is)
 - Provider failure marks `news_briefing` and `trend_briefing` as failed and returns immediately.
+- `NEWS_PROVIDER_KIND=dashboard` reads the stock dashboard internal `GET /api/discord/deliveries/news` endpoint and converts the returned delivery items into existing domestic/global news briefing items.
 - If no unresolved target forums exist:
   - forum-resolution failure can mark failed
   - only-missing-forum with no completed guilds can mark skipped

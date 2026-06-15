@@ -16,6 +16,8 @@ from bot.app.settings import (
     NAVER_NEWS_CLIENT_ID,
     NAVER_NEWS_CLIENT_SECRET,
     OPENFIGI_API_KEY,
+    STOCK_DASHBOARD_API_BASE_URL,
+    STOCK_DASHBOARD_INTERNAL_TOKEN,
     TWELVEDATA_API_KEY,
 )
 from bot.forum.repository import get_job_last_runs, get_provider_statuses, load_state
@@ -104,6 +106,11 @@ def _default_provider_rows() -> dict[str, dict[str, str]]:
         rows["marketaux_news"] = _provider_row(
             "configured" if MARKETAUX_API_TOKEN else "disabled",
             "global finance news provider",
+        )
+    if NEWS_PROVIDER_KIND == "dashboard":
+        rows["dashboard_news"] = _provider_row(
+            "configured" if STOCK_DASHBOARD_API_BASE_URL and STOCK_DASHBOARD_INTERNAL_TOKEN else "disabled",
+            "stock dashboard delivery provider",
         )
     if not EOD_SUMMARY_ENABLED:
         rows["eod_provider"] = _provider_row("paused", "eod-summary-paused")
