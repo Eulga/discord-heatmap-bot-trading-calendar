@@ -106,3 +106,19 @@ def test_warn_legacy_watch_route_migration_needed_logs_missing_watch_forum(caplo
     assert "guild=1 legacy_watch_alert_channel_id=460011902043553792" in caplog.text
     assert "/setwatchforum-required" in caplog.text
     assert "guild=2" not in caplog.text
+
+
+def test_bot_app_omits_watch_commands_when_watch_feature_is_disabled(monkeypatch):
+    monkeypatch.setattr(bot_client, "WATCH_FEATURE_ENABLED", False)
+
+    app = bot_client.BotApp()
+
+    assert "watch" not in {command.name for command in app.tree.get_commands()}
+
+
+def test_bot_app_registers_watch_commands_when_watch_feature_is_enabled(monkeypatch):
+    monkeypatch.setattr(bot_client, "WATCH_FEATURE_ENABLED", True)
+
+    app = bot_client.BotApp()
+
+    assert "watch" in {command.name for command in app.tree.get_commands()}

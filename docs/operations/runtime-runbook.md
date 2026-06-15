@@ -75,10 +75,13 @@
 - When features beyond the base heatmap flow are enabled, configure their specific target channels/forums as needed.
 - The bot must be able to use application commands and post/send in the configured Discord resources.
 - Code-confirmed command boundary:
-  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setwatchforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
-  - `/kheatmap`, `/usheatmap`, and `/watch *` require guild context but are not admin-gated
+  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - optional `/setwatchforum` requires guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS` when `WATCH_FEATURE_ENABLED=true`
+  - `/kheatmap` and `/usheatmap` require guild context
+  - optional `/watch *` requires guild context but is not admin-gated when `WATCH_FEATURE_ENABLED=true`
   - `/health`, `/last-run`, and `/source-status` do not currently apply a visible authorization gate in code
 - Watch-specific operator note:
+  - the Discord watch flow is disabled by default; enable both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true` before using it
   - configure `/setwatchforum` before using `/watch add`
   - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
   - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST

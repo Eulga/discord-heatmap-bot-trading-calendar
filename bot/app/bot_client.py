@@ -9,6 +9,7 @@ from bot.app.settings import (
     DEFAULT_FORUM_CHANNEL_ID,
     EOD_TARGET_FORUM_ID,
     NEWS_TARGET_FORUM_ID,
+    WATCH_FEATURE_ENABLED,
 )
 from bot.common.logging import setup_logging
 from bot.forum.repository import (
@@ -132,7 +133,8 @@ class BotApp:
 
         register_admin(self.tree, self.client)
         register_status(self.tree, self.client)
-        register_watch(self.tree, self.client)
+        if WATCH_FEATURE_ENABLED:
+            register_watch(self.tree, self.client)
         register_kheatmap(self.tree, self.client)
         register_usheatmap(self.tree, self.client)
 
@@ -154,7 +156,8 @@ class BotApp:
                     record_command_sync("ok", f"{len(synced_commands)} commands synced")
                     self._synced = True
             await _bootstrap_guild_channel_routes_from_env(self.client)
-            _warn_legacy_watch_route_migration_needed()
+            if WATCH_FEATURE_ENABLED:
+                _warn_legacy_watch_route_migration_needed()
             if self._scheduler_task is None or self._scheduler_task.done():
                 self._scheduler_task = asyncio.create_task(auto_screenshot_scheduler(self.client))
                 logger.info("Auto screenshot scheduler started.")

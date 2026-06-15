@@ -49,12 +49,12 @@
 | F-03 | Daily forum upsert and content-message sync | Implemented | called by heatmap/news/eod flows | thread reuse or creation, starter message edit, optional follow-up content sync | Confirmed |
 | F-04 | Auto screenshot scheduler | Implemented | background scheduler | scheduled Korea/US heatmap execution, skip metadata, logs | Confirmed |
 | F-05 | Admin route configuration and autoscreenshot toggle commands | Implemented | slash command | per-guild route state updates and auto-scheduler enable flag | Confirmed |
-| F-06 | Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`) | Implemented | slash command | per-guild watchlist state update/read plus watch status/thread lifecycle control | Confirmed |
+| F-06 | Watchlist management (`/watch add`, `/watch start`, `/watch stop`, `/watch delete`, `/watch list`) | Implemented, disabled by default | slash command when `WATCH_FEATURE_ENABLED=true` | per-guild watchlist state update/read plus watch status/thread lifecycle control | Confirmed |
 | F-07 | Status and diagnostic commands (`/health`, `/last-run`, `/source-status`) | Implemented | slash command | ephemeral text status summaries | Confirmed |
 | F-08 | Scheduled news briefing posting | Implemented | intel scheduler exact-minute check | domestic/global daily forum threads and job/provider status updates | Confirmed |
 | F-09 | Scheduled trend briefing posting | Implemented | nested inside news scheduler | trend summary thread with starter + region content messages | Confirmed |
 | F-10 | Scheduled EOD summary posting | Partially implemented | intel scheduler exact-minute check | daily EOD forum thread using mock summary provider | Confirmed |
-| F-11 | Watch poll and per-symbol forum-thread alerting | Implemented | intel scheduler interval check | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
+| F-11 | Watch poll and per-symbol forum-thread alerting | Implemented, disabled by default | intel scheduler interval check when `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true` | watch forum thread updates/comments and watch/provider/job status updates | Confirmed |
 | F-12 | Instrument registry load/search/runtime refresh | Implemented | startup lookup, watch commands, scheduler when enabled | local search, status rows, runtime registry rebuild file | Confirmed |
 | F-13 | Legacy message ping handler (`!ping`) | Implemented | plain text message event | `pong` reply | Confirmed |
 
@@ -409,6 +409,7 @@
   - `/watch delete`
   - `/watch list`
 - Slash-command autocomplete for add/start/stop/delete symbol inputs
+- These commands are registered only when `WATCH_FEATURE_ENABLED=true`.
 
 ### 4.3 Inputs
 - User inputs:
@@ -467,6 +468,7 @@
 - This module does not perform an admin/owner permission check for add/start/stop/list, but `/watch delete` does enforce owner/admin/global-admin authorization.
 
 ### 4.8 Operational constraints
+- The watch command surface is hidden unless `WATCH_FEATURE_ENABLED=true`.
 - The watchlist is stored per guild, not per user.
 - Symbol resolution depends on the local registry snapshot.
 - Response formatting is a single message; no length management is visible here.
@@ -754,10 +756,11 @@
 - Current code polls watched symbols on an interval, keeps each per-symbol forum thread starter blank, updates a current-price comment during regular session hours, emits band-crossing comments, and finalizes the session with a close comment only at market-specific KST due minutes.
 
 ### 4.2 Trigger
-- `intel_scheduler()` interval check when `WATCH_POLL_ENABLED` is true
+- `intel_scheduler()` interval check when both `WATCH_FEATURE_ENABLED` and `WATCH_POLL_ENABLED` are true
 
 ### 4.3 Inputs
 - Config inputs:
+  - `WATCH_FEATURE_ENABLED`
   - `WATCH_POLL_ENABLED`
   - `WATCH_POLL_INTERVAL_SECONDS`
   - `WATCH_ALERT_THRESHOLD_PCT`
@@ -835,6 +838,7 @@
 - Final job status becomes `failed` if any thread/snapshot/comment failures occurred.
 
 ### 4.8 Operational constraints
+- Watch polling is skipped unless `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true`.
 - The watchlist is stored under each guild’s state entry rather than under a user-scoped key.
 - Watch thread reuse is keyed by `(guild_id, canonical_symbol)` and does not rotate daily.
 - Session semantics are market-calendar aware for KRX and US regular sessions.
@@ -1053,11 +1057,11 @@
   - Required vs optional: optional with defaults
   - Observed usage: `bot/features/intel_scheduler.py`
   - Risk if missing: EOD remains disabled by default
-- Name: `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`
-  - Purpose: enable watch polling and band-comment thresholds
+- Name: `WATCH_FEATURE_ENABLED`, `WATCH_POLL_ENABLED`, `WATCH_POLL_INTERVAL_SECONDS`, `WATCH_ALERT_THRESHOLD_PCT`
+  - Purpose: enable the optional watch command/polling surface and band-comment thresholds
   - Required vs optional: optional with defaults
-  - Observed usage: `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`
-  - Risk if missing: defaults apply
+  - Observed usage: `bot/app/bot_client.py`, `bot/features/admin/command.py`, `bot/features/intel_scheduler.py`, `bot/features/watch/service.py`
+  - Risk if missing: Discord watch commands and polling stay disabled by default
 - Name: `INSTRUMENT_REGISTRY_REFRESH_ENABLED`, `INSTRUMENT_REGISTRY_REFRESH_TIME`, `DART_API_KEY`
   - Purpose: optional daily registry rebuild
   - Required vs optional: refresh schedule optional, `DART_API_KEY` required only for live rebuild

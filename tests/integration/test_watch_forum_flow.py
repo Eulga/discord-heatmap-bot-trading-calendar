@@ -357,6 +357,7 @@ async def test_upsert_watch_thread_does_not_recreate_on_transient_fetch_error(mo
 @pytest.mark.asyncio
 async def test_setwatchforum_command_handles_success_unauthorized_and_foreign_forum(monkeypatch):
     tree, client = _tree()
+    monkeypatch.setattr(admin_command, "WATCH_FEATURE_ENABLED", True)
     admin_command.register(tree, client)
     command = _command_by_name(tree, "setwatchforum")
 

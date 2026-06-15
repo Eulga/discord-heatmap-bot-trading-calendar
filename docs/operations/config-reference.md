@@ -57,6 +57,7 @@
   - `NEWS_BRIEFING_TRADING_DAYS_ONLY`
   - `NEWS_PROVIDER_KIND`
 - Watch:
+  - `WATCH_FEATURE_ENABLED`
   - `WATCH_POLL_ENABLED`
   - `WATCH_POLL_INTERVAL_SECONDS`
   - `WATCH_ALERT_THRESHOLD_PCT`
@@ -89,7 +90,8 @@
   - `NEWS_BRIEFING_TRADING_DAYS_ONLY = False`
   - `NEWS_PROVIDER_KIND = "mock"`
 - Watch:
-  - `WATCH_POLL_ENABLED = True`
+  - `WATCH_FEATURE_ENABLED = False`
+  - `WATCH_POLL_ENABLED = False`
   - `WATCH_POLL_INTERVAL_SECONDS = 60`
   - `WATCH_ALERT_THRESHOLD_PCT = 3.0`
   - `MARKET_DATA_PROVIDER_KIND = "mock"`
@@ -117,7 +119,11 @@
   - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`
   - `MARKET_DATA_PROVIDER_KIND = "kis"` -> `KisMarketDataProvider` or `ErrorMarketDataProvider` when KIS credentials are missing
   - when `MARKET_DATA_PROVIDER_KIND = "kis"` and `MASSIVE_API_KEY` or `POLYGON_API_KEY` is present, a `MassiveSnapshotMarketDataProvider` is attached as a US-only fallback through `RoutedMarketDataProvider`
-  - the current watch path consumes normalized `WatchSnapshot` data via `get_watch_snapshot(...)`, not text-channel quote alerts
+  - the optional watch path consumes normalized `WatchSnapshot` data via `get_watch_snapshot(...)`, not text-channel quote alerts
+- Watch feature wiring:
+  - `WATCH_FEATURE_ENABLED=false` keeps `/watch` and `/setwatchforum` out of the registered command tree and skips legacy watch-route startup warnings.
+  - `WATCH_FEATURE_ENABLED=true` enables watch command registration.
+  - scheduler polling requires both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true`.
 - EOD wiring:
   - the scheduler currently uses `MockEodSummaryProvider()` unconditionally when EOD is enabled
 - Status-only provider rows:

@@ -27,18 +27,21 @@
 - Per-guild mutable routing and runtime state use a selectable app-state backend:
   - default `STATE_BACKEND=file` stores `data/state/state.json`
   - `STATE_BACKEND=postgres` stores the same app-state document in PostgreSQL table `bot_app_state` as JSONB
-- `watch_poll` is now code-confirmed as a session-aware forum-thread flow:
+- `watch_poll` remains implemented, but it is disabled by default because the stock dashboard is now the primary watchlist/quote surface:
+  - `/watch ...` and `/setwatchforum` are registered only when `WATCH_FEATURE_ENABLED=true`
+  - scheduler polling requires both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true`
   - route source of truth is `watch_forum_channel_id`
   - `/setwatchforum` configures the route
   - `/watch add` only adds a new tracked symbol and creates its persistent thread
   - `/watch start` resumes a stopped symbol, `/watch stop` keeps the symbol but halts real-time polling, and `/watch delete` fully removes the symbol and thread
   - regular session polls keep the starter blank and update a bottom-positioned current-price comment for active symbols only
   - close finalization is now KST exact-minute gated: KRX symbols only attempt `마감가 알림` at 16:00 KST, and NAS/NYS/AMS symbols only attempt it at 07:00 KST; missed due minutes leave close finalization pending until the next due minute without blocking later regular-session current-price/band updates, but pending close targets are dropped from retry state once a later snapshot is no longer the immediately adjacent trading session
-  - startup now warns when a guild still has only legacy `watch_alert_channel_id`, because hard cut mode requires an explicit `/setwatchforum` migration
+  - startup warns about legacy `watch_alert_channel_id` only when `WATCH_FEATURE_ENABLED=true`, because the optional forum flow requires an explicit `/setwatchforum` migration
 - Code-confirmed command boundary:
   - forum/config/autoscreenshot commands are gated by guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
-  - manual heatmap commands plus `/watch add`, `/watch start`, `/watch stop`, `/watch list` require guild context but are not admin-gated
-  - `/watch delete` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - manual heatmap commands require guild context
+  - optional `/watch add`, `/watch start`, `/watch stop`, and `/watch list` require guild context but are not admin-gated when `WATCH_FEATURE_ENABLED=true`
+  - optional `/watch delete` is gated by guild owner, guild administrator, or `DISCORD_GLOBAL_ADMIN_USER_IDS` when `WATCH_FEATURE_ENABLED=true`
   - status commands do not currently apply a visible authorization gate
 - The deep current behavior, visible ambiguities, and observed implementation gaps are documented in `../specs/as-is-functional-spec.md`.
 - Current QA prioritization is documented separately in `../reports/qa-issue-review-2026-03-24.md`; treat that file as a review artifact, not as a runtime spec.
@@ -66,7 +69,7 @@
 - Heatmap, news, and EOD daily schedulers now use same-day catch-up after their configured time; they no longer depend on an exact-minute tick to run once per day.
 - Forum upsert can recreate same-day content on transient Discord fetch failures.
 - Watch close-finalization correctness still depends on Discord write success order plus provider delivery of `previous_close/session_close_price/session_date`.
-- The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`, so watch forum migration is still an active rollout concern.
+- The checked-in local state still contains guilds with legacy `watch_alert_channel_id` but no `watch_forum_channel_id`; this matters only if the optional watch forum flow is re-enabled.
 - Stopped watch symbols stay in the shared guild watchlist by design, so operator interpretation should use symbol status rather than raw watchlist membership alone.
 - Severity and implementation priority for these concerns are tracked separately in `../reports/qa-issue-review-2026-03-24.md`.
 

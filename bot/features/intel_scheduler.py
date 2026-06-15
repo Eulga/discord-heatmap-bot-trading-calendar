@@ -34,6 +34,7 @@ from bot.app.settings import (
     NEWS_BRIEFING_TIME,
     NEWS_BRIEFING_TRADING_DAYS_ONLY,
     NEWS_PROVIDER_KIND,
+    WATCH_FEATURE_ENABLED,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
 )
@@ -1596,7 +1597,7 @@ async def intel_scheduler(client: discord.Client) -> None:
             ):
                 await _run_eod_job(client, now)
 
-            if WATCH_POLL_ENABLED:
+            if WATCH_FEATURE_ENABLED and WATCH_POLL_ENABLED:
                 if last_watch_run is None or (now - last_watch_run).total_seconds() >= WATCH_POLL_INTERVAL_SECONDS:
                     await _run_watch_poll(client, now)
                     last_watch_run = now

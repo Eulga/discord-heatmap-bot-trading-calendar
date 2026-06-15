@@ -1459,6 +1459,7 @@ async def test_intel_scheduler_keeps_watch_poll_running_while_registry_refresh_i
     monkeypatch.setattr(intel_scheduler, "NEWS_BRIEFING_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "EOD_SUMMARY_ENABLED", False)
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_ENABLED", True)
+    monkeypatch.setattr(intel_scheduler, "WATCH_FEATURE_ENABLED", True)
     monkeypatch.setattr(intel_scheduler, "WATCH_POLL_INTERVAL_SECONDS", 60)
     monkeypatch.setattr(intel_scheduler, "now_kst", lambda: now)
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)

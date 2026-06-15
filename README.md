@@ -79,7 +79,7 @@ PostgreSQL backend.
 - `bot/markets`: capture/cache and market helpers
 - `bot/intel`: provider and registry logic
 - `bot/features`: slash commands and schedulers
-- Watch polling uses `/setwatchforum` plus persistent per-symbol forum threads instead of a shared text alert channel.
+- Watch polling is disabled by default. Enable `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true` only if the Discord watch forum flow is intentionally used.
 
 ## Tests
 

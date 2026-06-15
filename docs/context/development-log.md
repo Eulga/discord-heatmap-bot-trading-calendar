@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-06-15
+- Context: Stock Dashboard가 관심종목 가격/뉴스 화면을 담당하게 되어 Discord 봇의 관심종목 시세 감시를 기본 운영 범위에서 제외했다. Discord는 뉴스 전송, 장 마감 히트맵, 고중요도 알림 전달에 집중한다.
+- Change:
+1. `WATCH_FEATURE_ENABLED=false`를 기본값으로 추가하고, `/watch`와 `/setwatchforum` 등록을 이 플래그 뒤로 숨겼다.
+2. `WATCH_POLL_ENABLED` 기본값을 `false`로 낮추고, scheduler watch poll은 `WATCH_FEATURE_ENABLED=true`와 `WATCH_POLL_ENABLED=true`가 모두 켜진 경우에만 실행되도록 했다.
+3. README, env sample, current-truth docs, config reference, runbook, as-is spec을 선택 기능 기준으로 정리했다.
+4. watch 기능이 꺼진 기본 상태와 다시 켰을 때의 command registration 회귀 테스트를 추가했다.
+- Verification:
+1. `python scripts/run_repo_checks.py unit tests/unit/test_bot_client.py tests/integration/test_watch_forum_flow.py tests/integration/test_intel_scheduler_logic.py`
+2. `git diff --check`
+- Status: done
+
 ## 2026-05-04
 - Context: PR #24 Codex review found two follow-up issues in the new `$check-pr-review` clean-merge path.
 - Change:
