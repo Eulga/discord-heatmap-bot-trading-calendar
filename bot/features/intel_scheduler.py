@@ -440,6 +440,10 @@ def _dashboard_alert_canonical_symbol(alert: dict[str, Any]) -> str:
 
 
 def _dashboard_alert_ticker(alert: dict[str, Any]) -> str:
+    explicit_ticker = str(alert.get("ticker") or "").strip()
+    if explicit_ticker:
+        return explicit_ticker
+
     canonical_symbol = _dashboard_alert_canonical_symbol(alert)
     if not canonical_symbol:
         return ""
