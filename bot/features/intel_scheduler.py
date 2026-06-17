@@ -650,6 +650,11 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
         if stock_alerts:
             if forum_channel_id is None:
                 no_route += len(stock_alerts)
+                _mark_dashboard_alerts_sent(
+                    state,
+                    guild_id,
+                    [str(alert.get("id") or "") for alert in stock_alerts if str(alert.get("id") or "")],
+                )
             else:
                 try:
                     thread, _action = await upsert_daily_post(
@@ -680,6 +685,11 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
         if schedule_alerts:
             if schedule_channel_id is None:
                 no_route += len(schedule_alerts)
+                _mark_dashboard_alerts_sent(
+                    state,
+                    guild_id,
+                    [str(alert.get("id") or "") for alert in schedule_alerts if str(alert.get("id") or "")],
+                )
             else:
                 try:
                     channel = await _resolve_guild_message_channel(client, guild_id, schedule_channel_id)
