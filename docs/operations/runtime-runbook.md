@@ -74,10 +74,11 @@
 ## Discord Setup
 - Confirm the bot is present in the target server and application commands are visible.
 - Configure per-guild routes through the slash commands intended for forum routing.
+- Configure schedule/event delivery with `/setschedulechannel` or bootstrap `SCHEDULE_ALERT_CHANNEL_ID` when earnings and economic calendar alerts should go to a text channel.
 - When features beyond the base heatmap flow are enabled, configure their specific target channels/forums as needed.
 - The bot must be able to use application commands and post/send in the configured Discord resources.
 - Code-confirmed command boundary:
-  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
+  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setschedulechannel`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
   - optional `/setwatchforum` requires guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS` when `WATCH_FEATURE_ENABLED=true`
   - `/kheatmap` and `/usheatmap` require guild context
   - optional `/watch *` requires guild context but is not admin-gated when `WATCH_FEATURE_ENABLED=true`

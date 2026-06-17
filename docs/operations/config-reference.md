@@ -44,8 +44,10 @@
   - `DEFAULT_FORUM_CHANNEL_ID`
   - `NEWS_TARGET_FORUM_ID`
   - `EOD_TARGET_FORUM_ID`
+  - `SCHEDULE_ALERT_CHANNEL_ID`
 - Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
 - Runtime routing should be checked in the configured app-state backend when validating actual behavior.
+- `SCHEDULE_ALERT_CHANNEL_ID` must point to a regular text channel; event-type dashboard alerts such as earnings and economic calendar items are delivered there.
 - Watch routing no longer has an env bootstrap/default channel; current code requires per-guild `watch_forum_channel_id` in state.
 
 ## Active Runtime Request Knobs

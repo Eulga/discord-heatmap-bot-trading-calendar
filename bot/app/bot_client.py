@@ -10,6 +10,7 @@ from bot.app.settings import (
     DEFAULT_FORUM_CHANNEL_ID,
     EOD_TARGET_FORUM_ID,
     NEWS_TARGET_FORUM_ID,
+    SCHEDULE_ALERT_CHANNEL_ID,
     WATCH_FEATURE_ENABLED,
 )
 from bot.common.logging import setup_logging
@@ -17,11 +18,13 @@ from bot.forum.repository import (
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
     get_guild_news_forum_channel_id,
+    get_guild_schedule_alert_channel_id,
     load_state,
     save_state,
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
     set_guild_news_forum_channel_id,
+    set_guild_schedule_alert_channel_id,
 )
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
@@ -68,6 +71,13 @@ async def _bootstrap_guild_channel_routes_from_env(client: discord.Client) -> No
             discord.ForumChannel,
             get_guild_eod_forum_channel_id,
             set_guild_eod_forum_channel_id,
+        ),
+        (
+            SCHEDULE_ALERT_CHANNEL_ID,
+            "SCHEDULE_ALERT_CHANNEL_ID",
+            discord.TextChannel,
+            get_guild_schedule_alert_channel_id,
+            set_guild_schedule_alert_channel_id,
         ),
     ]
 

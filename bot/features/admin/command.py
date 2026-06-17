@@ -12,6 +12,7 @@ from bot.forum.repository import (
     set_guild_eod_forum_channel_id,
     set_guild_forum_channel_id,
     set_guild_news_forum_channel_id,
+    set_guild_schedule_alert_channel_id,
     set_guild_watch_forum_channel_id,
 )
 
@@ -119,6 +120,32 @@ def register(tree: app_commands.CommandTree, client) -> None:
         save_state(state)
         logger.info("[command] seteodforum result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), forum_channel.id)
         await interaction.response.send_message(f"장마감 요약 포럼을 <#{forum_channel.id}> 로 설정했습니다.", ephemeral=True)
+
+    @tree.command(name="setschedulechannel", description="Set schedule alert text channel for this server.")
+    async def set_schedule_channel_command(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        guild = interaction.guild
+        if guild is None:
+            logger.warning("[command] setschedulechannel rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        if not _is_authorized_admin(interaction):
+            logger.warning("[command] setschedulechannel rejected reason=unauthorized guild=%s user=%s", guild.id, _interaction_user_id(interaction))
+            await interaction.response.send_message("권한이 없습니다.", ephemeral=True)
+            return
+        if channel.guild.id != guild.id:
+            logger.warning(
+                "[command] setschedulechannel rejected reason=foreign-channel guild=%s user=%s channel=%s",
+                guild.id,
+                _interaction_user_id(interaction),
+                channel.id,
+            )
+            await interaction.response.send_message("같은 서버의 텍스트 채널만 설정할 수 있습니다.", ephemeral=True)
+            return
+        state = load_state()
+        set_guild_schedule_alert_channel_id(state, guild.id, channel.id)
+        save_state(state)
+        logger.info("[command] setschedulechannel result=ok guild=%s user=%s channel=%s", guild.id, _interaction_user_id(interaction), channel.id)
+        await interaction.response.send_message(f"일정 알림 채널을 <#{channel.id}> 로 설정했습니다.", ephemeral=True)
 
     if WATCH_FEATURE_ENABLED:
         @tree.command(name="setwatchforum", description="Set watch forum channel for this server.")

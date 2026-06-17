@@ -1,5 +1,16 @@
 # Development Log
 
+## 2026-06-18
+- Context: Stock Dashboard news deliveries were empty in the Discord news briefing, and schedule-type dashboard alerts needed a dedicated text channel instead of watch/forum routing.
+- Change:
+1. Added `SCHEDULE_ALERT_CHANNEL_ID` bootstrap config and `/setschedulechannel` so earnings/economic schedule alerts can target a regular text channel.
+2. Split dashboard alert delivery: `stock` alerts continue to use the watch forum route, while `event` alerts are sent directly to the configured schedule text channel.
+3. Added tests for schedule alert channel bootstrap, repository state, and event alert delivery.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py integration tests\integration\test_intel_scheduler_logic.py tests\unit\test_bot_client.py tests\unit\test_watchlist_repository.py`
+2. Stock Dashboard paired check: `npm run typecheck`, `npm run lint -- --max-warnings=0`
+- Status: done
+
 ## 2026-06-17
 - Context: Stock Dashboard 관심종목 급등락 알림의 Discord 가독성을 높이기 위해 티커와 시장별 색상 표현이 필요했다.
 - Change:

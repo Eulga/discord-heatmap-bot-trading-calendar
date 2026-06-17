@@ -139,6 +139,14 @@ def test_watch_state_stores_watch_forum_and_symbol_thread_registry():
     assert repository.list_watch_tracked_symbols(state, 1) == ["KRX:005930"]
 
 
+def test_guild_state_stores_schedule_alert_channel():
+    state = {"commands": {}, "guilds": {}}
+
+    repository.set_guild_schedule_alert_channel_id(state, 1, 789)
+
+    assert repository.get_guild_schedule_alert_channel_id(state, 1) == 789
+
+
 def test_watch_thread_status_can_exist_without_thread_ids():
     state = {"commands": {}, "guilds": {"1": {"watchlist": ["KRX:005930"]}}}
 

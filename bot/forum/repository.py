@@ -253,6 +253,15 @@ def get_guild_eod_forum_channel_id(state: AppState, guild_id: int) -> int | None
     return channel_id if isinstance(channel_id, int) else None
 
 
+def set_guild_schedule_alert_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
+    _get_guild_config(state, guild_id)["schedule_alert_channel_id"] = channel_id
+
+
+def get_guild_schedule_alert_channel_id(state: AppState, guild_id: int) -> int | None:
+    channel_id = _get_guild_config(state, guild_id).get("schedule_alert_channel_id")
+    return channel_id if isinstance(channel_id, int) else None
+
+
 def set_guild_watch_forum_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
     _get_guild_config(state, guild_id)["watch_forum_channel_id"] = channel_id
 

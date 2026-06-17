@@ -138,6 +138,51 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"schedule_alert_channel_id": 456}}}
+    sent_messages: list[str] = []
+
+    class Channel:
+        guild = type("Guild", (), {"id": 1})()
+
+        async def send(self, content: str):
+            sent_messages.append(content)
+
+    class Client:
+        def get_channel(self, channel_id: int):
+            return Channel() if channel_id == 456 else None
+
+    async def fake_fetch_alerts():
+        return [
+            {
+                "description": "장 시작 전 확인",
+                "id": "event-earnings-KRX:005930-2026-06-18",
+                "market": "국장",
+                "priority": "높음",
+                "source": "earnings",
+                "status": "D-DAY",
+                "title": "삼성전자 실적 발표",
+                "type": "event",
+                "url": "https://example.com/earnings",
+            }
+        ]
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_alert_deliveries", fake_fetch_alerts)
+
+    now = datetime(2026, 6, 18, 7, 50, tzinfo=KST)
+    await intel_scheduler._run_dashboard_alert_delivery(client=Client(), now=now)  # type: ignore[arg-type]
+
+    assert len(sent_messages) == 1
+    assert "삼성전자 실적 발표" in sent_messages[0]
+    assert "D-DAY" in sent_messages[0]
+    assert "https://example.com/earnings" in sent_messages[0]
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-earnings-KRX:005930-2026-06-18"]
+    assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_eod_job_skips_non_trading_day(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
 
