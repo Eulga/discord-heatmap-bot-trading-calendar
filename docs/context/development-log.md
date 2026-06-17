@@ -1,6 +1,18 @@
 # Development Log
 
 ## 2026-06-17
+- Context: Stock Dashboard 관심종목 급등락 알림의 Discord 가독성을 높이기 위해 티커와 시장별 색상 표현이 필요했다.
+- Change:
+1. 가격 급등락 알림을 일반 텍스트 메시지 대신 Discord Embed로 전송하게 했다.
+2. 알림 제목에 canonical symbol에서 추출한 티커를 붙여 `(000660) SK하이닉스 급락`, `(MU) MICRON TECHNOLOGY INC 급락`처럼 보이게 했다.
+3. 국장은 상승 빨강/하락 파랑, 미장은 상승 초록/하락 빨강 기준으로 embed 컬러바와 색상 이모지를 적용했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py tests\integration\test_watch_poll_forum_scheduler.py -q`
+2. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe -m compileall bot\features\intel_scheduler.py`
+3. `git diff --check`
+- Status: done
+
+## 2026-06-17
 - Context: Stock Dashboard 관심종목 급등락 알림을 Discord에 보낼 때 개발자용 출처나 메타 정보보다 사용자가 바로 읽을 수 있는 문구가 필요했다.
 - Change:
 1. 대시보드 `stock` 알림 메시지를 `종목명 급등/급락`과 `전일 대비 ±등락률` 중심으로 줄였다.

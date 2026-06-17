@@ -130,6 +130,11 @@ TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
 DASHBOARD_ALERT_DELIVERY_COMMAND_KEY = "dashboard-alerts"
 DASHBOARD_ALERT_SENT_IDS_KEY = "dashboard_alert_sent_ids_by_guild"
 DASHBOARD_ALERT_SENT_ID_LIMIT = 300
+DASHBOARD_ALERT_COLOR_KR_UP = 0xFF5A52
+DASHBOARD_ALERT_COLOR_KR_DOWN = 0x2F80ED
+DASHBOARD_ALERT_COLOR_US_UP = 0x30D158
+DASHBOARD_ALERT_COLOR_US_DOWN = 0xFF5A52
+DASHBOARD_ALERT_COLOR_NEUTRAL = 0x8B95A1
 WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
 WATCH_PENDING_CLOSE_SESSIONS_KEY = "pending_close_sessions"
 WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
@@ -427,6 +432,89 @@ def _mark_dashboard_alerts_sent(state: dict, guild_id: int, alert_ids: list[str]
         del sent_ids[: len(sent_ids) - DASHBOARD_ALERT_SENT_ID_LIMIT]
 
 
+def _dashboard_alert_canonical_symbol(alert: dict[str, Any]) -> str:
+    alert_id = str(alert.get("id") or "").strip()
+    if not alert_id.startswith("price-"):
+        return ""
+    return alert_id.removeprefix("price-").strip()
+
+
+def _dashboard_alert_ticker(alert: dict[str, Any]) -> str:
+    canonical_symbol = _dashboard_alert_canonical_symbol(alert)
+    if not canonical_symbol:
+        return ""
+    if ":" in canonical_symbol:
+        return canonical_symbol.split(":", 1)[1].strip()
+    return canonical_symbol
+
+
+def _dashboard_alert_stock_name(alert: dict[str, Any]) -> str:
+    title = str(alert.get("title") or "").strip()
+    description = str(alert.get("description") or "").strip()
+    if description:
+        return description.rsplit(" ", 1)[0].strip()
+    return title.replace("변동성 확대", "").strip() or title or "관심종목"
+
+
+def _dashboard_alert_change_text(alert: dict[str, Any]) -> str:
+    description = str(alert.get("description") or "").strip()
+    if not description:
+        return ""
+    return description.rsplit(" ", 1)[-1].strip()
+
+
+def _dashboard_alert_direction(alert: dict[str, Any]) -> tuple[str, str]:
+    status = str(alert.get("status") or "").strip()
+    if status in {"상승", "up"}:
+        return "급등", "up"
+    if status in {"하락", "down"}:
+        return "급락", "down"
+    return "변동성 확대", "neutral"
+
+
+def _dashboard_alert_color(alert: dict[str, Any], direction_key: str) -> int:
+    market = str(alert.get("market") or "").strip()
+    is_kr_market = market in {"국장", "KR", "KRX"}
+    if direction_key == "up":
+        return DASHBOARD_ALERT_COLOR_KR_UP if is_kr_market else DASHBOARD_ALERT_COLOR_US_UP
+    if direction_key == "down":
+        return DASHBOARD_ALERT_COLOR_KR_DOWN if is_kr_market else DASHBOARD_ALERT_COLOR_US_DOWN
+    return DASHBOARD_ALERT_COLOR_NEUTRAL
+
+
+def _dashboard_alert_marker(alert: dict[str, Any], direction_key: str) -> str:
+    market = str(alert.get("market") or "").strip()
+    is_kr_market = market in {"국장", "KR", "KRX"}
+    if direction_key == "up":
+        return "🔴" if is_kr_market else "🟢"
+    if direction_key == "down":
+        return "🔵" if is_kr_market else "🔴"
+    return "⚪"
+
+
+def _format_dashboard_stock_alert_title(alert: dict[str, Any]) -> str:
+    direction, _direction_key = _dashboard_alert_direction(alert)
+    stock_name = _dashboard_alert_stock_name(alert)
+    ticker = _dashboard_alert_ticker(alert)
+    prefix = f"({ticker}) " if ticker else ""
+    return f"{prefix}{stock_name} {direction}".strip()
+
+
+def _build_dashboard_stock_alert_embed(alert: dict[str, Any]) -> discord.Embed | None:
+    if str(alert.get("type") or "").strip() != "stock":
+        return None
+
+    _direction, direction_key = _dashboard_alert_direction(alert)
+    change_text = _dashboard_alert_change_text(alert)
+    marker = _dashboard_alert_marker(alert, direction_key)
+    description = f"{marker} 전일 대비 **{change_text}**" if change_text else ""
+    return discord.Embed(
+        title=_format_dashboard_stock_alert_title(alert),
+        description=description,
+        color=_dashboard_alert_color(alert, direction_key),
+    )
+
+
 def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
     title = str(alert.get("title") or "관심종목 알림").strip()
     status = str(alert.get("status") or "").strip()
@@ -438,13 +526,11 @@ def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
     url = str(alert.get("url") or "").strip()
 
     if alert_type == "stock":
-        direction = "급등" if status in {"상승", "up"} else "급락" if status in {"하락", "down"} else "변동성 확대"
-        stock_name = description.rsplit(" ", 1)[0].strip() if description else title.replace("변동성 확대", "").strip()
-        stock_name = stock_name or title or "관심종목"
-        lines = [f"**{stock_name} {direction}**"]
+        _direction, direction_key = _dashboard_alert_direction(alert)
+        marker = _dashboard_alert_marker(alert, direction_key)
+        lines = [f"**{_format_dashboard_stock_alert_title(alert)}**"]
         if description:
-            change_text = description.rsplit(" ", 1)[-1].strip()
-            lines.append(f"전일 대비 {change_text}")
+            lines.append(f"{marker} 전일 대비 **{_dashboard_alert_change_text(alert)}**")
         return "\n".join(lines)[:1900]
 
     meta = " · ".join(part for part in [market, status, priority] if part)
@@ -529,7 +615,11 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
             )
             sent_now: list[str] = []
             for alert in new_alerts:
-                await thread.send(_format_dashboard_alert_message(alert))
+                embed = _build_dashboard_stock_alert_embed(alert)
+                if embed is None:
+                    await thread.send(_format_dashboard_alert_message(alert))
+                else:
+                    await thread.send(embed=embed)
                 alert_id = str(alert.get("id") or "")
                 sent_now.append(alert_id)
                 _mark_dashboard_alerts_sent(state, guild_id, [alert_id])

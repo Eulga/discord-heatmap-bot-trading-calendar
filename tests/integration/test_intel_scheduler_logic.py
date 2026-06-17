@@ -93,11 +93,11 @@ async def test_news_job_records_provider_failure(monkeypatch):
 @pytest.mark.asyncio
 async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"watch_forum_channel_id": 123}}}
-    sent_messages: list[str] = []
+    sent_messages: list[dict[str, object]] = []
 
     class Thread:
-        async def send(self, content: str):
-            sent_messages.append(content)
+        async def send(self, content: str | None = None, *, embed=None):
+            sent_messages.append({"content": content, "embed": embed})
 
     async def fake_upsert_daily_post(**kwargs):
         assert kwargs["command_key"] == "dashboard-alerts"
@@ -108,7 +108,7 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
         return [
             {
                 "description": "SK하이닉스 -8.24%",
-                "id": "alert-1",
+                "id": "price-KRX:000660",
                 "market": "국장",
                 "priority": "높음",
                 "source": "collector_projection",
@@ -128,8 +128,12 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     await intel_scheduler._run_dashboard_alert_delivery(client=object(), now=now)  # type: ignore[arg-type]
 
     assert len(sent_messages) == 1
-    assert sent_messages[0] == "**SK하이닉스 급락**\n전일 대비 -8.24%"
-    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["alert-1"]
+    assert sent_messages[0]["content"] is None
+    embed = sent_messages[0]["embed"]
+    assert embed.title == "(000660) SK하이닉스 급락"
+    assert embed.description == "🔵 전일 대비 **-8.24%**"
+    assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
 
 
