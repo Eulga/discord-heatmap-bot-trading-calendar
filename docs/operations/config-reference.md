@@ -27,6 +27,8 @@
     - required only when instrument registry refresh actually runs a live rebuild
   - `DATABASE_URL`
     - required only when `STATE_BACKEND` is `postgres` or `postgresql`
+  - `INTERNAL_API_TOKEN`
+    - required only when `INTERNAL_API_ENABLED=true`
 - Optional provider/status envs with narrower current roles:
   - `MASSIVE_API_KEY` or legacy `POLYGON_API_KEY`
     - optional US quote fallback only when `MARKET_DATA_PROVIDER_KIND` is `kis`
@@ -76,6 +78,11 @@
   - `LOG_FILE_PATH`
   - `LOG_RETENTION_DAYS`
   - `LOG_CONSOLE_ENABLED`
+- Internal API:
+  - `INTERNAL_API_ENABLED`
+  - `INTERNAL_API_HOST`
+  - `INTERNAL_API_PORT`
+  - `INTERNAL_API_TOKEN`
 - State persistence:
   - `STATE_BACKEND`
   - `DATABASE_URL`
@@ -108,6 +115,11 @@
 - Logging:
   - `LOG_RETENTION_DAYS = 7`
   - `LOG_CONSOLE_ENABLED = True`
+- Internal API:
+  - `INTERNAL_API_ENABLED = False`
+  - `INTERNAL_API_HOST = "0.0.0.0"`
+  - `INTERNAL_API_PORT = 8090`
+  - `INTERNAL_API_TOKEN` has no default
 - State persistence:
   - `STATE_BACKEND = "file"`
   - `POSTGRES_STATE_KEY = "default"`
@@ -131,6 +143,9 @@
   - scheduler polling requires both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true`.
 - EOD wiring:
   - the scheduler currently uses `MockEodSummaryProvider()` unconditionally when EOD is enabled
+- Internal API wiring:
+  - `POST /internal/heatmaps/generate` is available only when `INTERNAL_API_ENABLED=true` and `INTERNAL_API_TOKEN` is set
+  - the endpoint captures fresh Korea/US heatmap image files and updates command `last_images`; it does not post or update Discord forum threads
 - Status-only provider rows:
   - `twelvedata_reference` and `openfigi_mapping` are currently status rows, not active runtime providers in the inspected bot code
 

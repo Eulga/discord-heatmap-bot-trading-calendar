@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 
 from bot.app.command_sync import format_command_sync_error, record_command_sync
+from bot.app.internal_api import start_internal_api_server
 from bot.app.settings import (
     DEFAULT_FORUM_CHANNEL_ID,
     EOD_TARGET_FORUM_ID,
@@ -130,6 +131,7 @@ class BotApp:
         self._synced = False
         self._scheduler_task: asyncio.Task | None = None
         self._intel_task: asyncio.Task | None = None
+        self._internal_api_runner = None
 
         register_admin(self.tree, self.client)
         register_status(self.tree, self.client)
@@ -164,6 +166,8 @@ class BotApp:
             if self._intel_task is None or self._intel_task.done():
                 self._intel_task = asyncio.create_task(intel_scheduler(self.client))
                 logger.info("Intel scheduler started.")
+            if self._internal_api_runner is None:
+                self._internal_api_runner = await start_internal_api_server()
             logger.info("Logged in as %s (ID: %s)", self.client.user, self.client.user.id)
 
         @self.client.event

@@ -24,6 +24,7 @@
 
 ## Current System Snapshot
 - The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news, trend, watch-poll, and instrument-registry-refresh flows.
+- When `INTERNAL_API_ENABLED=true`, the bot also starts a token-protected internal HTTP API for the stock dashboard to trigger fresh heatmap image capture without posting to Discord.
 - Per-guild mutable routing and runtime state use a selectable app-state backend:
   - default `STATE_BACKEND=file` stores `data/state/state.json`
   - `STATE_BACKEND=postgres` stores the same app-state document in PostgreSQL table `bot_app_state` as JSONB

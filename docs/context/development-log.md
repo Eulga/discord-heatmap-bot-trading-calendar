@@ -1,5 +1,15 @@
 # Development Log
 
+## 2026-06-17
+- Context: Stock Dashboard needs a manual way to refresh heatmap images when the Discord bot or host misses the scheduled capture window.
+- Change:
+1. Added a token-protected internal API endpoint, `POST /internal/heatmaps/generate`, that captures fresh Korea/US heatmap image files and updates command `last_images` without posting to Discord.
+2. Added Docker/shared-network configuration so the dashboard container can call the bot internal API when both services run on the Mac mini.
+3. Pinned Playwright to the Docker base image version and install Chromium during image build to avoid runtime browser-missing failures after rebuilds.
+- Verification:
+1. `py -3 scripts/run_repo_checks.py unit tests/unit/test_internal_api.py`
+- Status: done
+
 ## 2026-06-15
 - Context: Stock Dashboard가 관심종목 가격/뉴스 화면을 담당하게 되어 Discord 봇의 관심종목 시세 감시를 기본 운영 범위에서 제외했다. Discord는 뉴스 전송, 장 마감 히트맵, 고중요도 알림 전달에 집중한다.
 - Change:

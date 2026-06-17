@@ -77,6 +77,10 @@ POSTGRES_STATE_KEY = os.getenv("POSTGRES_STATE_KEY", "default").strip() or "defa
 LOG_FILE_PATH = _env_path("LOG_FILE_PATH", Path("data/logs/bot.log"))
 LOG_RETENTION_DAYS = _env_int("LOG_RETENTION_DAYS", 7)
 LOG_CONSOLE_ENABLED = _env_bool("LOG_CONSOLE_ENABLED", True)
+INTERNAL_API_ENABLED = _env_bool("INTERNAL_API_ENABLED", False)
+INTERNAL_API_HOST = os.getenv("INTERNAL_API_HOST", "0.0.0.0").strip() or "0.0.0.0"
+INTERNAL_API_PORT = _env_int("INTERNAL_API_PORT", 8090)
+INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "").strip()
 
 KOREA_MARKET_URLS: dict[str, str] = {
     "kospi": "https://markets.hankyung.com/marketmap/kospi",

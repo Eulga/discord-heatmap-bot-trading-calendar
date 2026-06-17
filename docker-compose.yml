@@ -11,6 +11,9 @@ services:
       - ./data/heatmaps:/app/data/heatmaps
       - ./data/state:/app/data/state
       - ./data/logs:/app/data/logs
+    networks:
+      - default
+      - stockdashboard
 
   postgres:
     image: postgres:16-alpine
@@ -25,3 +28,8 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  stockdashboard:
+    external: true
+    name: ${STOCK_DASHBOARD_SHARED_NETWORK:-stockdatacontroller_default}

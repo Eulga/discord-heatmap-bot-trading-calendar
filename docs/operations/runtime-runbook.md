@@ -54,6 +54,8 @@
 - Docker-specific note:
   - mounted `data/` directories are used so logs, state, and cached artifacts can survive container recreation
   - the local PostgreSQL service uses the named Docker volume `postgres-data`
+  - the Docker image installs the Playwright Chromium browser at build time for heatmap capture
+  - when the stock dashboard must trigger heatmap generation, set `INTERNAL_API_ENABLED=true`, `INTERNAL_API_TOKEN`, and connect the bot container to the dashboard shared Docker network
   - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
 
 ## State Backend
@@ -100,6 +102,9 @@
 - Cached heatmap artifacts:
   - `data/heatmaps/kheatmap/`
   - `data/heatmaps/usheatmap/`
+- Internal API:
+  - `POST /internal/heatmaps/generate` refreshes cached heatmap image files for the dashboard when enabled
+  - protect requests with `X-Internal-Token: <INTERNAL_API_TOKEN>`
 - Deep state/config behavior reference:
   - `../specs/as-is-functional-spec.md`
 
