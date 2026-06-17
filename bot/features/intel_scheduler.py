@@ -1,6 +1,10 @@
 import asyncio
+import json
 import logging
 from datetime import datetime
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import discord
@@ -34,6 +38,8 @@ from bot.app.settings import (
     NEWS_BRIEFING_TIME,
     NEWS_BRIEFING_TRADING_DAYS_ONLY,
     NEWS_PROVIDER_KIND,
+    STOCK_DASHBOARD_ALERT_DELIVERY_ENABLED,
+    STOCK_DASHBOARD_ALERT_POLL_INTERVAL_SECONDS,
     STOCK_DASHBOARD_API_BASE_URL,
     STOCK_DASHBOARD_INTERNAL_TOKEN,
     WATCH_FEATURE_ENABLED,
@@ -121,6 +127,9 @@ NEWS_BRIEFING_COMMAND_KEY = "newsbriefing"
 NEWS_BRIEFING_DOMESTIC_COMMAND_KEY = "newsbriefing-domestic"
 NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
+DASHBOARD_ALERT_DELIVERY_COMMAND_KEY = "dashboard-alerts"
+DASHBOARD_ALERT_SENT_IDS_KEY = "dashboard_alert_sent_ids_by_guild"
+DASHBOARD_ALERT_SENT_ID_LIMIT = 300
 WATCH_CLOSE_FINALIZATION_TIMEZONE = ZoneInfo("Asia/Seoul")
 WATCH_PENDING_CLOSE_SESSIONS_KEY = "pending_close_sessions"
 WATCH_CLOSE_FINALIZATION_DUE_TIMES = {
@@ -343,6 +352,197 @@ def _record_instrument_registry_refresh_result(*, ok: bool, detail: str) -> None
 
 async def _refresh_instrument_registry() -> dict[str, int | str]:
     return await asyncio.to_thread(_refresh_instrument_registry_sync)
+
+
+def _fetch_dashboard_alert_deliveries_sync() -> list[dict[str, Any]]:
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        raise RuntimeError("dashboard-alert-config-missing")
+
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}/api/discord/deliveries/alerts",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "discord-heatmap-bot/1.0",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise RuntimeError(f"dashboard-alert-auth-failed:{exc.code}") from exc
+        raise RuntimeError(f"dashboard-alert-upstream-error:{exc.code}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dashboard-alert-invalid-response") from exc
+    except URLError as exc:
+        raise RuntimeError("dashboard-alert-unreachable") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise RuntimeError("dashboard-alert-invalid-response")
+
+    alerts: list[dict[str, Any]] = []
+    for item in payload["data"]:
+        if not isinstance(item, dict):
+            continue
+        alert_id = str(item.get("id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        if not alert_id or not title:
+            continue
+        alerts.append(item)
+    return alerts
+
+
+async def _fetch_dashboard_alert_deliveries() -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_fetch_dashboard_alert_deliveries_sync)
+
+
+def _dashboard_alert_sent_ids(state: dict, guild_id: int) -> list[str]:
+    system = state.setdefault("system", {})
+    if not isinstance(system, dict):
+        state["system"] = {}
+        system = state["system"]
+    store = system.setdefault(DASHBOARD_ALERT_SENT_IDS_KEY, {})
+    if not isinstance(store, dict):
+        store = {}
+        system[DASHBOARD_ALERT_SENT_IDS_KEY] = store
+    ids = store.setdefault(str(guild_id), [])
+    if not isinstance(ids, list):
+        ids = []
+        store[str(guild_id)] = ids
+    cleaned = [str(item) for item in ids if isinstance(item, str) and item.strip()]
+    if cleaned != ids:
+        store[str(guild_id)] = cleaned
+        return cleaned
+    return ids
+
+
+def _mark_dashboard_alerts_sent(state: dict, guild_id: int, alert_ids: list[str]) -> None:
+    sent_ids = _dashboard_alert_sent_ids(state, guild_id)
+    for alert_id in alert_ids:
+        if alert_id not in sent_ids:
+            sent_ids.append(alert_id)
+    if len(sent_ids) > DASHBOARD_ALERT_SENT_ID_LIMIT:
+        del sent_ids[: len(sent_ids) - DASHBOARD_ALERT_SENT_ID_LIMIT]
+
+
+def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
+    title = str(alert.get("title") or "관심종목 알림").strip()
+    status = str(alert.get("status") or "").strip()
+    priority = str(alert.get("priority") or "").strip()
+    market = str(alert.get("market") or "").strip()
+    source = str(alert.get("source") or "").strip()
+    description = str(alert.get("description") or "").strip()
+    alert_type = str(alert.get("type") or "").strip()
+    url = str(alert.get("url") or "").strip()
+
+    if alert_type == "stock":
+        direction = "급등" if status in {"상승", "up"} else "급락" if status in {"하락", "down"} else "변동성 확대"
+        stock_name = description.rsplit(" ", 1)[0].strip() if description else title.replace("변동성 확대", "").strip()
+        stock_name = stock_name or title or "관심종목"
+        lines = [f"**{stock_name} {direction}**"]
+        if description:
+            change_text = description.rsplit(" ", 1)[-1].strip()
+            lines.append(f"전일 대비 {change_text}")
+        return "\n".join(lines)[:1900]
+
+    meta = " · ".join(part for part in [market, status, priority] if part)
+    lines = [f"**{title}**"]
+    if meta:
+        lines.append(meta)
+    if description:
+        lines.append(description)
+    if source and source != "collector_projection":
+        lines.append(f"출처: {source}")
+    if url:
+        lines.append(url)
+    return "\n".join(lines)[:1900]
+
+
+def _dashboard_alert_post_title(now: datetime) -> str:
+    return f"관심종목 알림 {date_key(now)}"
+
+
+def _dashboard_alert_starter_body(now: datetime, alert_count: int) -> str:
+    return f"{timestamp_text(now)} 기준 대시보드 주요 알림 {alert_count}건"
+
+
+async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -> None:
+    state = load_state()
+    pending_guilds: list[tuple[int, int]] = []
+    missing_forum = 0
+
+    for guild_id in list_guild_ids(state):
+        forum_channel_id = get_guild_watch_forum_channel_id(state, guild_id)
+        if forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, forum_channel_id))
+
+    if not pending_guilds:
+        detail = f"no-target-forums missing_forum={missing_forum}"
+        set_job_last_run(state, "dashboard_alert_delivery", "skipped", detail)
+        save_state(state)
+        _log_job_result("dashboard_alert_delivery", "skipped", detail)
+        return
+
+    try:
+        alerts = await _fetch_dashboard_alert_deliveries()
+    except Exception as exc:
+        set_job_last_run(state, "dashboard_alert_delivery", "failed", str(exc))
+        set_provider_status(state, "dashboard_alerts", False, str(exc))
+        save_state(state)
+        _log_job_result("dashboard_alert_delivery", "failed", str(exc))
+        logger.exception("[intel] dashboard alert delivery fetch failed: %s", exc)
+        return
+
+    set_provider_status(state, "dashboard_alerts", True, f"fetched={len(alerts)}")
+
+    if not alerts:
+        set_job_last_run(state, "dashboard_alert_delivery", "skipped", "no-alerts")
+        save_state(state)
+        _log_job_result("dashboard_alert_delivery", "skipped", "no-alerts")
+        return
+
+    posted = 0
+    failed = 0
+    skipped = 0
+
+    for guild_id, forum_channel_id in pending_guilds:
+        sent_ids = set(_dashboard_alert_sent_ids(state, guild_id))
+        new_alerts = [alert for alert in alerts if str(alert.get("id") or "") not in sent_ids]
+        if not new_alerts:
+            skipped += 1
+            continue
+
+        try:
+            thread, _action = await upsert_daily_post(
+                client=client,
+                state=state,
+                guild_id=guild_id,
+                forum_channel_id=forum_channel_id,
+                command_key=DASHBOARD_ALERT_DELIVERY_COMMAND_KEY,
+                post_title=_dashboard_alert_post_title(now),
+                body_text=_dashboard_alert_starter_body(now, len(alerts)),
+                image_paths=[],
+            )
+            sent_now: list[str] = []
+            for alert in new_alerts:
+                await thread.send(_format_dashboard_alert_message(alert))
+                alert_id = str(alert.get("id") or "")
+                sent_now.append(alert_id)
+                _mark_dashboard_alerts_sent(state, guild_id, [alert_id])
+            posted += len(sent_now)
+        except Exception as exc:
+            failed += 1
+            logger.exception("[intel] dashboard alert delivery post failed guild=%s: %s", guild_id, exc)
+
+    status = "ok" if posted > 0 and failed == 0 else "failed" if failed > 0 else "skipped"
+    detail = f"alerts={len(alerts)} posted={posted} skipped_guilds={skipped} failed_guilds={failed}"
+    set_job_last_run(state, "dashboard_alert_delivery", status, detail)
+    save_state(state)
+    _log_job_result("dashboard_alert_delivery", status, detail)
 
 
 async def _run_instrument_registry_refresh(now: datetime) -> None:
@@ -1564,6 +1764,7 @@ async def intel_scheduler(client: discord.Client) -> None:
     eod_h, eod_m = _parse_time(EOD_SUMMARY_TIME, 16, 20)
     registry_h, registry_m = _parse_time(INSTRUMENT_REGISTRY_REFRESH_TIME, 6, 20)
     last_watch_run: datetime | None = None
+    last_dashboard_alert_run: datetime | None = None
     registry_refresh_task: asyncio.Task[dict[str, int | str]] | None = None
 
     while True:
@@ -1609,6 +1810,14 @@ async def intel_scheduler(client: discord.Client) -> None:
                 scheduled_minute=eod_m,
             ):
                 await _run_eod_job(client, now)
+
+            if STOCK_DASHBOARD_ALERT_DELIVERY_ENABLED:
+                if (
+                    last_dashboard_alert_run is None
+                    or (now - last_dashboard_alert_run).total_seconds() >= STOCK_DASHBOARD_ALERT_POLL_INTERVAL_SECONDS
+                ):
+                    await _run_dashboard_alert_delivery(client, now)
+                    last_dashboard_alert_run = now
 
             if WATCH_FEATURE_ENABLED and WATCH_POLL_ENABLED:
                 if last_watch_run is None or (now - last_watch_run).total_seconds() >= WATCH_POLL_INTERVAL_SECONDS:

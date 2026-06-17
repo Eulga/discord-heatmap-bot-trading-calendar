@@ -91,6 +91,49 @@ async def test_news_job_records_provider_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watch_forum_channel_id": 123}}}
+    sent_messages: list[str] = []
+
+    class Thread:
+        async def send(self, content: str):
+            sent_messages.append(content)
+
+    async def fake_upsert_daily_post(**kwargs):
+        assert kwargs["command_key"] == "dashboard-alerts"
+        assert kwargs["forum_channel_id"] == 123
+        return Thread(), "created"
+
+    async def fake_fetch_alerts():
+        return [
+            {
+                "description": "SK하이닉스 -8.24%",
+                "id": "alert-1",
+                "market": "국장",
+                "priority": "높음",
+                "source": "collector_projection",
+                "status": "하락",
+                "title": "SK하이닉스 변동성 확대",
+                "type": "stock",
+            }
+        ]
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_alert_deliveries", fake_fetch_alerts)
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fake_upsert_daily_post)
+
+    now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
+    await intel_scheduler._run_dashboard_alert_delivery(client=object(), now=now)  # type: ignore[arg-type]
+    await intel_scheduler._run_dashboard_alert_delivery(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert len(sent_messages) == 1
+    assert sent_messages[0] == "**SK하이닉스 급락**\n전일 대비 -8.24%"
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["alert-1"]
+    assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
 async def test_eod_job_skips_non_trading_day(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"forum_channel_id": 123}}}
 

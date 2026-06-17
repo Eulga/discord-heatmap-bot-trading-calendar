@@ -1,6 +1,16 @@
 # Development Log
 
 ## 2026-06-17
+- Context: Stock Dashboard 관심종목 급등락 알림을 Discord에 보낼 때 개발자용 출처나 메타 정보보다 사용자가 바로 읽을 수 있는 문구가 필요했다.
+- Change:
+1. 대시보드 `stock` 알림 메시지를 `종목명 급등/급락`과 `전일 대비 ±등락률` 중심으로 줄였다.
+2. 가격 급등락 알림에서는 `collector_projection` 출처 문구를 노출하지 않게 했다.
+3. 기존 중복 전송 방지 동작은 유지하면서 새 문구를 검증하도록 integration test를 갱신했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py -q`
+- Status: done
+
+## 2026-06-17
 - Context: Stock Dashboard needs a manual way to refresh heatmap images when the Discord bot or host misses the scheduled capture window.
 - Change:
 1. Added a token-protected internal API endpoint, `POST /internal/heatmaps/generate`, that captures fresh Korea/US heatmap image files and updates command `last_images` without posting to Discord.
