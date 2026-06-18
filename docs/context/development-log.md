@@ -1,6 +1,16 @@
 # Development Log
 
 ## 2026-06-18
+- Context: Stock Dashboard 일정 알림이 Discord 일정 채널에서 일반 텍스트와 링크 프리뷰로 길게 보여 사용자 가독성이 떨어졌다.
+- Change:
+1. `event` 타입 대시보드 알림을 Discord Embed로 전송해 일정도 카드 형태로 보이게 했다.
+2. 일정 알림에서는 제목, D-DAY 상태, 시간, 핵심 이벤트 내용만 노출하고 출처/URL은 메시지 본문에서 제외했다.
+3. 일정 알림 전송 테스트를 embed 포맷과 URL 미노출 기준으로 갱신했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py integration tests\integration\test_intel_scheduler_logic.py`
+- Status: done
+
+## 2026-06-18
 - Context: Stock Dashboard news deliveries were empty in the Discord news briefing, and schedule-type dashboard alerts needed a dedicated text channel instead of watch/forum routing.
 - Change:
 1. Added `SCHEDULE_ALERT_CHANNEL_ID` bootstrap config and `/setschedulechannel` so earnings/economic schedule alerts can target a regular text channel.

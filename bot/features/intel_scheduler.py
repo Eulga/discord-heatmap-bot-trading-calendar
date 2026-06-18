@@ -505,6 +505,47 @@ def _format_dashboard_stock_alert_title(alert: dict[str, Any]) -> str:
     return f"{prefix}{stock_name} {direction}".strip()
 
 
+def _format_dashboard_schedule_alert_title(alert: dict[str, Any]) -> str:
+    title = str(alert.get("title") or "일정 알림").strip()
+    status = str(alert.get("status") or "").strip()
+    if status and status not in title:
+        return f"{title} {status}".strip()
+    return title
+
+
+def _is_dashboard_alert_date_part(value: str) -> bool:
+    return len(value) == 10 and value[4] == "-" and value[7] == "-" and value.replace("-", "").isdigit()
+
+
+def _is_dashboard_alert_time_part(value: str) -> bool:
+    hour, separator, minute = value.partition(":")
+    return bool(separator) and hour.isdigit() and minute.isdigit() and len(minute) == 2
+
+
+def _format_dashboard_schedule_alert_description(alert: dict[str, Any]) -> str:
+    raw_description = str(alert.get("description") or "").strip()
+    if not raw_description:
+        return ""
+
+    public_lines = []
+    for line in raw_description.splitlines():
+        text = line.strip()
+        if not text or text.startswith("출처:") or text.startswith("http://") or text.startswith("https://"):
+            continue
+        public_lines.append(text)
+
+    compact = " ".join(public_lines).strip()
+    if not compact:
+        return ""
+
+    parts = [part.strip() for part in compact.split("·") if part.strip()]
+    if len(parts) >= 3 and _is_dashboard_alert_date_part(parts[0]) and _is_dashboard_alert_time_part(parts[1]):
+        return f"**{parts[1]}** · {' · '.join(parts[2:])}"
+    if len(parts) >= 2 and _is_dashboard_alert_date_part(parts[0]):
+        return " · ".join(parts[1:])
+    return compact
+
+
 def _build_dashboard_stock_alert_embed(alert: dict[str, Any]) -> discord.Embed | None:
     if str(alert.get("type") or "").strip() != "stock":
         return None
@@ -517,6 +558,19 @@ def _build_dashboard_stock_alert_embed(alert: dict[str, Any]) -> discord.Embed |
         title=_format_dashboard_stock_alert_title(alert),
         description=description,
         color=_dashboard_alert_color(alert, direction_key),
+    )
+
+
+def _build_dashboard_schedule_alert_embed(alert: dict[str, Any]) -> discord.Embed | None:
+    if str(alert.get("type") or "").strip() != "event":
+        return None
+
+    priority = str(alert.get("priority") or "").strip()
+    color = 0xF59E0B if priority == "높음" else 0x22D3EE
+    return discord.Embed(
+        title=_format_dashboard_schedule_alert_title(alert),
+        description=_format_dashboard_schedule_alert_description(alert),
+        color=color,
     )
 
 
@@ -536,6 +590,13 @@ def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
         lines = [f"**{_format_dashboard_stock_alert_title(alert)}**"]
         if description:
             lines.append(f"{marker} 전일 대비 **{_dashboard_alert_change_text(alert)}**")
+        return "\n".join(lines)[:1900]
+
+    if alert_type == "event":
+        lines = [f"**{_format_dashboard_schedule_alert_title(alert)}**"]
+        compact_description = _format_dashboard_schedule_alert_description(alert)
+        if compact_description:
+            lines.append(compact_description)
         return "\n".join(lines)[:1900]
 
     meta = " · ".join(part for part in [market, status, priority] if part)
@@ -697,7 +758,11 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                         raise RuntimeError("schedule-channel-unavailable")
                     sent_now = []
                     for alert in schedule_alerts:
-                        await channel.send(_format_dashboard_alert_message(alert))
+                        embed = _build_dashboard_schedule_alert_embed(alert)
+                        if embed is None:
+                            await channel.send(_format_dashboard_alert_message(alert))
+                        else:
+                            await channel.send(embed=embed)
                         alert_id = str(alert.get("id") or "")
                         sent_now.append(alert_id)
                         _mark_dashboard_alerts_sent(state, guild_id, [alert_id])

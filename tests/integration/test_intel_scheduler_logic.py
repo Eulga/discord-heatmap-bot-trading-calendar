@@ -140,13 +140,13 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
 @pytest.mark.asyncio
 async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"schedule_alert_channel_id": 456}}}
-    sent_messages: list[str] = []
+    sent_messages: list[dict[str, object]] = []
 
     class Channel:
         guild = type("Guild", (), {"id": 1})()
 
-        async def send(self, content: str):
-            sent_messages.append(content)
+        async def send(self, content: str | None = None, *, embed=None):
+            sent_messages.append({"content": content, "embed": embed})
 
     class Client:
         def get_channel(self, channel_id: int):
@@ -155,7 +155,7 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     async def fake_fetch_alerts():
         return [
             {
-                "description": "장 시작 전 확인",
+                "description": "2026-06-18 · 03:00 · FOMC 정책금리 결정",
                 "id": "event-earnings-KRX:005930-2026-06-18",
                 "market": "국장",
                 "priority": "높음",
@@ -175,9 +175,12 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     await intel_scheduler._run_dashboard_alert_delivery(client=Client(), now=now)  # type: ignore[arg-type]
 
     assert len(sent_messages) == 1
-    assert "삼성전자 실적 발표" in sent_messages[0]
-    assert "D-DAY" in sent_messages[0]
-    assert "https://example.com/earnings" in sent_messages[0]
+    assert sent_messages[0]["content"] is None
+    embed = sent_messages[0]["embed"]
+    assert embed.title == "삼성전자 실적 발표 D-DAY"
+    assert embed.description == "**03:00** · FOMC 정책금리 결정"
+    assert "https://example.com/earnings" not in embed.description
+    assert embed.color.value == 0xF59E0B
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-earnings-KRX:005930-2026-06-18"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "ok"
 
