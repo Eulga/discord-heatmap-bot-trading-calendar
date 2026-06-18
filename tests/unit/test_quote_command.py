@@ -25,10 +25,12 @@ def test_build_quote_embed_groups_theme_quotes_in_one_card():
     )
 
     assert embed.title == "반도체 시세"
-    assert "(420770) 기가비스 급등" in embed.description
+    assert "(420770) 기가비스" in embed.description
     assert "🔴 전일 대비 +5.26%" in embed.description
-    assert "(010120) 엘에스일렉트릭 급락" in embed.description
+    assert "(010120) 엘에스일렉트릭" in embed.description
     assert "🔵 전일 대비 -5.10%" in embed.description
+    assert "급등" not in embed.description
+    assert "급락" not in embed.description
     assert embed.color.value == quote_command.QUOTE_EMBED_COLOR
 
 

@@ -473,13 +473,13 @@ def _dashboard_alert_change_text(alert: dict[str, Any]) -> str:
     return description.rsplit(" ", 1)[-1].strip()
 
 
-def _dashboard_alert_direction(alert: dict[str, Any]) -> tuple[str, str]:
+def _dashboard_alert_direction_key(alert: dict[str, Any]) -> str:
     status = str(alert.get("status") or "").strip()
     if status in {"상승", "up"}:
-        return "급등", "up"
+        return "up"
     if status in {"하락", "down"}:
-        return "급락", "down"
-    return "변동성 확대", "neutral"
+        return "down"
+    return "neutral"
 
 
 def _dashboard_alert_color(alert: dict[str, Any], direction_key: str) -> int:
@@ -503,13 +503,12 @@ def _dashboard_alert_marker(alert: dict[str, Any], direction_key: str) -> str:
 
 
 def _format_dashboard_stock_alert_title(alert: dict[str, Any]) -> str:
-    direction, _direction_key = _dashboard_alert_direction(alert)
     category = _dashboard_alert_category(alert)
     stock_name = _dashboard_alert_stock_name(alert)
     ticker = _dashboard_alert_ticker(alert)
     category_prefix = f"[{category}] " if category else ""
     prefix = f"({ticker}) " if ticker else ""
-    return f"{category_prefix}{prefix}{stock_name} {direction}".strip()
+    return f"{category_prefix}{prefix}{stock_name}".strip()
 
 
 def _format_dashboard_schedule_alert_title(alert: dict[str, Any]) -> str:
@@ -557,7 +556,7 @@ def _build_dashboard_stock_alert_embed(alert: dict[str, Any]) -> discord.Embed |
     if str(alert.get("type") or "").strip() != "stock":
         return None
 
-    _direction, direction_key = _dashboard_alert_direction(alert)
+    direction_key = _dashboard_alert_direction_key(alert)
     change_text = _dashboard_alert_change_text(alert)
     marker = _dashboard_alert_marker(alert, direction_key)
     description = f"{marker} 전일 대비 **{change_text}**" if change_text else ""
@@ -592,7 +591,7 @@ def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
     url = str(alert.get("url") or "").strip()
 
     if alert_type == "stock":
-        _direction, direction_key = _dashboard_alert_direction(alert)
+        direction_key = _dashboard_alert_direction_key(alert)
         marker = _dashboard_alert_marker(alert, direction_key)
         lines = [f"**{_format_dashboard_stock_alert_title(alert)}**"]
         if description:

@@ -44,16 +44,6 @@ def _change_value(value: str) -> float | None:
         return None
 
 
-def _direction_label(change: float | None) -> str:
-    if change is None:
-        return ""
-    if change > 0:
-        return "급등"
-    if change < 0:
-        return "급락"
-    return "보합"
-
-
 def _market_marker(market: str, change: float | None) -> str:
     if change is None or change == 0:
         return "⚪"
@@ -69,8 +59,7 @@ def _format_quote_item(item: dict[str, Any]) -> str:
     name = str(item.get("name") or symbol or "관심종목").strip()
     market = str(item.get("market") or "").strip()
     change = _change_value(str(item.get("change") or ""))
-    direction = _direction_label(change)
-    title = f"({symbol}) {name} {direction}".strip() if symbol else f"{name} {direction}".strip()
+    title = f"({symbol}) {name}".strip() if symbol else name
 
     if item.get("quoteAvailable") is False:
         return f"{title}\n⚪ 시세 없음"

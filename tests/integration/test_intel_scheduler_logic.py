@@ -131,7 +131,7 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
-    assert embed.title == "[AI·반도체] (000660) SK하이닉스 급락"
+    assert embed.title == "[AI·반도체] (000660) SK하이닉스"
     assert embed.description == "🔵 전일 대비 **-8.24%**"
     assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660"]
@@ -150,7 +150,7 @@ def test_dashboard_stock_alert_title_omits_direct_add_category():
                 "type": "stock",
             }
         )
-        == "(MU) Micron Technology Inc. 급등"
+        == "(MU) Micron Technology Inc."
     )
 
 
