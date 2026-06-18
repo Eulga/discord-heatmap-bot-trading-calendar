@@ -1,6 +1,17 @@
 # Development Log
 
 ## 2026-06-18
+- Context: Discord에서 웹 관심종목 카테고리별 시세를 바로 조회할 수 있는 명령이 필요했다.
+- Change:
+1. `/시세 테마:...` slash command를 추가했다.
+2. 명령은 Stock Dashboard 내부 API에서 테마별 관심종목 시세를 읽고, 같은 테마 종목들을 embed 카드 1개 안에 묶어 전송한다.
+3. 관심종목 급등락 알림 제목에는 웹 카테고리를 붙이되 `직접 추가`는 표시하지 않게 했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe -m pytest tests\unit\test_quote_command.py tests\unit\test_bot_client.py tests\integration\test_intel_scheduler_logic.py -q`
+2. `.\.venv\Scripts\python.exe -m compileall bot\features\intel_scheduler.py bot\features\quote\command.py bot\app\bot_client.py`
+- Status: done
+
+## 2026-06-18
 - Context: Stock Dashboard 일정 알림이 Discord 일정 채널에서 일반 텍스트와 링크 프리뷰로 길게 보여 사용자 가독성이 떨어졌다.
 - Change:
 1. `event` 타입 대시보드 알림을 Discord Embed로 전송해 일정도 카드 형태로 보이게 했다.

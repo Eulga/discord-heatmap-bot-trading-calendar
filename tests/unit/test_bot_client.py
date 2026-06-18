@@ -128,7 +128,9 @@ def test_bot_app_omits_watch_commands_when_watch_feature_is_disabled(monkeypatch
 
     app = bot_client.BotApp()
 
-    assert "watch" not in {command.name for command in app.tree.get_commands()}
+    command_names = {command.name for command in app.tree.get_commands()}
+    assert "watch" not in command_names
+    assert {"시세", "종목", "뉴스", "일정", "도움말"}.issubset(command_names)
 
 
 def test_bot_app_registers_watch_commands_when_watch_feature_is_enabled(monkeypatch):

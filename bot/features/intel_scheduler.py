@@ -461,6 +461,11 @@ def _dashboard_alert_stock_name(alert: dict[str, Any]) -> str:
     return title.replace("변동성 확대", "").strip() or title or "관심종목"
 
 
+def _dashboard_alert_category(alert: dict[str, Any]) -> str:
+    category = str(alert.get("category") or "").strip()
+    return "" if category == "직접 추가" else category
+
+
 def _dashboard_alert_change_text(alert: dict[str, Any]) -> str:
     description = str(alert.get("description") or "").strip()
     if not description:
@@ -499,10 +504,12 @@ def _dashboard_alert_marker(alert: dict[str, Any], direction_key: str) -> str:
 
 def _format_dashboard_stock_alert_title(alert: dict[str, Any]) -> str:
     direction, _direction_key = _dashboard_alert_direction(alert)
+    category = _dashboard_alert_category(alert)
     stock_name = _dashboard_alert_stock_name(alert)
     ticker = _dashboard_alert_ticker(alert)
+    category_prefix = f"[{category}] " if category else ""
     prefix = f"({ticker}) " if ticker else ""
-    return f"{prefix}{stock_name} {direction}".strip()
+    return f"{category_prefix}{prefix}{stock_name} {direction}".strip()
 
 
 def _format_dashboard_schedule_alert_title(alert: dict[str, Any]) -> str:

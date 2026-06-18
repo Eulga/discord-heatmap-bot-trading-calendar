@@ -1,0 +1,323 @@
+import asyncio
+import json
+import logging
+from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+import discord
+from discord import app_commands
+
+from bot.app.settings import INTEL_API_TIMEOUT_SECONDS, STOCK_DASHBOARD_API_BASE_URL, STOCK_DASHBOARD_INTERNAL_TOKEN
+
+logger = logging.getLogger(__name__)
+QUOTE_EMBED_COLOR = 0x22D3EE
+QUOTE_EMBED_DESCRIPTION_LIMIT = 4000
+NEWS_EMBED_COLOR = 0x38BDF8
+SCHEDULE_EMBED_COLOR = 0xF59E0B
+STOCK_EMBED_COLOR = 0x14B8A6
+
+RANGE_LABELS = {
+    "today": "오늘",
+    "tomorrow": "내일",
+    "week": "이번주",
+}
+
+
+def _signed_change_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith(("+", "-")):
+        return f"{text}%"
+    try:
+        parsed = float(text)
+    except ValueError:
+        return text
+    return f"{parsed:+.2f}%"
+
+
+def _change_value(value: str) -> float | None:
+    try:
+        return float(str(value or "").replace("%", "").replace("+", "").strip())
+    except ValueError:
+        return None
+
+
+def _direction_label(change: float | None) -> str:
+    if change is None:
+        return ""
+    if change > 0:
+        return "급등"
+    if change < 0:
+        return "급락"
+    return "보합"
+
+
+def _market_marker(market: str, change: float | None) -> str:
+    if change is None or change == 0:
+        return "⚪"
+
+    is_kr_market = market in {"국장", "KR", "KRX"}
+    if change > 0:
+        return "🔴" if is_kr_market else "🟢"
+    return "🔵" if is_kr_market else "🔴"
+
+
+def _format_quote_item(item: dict[str, Any]) -> str:
+    symbol = str(item.get("symbol") or "").strip()
+    name = str(item.get("name") or symbol or "관심종목").strip()
+    market = str(item.get("market") or "").strip()
+    change = _change_value(str(item.get("change") or ""))
+    direction = _direction_label(change)
+    title = f"({symbol}) {name} {direction}".strip() if symbol else f"{name} {direction}".strip()
+
+    if item.get("quoteAvailable") is False:
+        return f"{title}\n⚪ 시세 없음"
+
+    change_text = _signed_change_text(str(item.get("change") or ""))
+    if not change_text:
+        return f"{title}\n⚪ 전일 대비 확인 안됨"
+
+    return f"{title}\n{_market_marker(market, change)} 전일 대비 {change_text}"
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit].rstrip() + "\n…"
+
+
+def _build_quote_embed(payload: dict[str, Any]) -> discord.Embed:
+    theme = str(payload.get("theme") or "전체").strip()
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return discord.Embed(
+            title=f"{theme} 시세",
+            description="해당 테마에 등록된 관심종목이 없습니다.",
+            color=QUOTE_EMBED_COLOR,
+        )
+
+    blocks = [_format_quote_item(item) for item in items if isinstance(item, dict)]
+    if not blocks:
+        return discord.Embed(
+            title=f"{theme} 시세",
+            description="표시할 수 있는 관심종목이 없습니다.",
+            color=QUOTE_EMBED_COLOR,
+        )
+
+    description = "\n\n".join(blocks)
+    description = _truncate(description, QUOTE_EMBED_DESCRIPTION_LIMIT)
+
+    return discord.Embed(title=f"{theme} 시세", description=description, color=QUOTE_EMBED_COLOR)
+
+
+def _build_stock_embed(payload: dict[str, Any]) -> discord.Embed:
+    item = payload.get("item")
+    query = str(payload.get("query") or "종목").strip()
+    if not isinstance(item, dict):
+        return discord.Embed(
+            title=f"{query} 조회 결과",
+            description="웹 관심종목에서 해당 종목을 찾지 못했습니다.",
+            color=STOCK_EMBED_COLOR,
+        )
+
+    symbol = str(item.get("symbol") or "").strip()
+    name = str(item.get("name") or symbol or "관심종목").strip()
+    category = str(item.get("category") or "").strip()
+    market = str(item.get("market") or "").strip()
+    price = str(item.get("price") or "시세 없음").strip()
+    change_text = _signed_change_text(str(item.get("change") or ""))
+    change = _change_value(str(item.get("change") or ""))
+    news = str(item.get("news") or "").strip()
+
+    lines = [
+        " · ".join(part for part in [category if category != "직접 추가" else "", market] if part),
+        f"현재가 {price}",
+    ]
+    if change_text:
+        lines.append(f"{_market_marker(market, change)} 전일 대비 {change_text}")
+    if news:
+        lines.append(f"뉴스: {news}")
+
+    return discord.Embed(
+        title=f"({symbol}) {name}" if symbol else name,
+        description="\n".join(line for line in lines if line),
+        color=STOCK_EMBED_COLOR,
+    )
+
+
+def _build_news_embed(payload: dict[str, Any]) -> discord.Embed:
+    theme = str(payload.get("theme") or "전체").strip()
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return discord.Embed(
+            title=f"{theme} 뉴스",
+            description="표시할 뉴스가 없습니다.",
+            color=NEWS_EMBED_COLOR,
+        )
+
+    blocks = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        source = str(item.get("source") or "").strip()
+        time = str(item.get("time") or "").strip()
+        symbol = str(item.get("symbol") or "").strip()
+        meta = " · ".join(part for part in [symbol, source, time] if part)
+        blocks.append(f"• {title}\n  {meta}" if meta else f"• {title}")
+
+    description = _truncate("\n\n".join(blocks), QUOTE_EMBED_DESCRIPTION_LIMIT)
+    return discord.Embed(title=f"{theme} 뉴스", description=description or "표시할 뉴스가 없습니다.", color=NEWS_EMBED_COLOR)
+
+
+def _build_schedule_embed(payload: dict[str, Any]) -> discord.Embed:
+    range_key = str(payload.get("range") or "today").strip()
+    title = f"{RANGE_LABELS.get(range_key, '오늘')} 일정"
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return discord.Embed(title=title, description="표시할 일정이 없습니다.", color=SCHEDULE_EMBED_COLOR)
+
+    blocks = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        date = str(item.get("date") or "").strip()
+        time = str(item.get("time") or "").strip()
+        event_title = str(item.get("title") or "").strip()
+        event_type = "경제" if item.get("eventType") == "economic" else "실적"
+        market = str(item.get("market") or "").strip()
+        blocks.append(f"{date} · {time}\n{event_title}\n{event_type} · {market}".strip())
+
+    description = _truncate("\n\n".join(blocks), QUOTE_EMBED_DESCRIPTION_LIMIT)
+    return discord.Embed(title=title, description=description, color=SCHEDULE_EMBED_COLOR)
+
+
+def _build_help_embed() -> discord.Embed:
+    description = "\n".join(
+        [
+            "`/시세 테마:반도체` - 같은 테마 관심종목 시세를 한 카드로 조회",
+            "`/종목 종목:삼성전자` - 단일 관심종목 시세와 최신 뉴스 조회",
+            "`/뉴스 테마:반도체` - 테마 관련 최신 뉴스 조회",
+            "`/일정 기간:오늘` - 어닝/경제 일정 조회",
+            "`/도움말` - 사용 가능한 명령 확인",
+        ]
+    )
+    return discord.Embed(title="Drumstick 명령어", description=description, color=QUOTE_EMBED_COLOR)
+
+
+def _fetch_dashboard_api(path: str, params: dict[str, str]) -> dict[str, Any]:
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        raise RuntimeError("stock-dashboard-api-not-configured")
+
+    query = urlencode(params)
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}{path}?{query}",
+        headers={
+            "Accept": "application/json",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+    )
+    with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise RuntimeError("stock-dashboard-invalid-response")
+    return data
+
+
+def _fetch_dashboard_quotes(theme: str) -> dict[str, Any]:
+    return _fetch_dashboard_api("/api/discord/quotes", {"theme": theme})
+
+
+def _fetch_dashboard_stock(query: str) -> dict[str, Any]:
+    return _fetch_dashboard_api("/api/discord/stocks", {"query": query})
+
+
+def _fetch_dashboard_news(theme: str) -> dict[str, Any]:
+    return _fetch_dashboard_api("/api/discord/news", {"theme": theme})
+
+
+def _fetch_dashboard_schedule(range_value: str) -> dict[str, Any]:
+    return _fetch_dashboard_api("/api/discord/schedule", {"range": range_value})
+
+
+def register(tree: app_commands.CommandTree, client) -> None:
+    @tree.command(name="시세", description="웹 관심종목 테마별 시세 조회")
+    @app_commands.describe(theme="웹 관심종목 카테고리 이름. 예: 반도체, AI·반도체, 빅테크")
+    @app_commands.rename(theme="테마")
+    async def quote_command(interaction: discord.Interaction, theme: str) -> None:
+        normalized_theme = theme.strip()
+        if not normalized_theme:
+            await interaction.response.send_message("테마명을 입력해 주세요.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+        try:
+            payload = await asyncio.to_thread(_fetch_dashboard_quotes, normalized_theme)
+        except Exception as exc:
+            logger.exception("[command] 시세 조회 실패 guild=%s user=%s theme=%s", interaction.guild_id, getattr(getattr(interaction, "user", None), "id", None), normalized_theme)
+            await interaction.followup.send(f"`{normalized_theme}` 시세를 불러오지 못했습니다.", ephemeral=True)
+            return
+
+        await interaction.followup.send(embed=_build_quote_embed(payload))
+
+    @tree.command(name="종목", description="웹 관심종목 단일 종목 조회")
+    @app_commands.describe(query="종목명, 종목 코드, 또는 티커")
+    @app_commands.rename(query="종목")
+    async def stock_command(interaction: discord.Interaction, query: str) -> None:
+        normalized_query = query.strip()
+        if not normalized_query:
+            await interaction.response.send_message("종목명을 입력해 주세요.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+        try:
+            payload = await asyncio.to_thread(_fetch_dashboard_stock, normalized_query)
+        except Exception:
+            logger.exception("[command] 종목 조회 실패 guild=%s query=%s", interaction.guild_id, normalized_query)
+            await interaction.followup.send(f"`{normalized_query}` 종목 정보를 불러오지 못했습니다.", ephemeral=True)
+            return
+
+        await interaction.followup.send(embed=_build_stock_embed(payload))
+
+    @tree.command(name="뉴스", description="웹 관심종목 테마별 뉴스 조회")
+    @app_commands.describe(theme="웹 관심종목 카테고리 이름. 비우면 전체 뉴스")
+    @app_commands.rename(theme="테마")
+    async def news_command(interaction: discord.Interaction, theme: str = "") -> None:
+        normalized_theme = theme.strip()
+
+        await interaction.response.defer(thinking=True)
+        try:
+            payload = await asyncio.to_thread(_fetch_dashboard_news, normalized_theme)
+        except Exception:
+            logger.exception("[command] 뉴스 조회 실패 guild=%s theme=%s", interaction.guild_id, normalized_theme)
+            await interaction.followup.send("뉴스를 불러오지 못했습니다.", ephemeral=True)
+            return
+
+        await interaction.followup.send(embed=_build_news_embed(payload))
+
+    @tree.command(name="일정", description="어닝/경제 일정 조회")
+    @app_commands.describe(range_value="조회 기간")
+    @app_commands.rename(range_value="기간")
+    @app_commands.choices(
+        range_value=[
+            app_commands.Choice(name="오늘", value="today"),
+            app_commands.Choice(name="내일", value="tomorrow"),
+            app_commands.Choice(name="이번주", value="week"),
+        ]
+    )
+    async def schedule_command(interaction: discord.Interaction, range_value: app_commands.Choice[str]) -> None:
+        await interaction.response.defer(thinking=True)
+        try:
+            payload = await asyncio.to_thread(_fetch_dashboard_schedule, range_value.value)
+        except Exception:
+            logger.exception("[command] 일정 조회 실패 guild=%s range=%s", interaction.guild_id, range_value.value)
+            await interaction.followup.send("일정을 불러오지 못했습니다.", ephemeral=True)
+            return
+
+        await interaction.followup.send(embed=_build_schedule_embed(payload))
+
+    @tree.command(name="도움말", description="Drumstick 명령어 안내")
+    async def help_command(interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(embed=_build_help_embed(), ephemeral=True)

@@ -29,6 +29,7 @@ from bot.forum.repository import (
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
 from bot.features.kheatmap.command import register as register_kheatmap
+from bot.features.quote.command import register as register_quote
 from bot.features.status.command import register as register_status
 from bot.features.usheatmap.command import register as register_usheatmap
 from bot.features.watch.command import register as register_watch
@@ -145,6 +146,7 @@ class BotApp:
 
         register_admin(self.tree, self.client)
         register_status(self.tree, self.client)
+        register_quote(self.tree, self.client)
         if WATCH_FEATURE_ENABLED:
             register_watch(self.tree, self.client)
         register_kheatmap(self.tree, self.client)

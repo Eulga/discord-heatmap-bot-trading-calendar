@@ -109,6 +109,7 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
             {
                 "description": "SK하이닉스 -8.24%",
                 "id": "price-KRX:000660",
+                "category": "AI·반도체",
                 "market": "국장",
                 "priority": "높음",
                 "source": "collector_projection",
@@ -130,11 +131,27 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
-    assert embed.title == "(000660) SK하이닉스 급락"
+    assert embed.title == "[AI·반도체] (000660) SK하이닉스 급락"
     assert embed.description == "🔵 전일 대비 **-8.24%**"
     assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
+
+
+def test_dashboard_stock_alert_title_omits_direct_add_category():
+    assert (
+        intel_scheduler._format_dashboard_stock_alert_title(
+            {
+                "category": "직접 추가",
+                "description": "Micron Technology Inc. +5.49%",
+                "id": "price-NAS:MU",
+                "status": "상승",
+                "title": "Micron Technology Inc. 변동성 확대",
+                "type": "stock",
+            }
+        )
+        == "(MU) Micron Technology Inc. 급등"
+    )
 
 
 @pytest.mark.asyncio
