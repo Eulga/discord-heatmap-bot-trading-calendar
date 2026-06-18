@@ -1,6 +1,8 @@
 import asyncio
+from difflib import SequenceMatcher
 import json
 import logging
+import unicodedata
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -16,6 +18,8 @@ QUOTE_EMBED_DESCRIPTION_LIMIT = 4000
 NEWS_EMBED_COLOR = 0x38BDF8
 SCHEDULE_EMBED_COLOR = 0xF59E0B
 STOCK_EMBED_COLOR = 0x14B8A6
+THEME_CHOICE_LIMIT = 25
+THEME_MATCH_THRESHOLD = 0.62
 
 RANGE_LABELS = {
     "today": "오늘",
@@ -73,6 +77,86 @@ def _format_quote_item(item: dict[str, Any]) -> str:
 
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "\n…"
+
+
+def _normalize_theme_key(value: str) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    return "".join(character for character in text if character.isalnum())
+
+
+def _is_all_theme(value: str) -> bool:
+    normalized = _normalize_theme_key(value)
+    return normalized in {"", "전체", "all"}
+
+
+def _theme_match_score(query: str, theme: str) -> float:
+    normalized_query = _normalize_theme_key(query)
+    normalized_theme = _normalize_theme_key(theme)
+
+    if not normalized_query:
+        return 1.0
+
+    if normalized_query == normalized_theme:
+        return 1.0
+
+    if normalized_query in normalized_theme:
+        return 0.92
+
+    if normalized_theme in normalized_query:
+        return 0.86
+
+    return SequenceMatcher(None, normalized_query, normalized_theme).ratio()
+
+
+def _theme_choices(payload: dict[str, Any], query: str, *, include_all: bool = True) -> list[tuple[str, str, int]]:
+    raw_themes = payload.get("themes")
+    themes: list[tuple[str, str, int]] = []
+
+    if include_all:
+        themes.append(("전체", "전체", 0))
+
+    if isinstance(raw_themes, list):
+        for item in raw_themes:
+            if not isinstance(item, dict):
+                continue
+
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+
+            try:
+                count = int(item.get("count") or 0)
+            except (TypeError, ValueError):
+                count = 0
+
+            themes.append((name, name, count))
+
+    normalized_query = _normalize_theme_key(query)
+    scored = [
+        (score, index, name, value, count)
+        for index, (name, value, count) in enumerate(themes)
+        if (score := _theme_match_score(query, name)) >= (0.0 if not normalized_query else 0.42)
+    ]
+    scored.sort(key=lambda item: (-item[0], 0 if item[3] == "전체" else 1, item[2]))
+    return [(name, value, count) for _score, _index, name, value, count in scored[:THEME_CHOICE_LIMIT]]
+
+
+def _resolve_theme_input(theme: str, payload: dict[str, Any]) -> tuple[str | None, list[str]]:
+    normalized = theme.strip()
+
+    if _is_all_theme(normalized):
+        return "", []
+
+    choices = _theme_choices(payload, normalized, include_all=False)
+
+    if not choices:
+        return normalized, []
+
+    best_name, best_value, _count = choices[0]
+    if _theme_match_score(normalized, best_name) >= THEME_MATCH_THRESHOLD:
+        return best_value, []
+
+    return None, [name for name, _value, _count in choices[:5]]
 
 
 def _build_quote_embed(payload: dict[str, Any]) -> discord.Embed:
@@ -231,6 +315,23 @@ def _fetch_dashboard_schedule(range_value: str) -> dict[str, Any]:
     return _fetch_dashboard_api("/api/discord/schedule", {"range": range_value})
 
 
+def _fetch_dashboard_themes() -> dict[str, Any]:
+    return _fetch_dashboard_api("/api/discord/themes", {})
+
+
+async def autocomplete_theme(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    try:
+        payload = await asyncio.to_thread(_fetch_dashboard_themes)
+    except Exception:
+        logger.exception("[command] 테마 자동완성 실패 guild=%s current=%s", interaction.guild_id, current)
+        return []
+
+    return [
+        app_commands.Choice(name=(f"{name} · {count}종목" if count else name)[:100], value=value)
+        for name, value, count in _theme_choices(payload, current)
+    ]
+
+
 def register(tree: app_commands.CommandTree, client) -> None:
     @tree.command(name="시세", description="웹 관심종목 테마별 시세 조회")
     @app_commands.describe(theme="웹 관심종목 카테고리 이름. 예: 반도체, AI·반도체, 빅테크")
@@ -243,13 +344,24 @@ def register(tree: app_commands.CommandTree, client) -> None:
 
         await interaction.response.defer(thinking=True)
         try:
-            payload = await asyncio.to_thread(_fetch_dashboard_quotes, normalized_theme)
+            theme_payload = await asyncio.to_thread(_fetch_dashboard_themes)
+            resolved_theme, suggestions = _resolve_theme_input(normalized_theme, theme_payload)
+            if resolved_theme is None:
+                await interaction.followup.send(
+                    f"`{normalized_theme}` 테마를 찾지 못했습니다. 비슷한 테마: {', '.join(suggestions)}",
+                    ephemeral=True,
+                )
+                return
+
+            payload = await asyncio.to_thread(_fetch_dashboard_quotes, resolved_theme)
         except Exception as exc:
             logger.exception("[command] 시세 조회 실패 guild=%s user=%s theme=%s", interaction.guild_id, getattr(getattr(interaction, "user", None), "id", None), normalized_theme)
             await interaction.followup.send(f"`{normalized_theme}` 시세를 불러오지 못했습니다.", ephemeral=True)
             return
 
         await interaction.followup.send(embed=_build_quote_embed(payload))
+
+    quote_command.autocomplete("theme")(autocomplete_theme)
 
     @tree.command(name="종목", description="웹 관심종목 단일 종목 조회")
     @app_commands.describe(query="종목명, 종목 코드, 또는 티커")
@@ -278,13 +390,27 @@ def register(tree: app_commands.CommandTree, client) -> None:
 
         await interaction.response.defer(thinking=True)
         try:
-            payload = await asyncio.to_thread(_fetch_dashboard_news, normalized_theme)
+            if normalized_theme:
+                theme_payload = await asyncio.to_thread(_fetch_dashboard_themes)
+                resolved_theme, suggestions = _resolve_theme_input(normalized_theme, theme_payload)
+                if resolved_theme is None:
+                    await interaction.followup.send(
+                        f"`{normalized_theme}` 테마를 찾지 못했습니다. 비슷한 테마: {', '.join(suggestions)}",
+                        ephemeral=True,
+                    )
+                    return
+            else:
+                resolved_theme = ""
+
+            payload = await asyncio.to_thread(_fetch_dashboard_news, resolved_theme)
         except Exception:
             logger.exception("[command] 뉴스 조회 실패 guild=%s theme=%s", interaction.guild_id, normalized_theme)
             await interaction.followup.send("뉴스를 불러오지 못했습니다.", ephemeral=True)
             return
 
         await interaction.followup.send(embed=_build_news_embed(payload))
+
+    news_command.autocomplete("theme")(autocomplete_theme)
 
     @tree.command(name="일정", description="어닝/경제 일정 조회")
     @app_commands.describe(range_value="조회 기간")

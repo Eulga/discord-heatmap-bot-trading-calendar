@@ -112,3 +112,43 @@ def test_build_help_embed_lists_supported_commands():
     assert "/종목" in embed.description
     assert "/뉴스" in embed.description
     assert "/일정" in embed.description
+
+
+def test_theme_normalizer_ignores_punctuation_and_case():
+    assert quote_command._normalize_theme_key("AI·반도체") == quote_command._normalize_theme_key("ai 반도체")
+    assert quote_command._normalize_theme_key("AI/반도체") == quote_command._normalize_theme_key("ai반도체")
+
+
+def test_resolve_theme_input_accepts_similar_theme_name():
+    payload = {"themes": [{"count": 2, "name": "AI·반도체"}, {"count": 1, "name": "빅테크"}]}
+
+    resolved, suggestions = quote_command._resolve_theme_input("ai 반도체", payload)
+
+    assert resolved == "AI·반도체"
+    assert suggestions == []
+
+
+def test_resolve_theme_input_returns_suggestions_for_weak_match():
+    payload = {"themes": [{"count": 2, "name": "AI·반도체"}, {"count": 1, "name": "빅테크"}]}
+
+    resolved, suggestions = quote_command._resolve_theme_input("에이아이반도체", payload)
+
+    assert resolved is None
+    assert suggestions == ["AI·반도체"]
+
+
+def test_resolve_theme_input_treats_all_as_empty_theme():
+    payload = {"themes": [{"count": 2, "name": "AI·반도체"}]}
+
+    resolved, suggestions = quote_command._resolve_theme_input("전체", payload)
+
+    assert resolved == ""
+    assert suggestions == []
+
+
+def test_theme_choices_include_counts_for_autocomplete():
+    payload = {"themes": [{"count": 2, "name": "AI·반도체"}, {"count": 1, "name": "빅테크"}]}
+
+    choices = quote_command._theme_choices(payload, "ai")
+
+    assert choices[0] == ("AI·반도체", "AI·반도체", 2)
