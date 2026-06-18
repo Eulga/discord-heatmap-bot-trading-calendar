@@ -4,8 +4,9 @@ from pathlib import Path
 
 import discord
 
+from bot.app.dashboard_delivery import record_dashboard_delivery_results
 from bot.app.types import AppState
-from bot.common.clock import timestamp_text
+from bot.common.clock import date_key, timestamp_text
 from bot.forum.repository import get_guild_forum_channel_id, load_state, save_state
 from bot.forum.service import upsert_daily_post
 from bot.markets.capture_service import get_or_capture_images
@@ -15,6 +16,29 @@ BodyBuilder = Callable[[str, list[str], list[str]], str]
 TitleBuilder = Callable[[], str]
 
 logger = logging.getLogger(__name__)
+
+
+def _heatmap_delivery_result(
+    *,
+    channel_id: int | str | None = None,
+    command_key: str,
+    guild_id: int,
+    reason: str | None = None,
+    status: str,
+    thread_id: int | str | None = None,
+    title: str,
+) -> dict[str, object]:
+    return {
+        "channelId": str(channel_id or ""),
+        "deliveryId": f"{command_key}:{guild_id}:{date_key()}",
+        "guildId": str(guild_id),
+        "messageId": "",
+        "reason": reason or "",
+        "status": status,
+        "target": command_key,
+        "threadId": str(thread_id or ""),
+        "title": title,
+    }
 
 
 def _interaction_user_id(interaction: discord.Interaction) -> int | None:
@@ -51,10 +75,35 @@ async def execute_heatmap_for_guild(
     forum_channel_id = get_guild_forum_channel_id(state, guild_id)
 
     if forum_channel_id is None:
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason="forum-channel-not-configured",
+                    status="skipped",
+                    title=command_key,
+                )
+            ],
+        )
         return False, "이 서버의 포럼 채널이 설정되지 않았습니다. `/setforumchannel`로 먼저 설정해 주세요."
 
     resolved_forum = await _resolve_guild_forum_channel(client, guild_id, forum_channel_id)
     if resolved_forum is None:
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    channel_id=forum_channel_id,
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason="forum-channel-unavailable",
+                    status="failed",
+                    title=command_key,
+                )
+            ],
+        )
         return False, "이 서버에 연결된 포럼 채널 설정이 유효하지 않습니다. `/setforumchannel`로 다시 설정해 주세요."
 
     image_paths, failed, source_map = await get_or_capture_images(
@@ -67,6 +116,19 @@ async def execute_heatmap_for_guild(
 
     if not image_paths and failed:
         detail = "\n".join(f"- {line}" for line in failed)
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    channel_id=resolved_forum.id,
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason="; ".join(failed),
+                    status="failed",
+                    title=title_builder(),
+                )
+            ],
+        )
         return False, f"이미지 생성에 실패해서 포럼 포스트를 업데이트하지 못했습니다.\n{detail}"
 
     src_lines: list[str] = []
@@ -93,15 +155,67 @@ async def execute_heatmap_for_guild(
         )
         save_state(state)
     except discord.Forbidden:
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    channel_id=resolved_forum.id,
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason="discord-forbidden",
+                    status="failed",
+                    title=title,
+                )
+            ],
+        )
         return False, (
             "포럼 채널에 글 작성/수정 권한이 없습니다. "
             "봇에 forum posting, send messages, attach files 권한을 확인해 주세요."
         )
     except discord.HTTPException as exc:
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    channel_id=resolved_forum.id,
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason=str(exc),
+                    status="failed",
+                    title=title,
+                )
+            ],
+        )
         return False, f"포럼 포스트 업서트 중 Discord API 오류가 발생했습니다: {exc}"
     except Exception as exc:
+        await record_dashboard_delivery_results(
+            "heatmaps",
+            [
+                _heatmap_delivery_result(
+                    channel_id=resolved_forum.id,
+                    command_key=command_key,
+                    guild_id=guild_id,
+                    reason=str(exc),
+                    status="failed",
+                    title=title,
+                )
+            ],
+        )
         return False, f"포럼 포스트 업서트 중 오류가 발생했습니다: {exc}"
 
+    await record_dashboard_delivery_results(
+        "heatmaps",
+        [
+            _heatmap_delivery_result(
+                channel_id=resolved_forum.id,
+                command_key=command_key,
+                guild_id=guild_id,
+                status="sent",
+                thread_id=getattr(thread, "id", None),
+                title=title,
+            )
+        ],
+    )
     action_text = "생성" if action == "created" else "수정"
     message = "\n".join(
         [

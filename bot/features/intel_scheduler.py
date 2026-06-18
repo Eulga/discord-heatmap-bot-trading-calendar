@@ -46,6 +46,7 @@ from bot.app.settings import (
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
 )
+from bot.app.dashboard_delivery import record_dashboard_delivery_results
 from bot.common.clock import date_key, now_kst, timestamp_text
 from bot.features.eod.policy import build_body as build_eod_body
 from bot.features.eod.policy import build_post_title as build_eod_title
@@ -725,6 +726,30 @@ def _dashboard_delivery_result(
     }
 
 
+def _dashboard_content_delivery_result(
+    *,
+    channel_id: int | str | None,
+    delivery_id: str,
+    guild_id: int,
+    reason: str | None = None,
+    status: str,
+    target: str,
+    thread_id: int | str | None = None,
+    title: str,
+) -> dict[str, Any]:
+    return {
+        "channelId": str(channel_id or ""),
+        "deliveryId": delivery_id,
+        "guildId": str(guild_id),
+        "messageId": "",
+        "reason": reason or "",
+        "status": status,
+        "target": target,
+        "threadId": str(thread_id or ""),
+        "title": title,
+    }
+
+
 async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -> None:
     state = load_state()
     pending_guilds: list[tuple[int, int | None, int | None]] = []
@@ -1119,11 +1144,12 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
     trend_posted = 0
     trend_failed = 0
     trend_skipped = 0
+    delivery_results: list[dict[str, Any]] = []
 
     for guild_id, forum_channel_id in pending_guilds:
         guild_failed = 0
         try:
-            await upsert_daily_post(
+            domestic_thread, _domestic_action = await upsert_daily_post(
                 client=client,
                 state=state,
                 guild_id=guild_id,
@@ -1133,7 +1159,18 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
                 body_text=domestic_body,
                 image_paths=[],
             )
-            await upsert_daily_post(
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=f"news-domestic:{guild_id}:{run_date}",
+                    guild_id=guild_id,
+                    status="sent",
+                    target="domestic",
+                    thread_id=getattr(domestic_thread, "id", None),
+                    title=build_news_title("domestic", now),
+                )
+            )
+            global_thread, _global_action = await upsert_daily_post(
                 client=client,
                 state=state,
                 guild_id=guild_id,
@@ -1143,11 +1180,22 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
                 body_text=global_body,
                 image_paths=[],
             )
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=f"news-global:{guild_id}:{run_date}",
+                    guild_id=guild_id,
+                    status="sent",
+                    target="global",
+                    thread_id=getattr(global_thread, "id", None),
+                    title=build_news_title("global", now),
+                )
+            )
             set_guild_last_auto_run_date(state, guild_id, NEWS_BRIEFING_COMMAND_KEY, run_date)
             posted += 1
             if trend_can_post:
                 try:
-                    await upsert_daily_post(
+                    trend_thread, _trend_action = await upsert_daily_post(
                         client=client,
                         state=state,
                         guild_id=guild_id,
@@ -1158,9 +1206,31 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
                         image_paths=[],
                         content_texts=trend_content_texts,
                     )
+                    delivery_results.append(
+                        _dashboard_content_delivery_result(
+                            channel_id=forum_channel_id,
+                            delivery_id=f"news-trend:{guild_id}:{run_date}",
+                            guild_id=guild_id,
+                            status="sent",
+                            target="trend",
+                            thread_id=getattr(trend_thread, "id", None),
+                            title=build_trend_post_title(now),
+                        )
+                    )
                     set_guild_last_auto_run_date(state, guild_id, TREND_BRIEFING_COMMAND_KEY, run_date)
                     trend_posted += 1
                 except Exception as exc:
+                    delivery_results.append(
+                        _dashboard_content_delivery_result(
+                            channel_id=forum_channel_id,
+                            delivery_id=f"news-trend:{guild_id}:{run_date}",
+                            guild_id=guild_id,
+                            reason=str(exc),
+                            status="failed",
+                            target="trend",
+                            title=build_trend_post_title(now),
+                        )
+                    )
                     trend_failed += 1
                     logger.exception("[intel] trend post failed guild=%s: %s", guild_id, exc)
             else:
@@ -1169,6 +1239,17 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         except Exception as exc:
             guild_failed += 1
             failed += 1
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=f"news:{guild_id}:{run_date}",
+                    guild_id=guild_id,
+                    reason=str(exc),
+                    status="failed",
+                    target="news",
+                    title="뉴스 브리핑",
+                )
+            )
             logger.exception("[intel] news post failed guild=%s: %s", guild_id, exc)
         if guild_failed > 0:
             continue
@@ -1207,6 +1288,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
         _log_job_result("trend_briefing", trend_status, trend_detail)
     else:
         _log_job_result("trend_briefing", "skipped", trend_skip_reason)
+    await record_dashboard_delivery_results("news", delivery_results)
 
 
 async def _analyze_news_provider(provider: NewsProvider, now: datetime) -> NewsAnalysis:

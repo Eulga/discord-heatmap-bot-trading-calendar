@@ -1,6 +1,16 @@
 # Development Log
 
 ## 2026-06-18
+- Context: Stock Dashboard에서 Discord 뉴스/히트맵 전송 성공 여부도 ActivityLog로 확인할 필요가 있었다.
+- Change:
+1. 뉴스 브리핑 국내/해외/테마 포럼 업서트 결과를 Dashboard 내부 API로 기록하게 했다.
+2. 히트맵 포럼 업서트 성공, 채널 미설정, 이미지 생성 실패, Discord API 실패를 Dashboard 내부 API로 기록하게 했다.
+3. 기존 `STOCK_DASHBOARD_API_BASE_URL`, `STOCK_DASHBOARD_INTERNAL_TOKEN` 설정을 재사용하고, 전송 결과 기록 실패는 봇 본 작업을 막지 않도록 경고 로그만 남기게 했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='test-token'; .\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py::test_dashboard_alert_delivery_posts_new_alerts_once tests\integration\test_intel_scheduler_logic.py::test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel tests\unit\test_quote_command.py -q`
+- Status: done
+
+## 2026-06-18
 - Context: Discord에서 웹 관심종목 카테고리별 시세를 바로 조회할 수 있는 명령이 필요했다.
 - Change:
 1. `/시세 테마:...` slash command를 추가했다.
