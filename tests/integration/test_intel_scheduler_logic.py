@@ -94,10 +94,14 @@ async def test_news_job_records_provider_failure(monkeypatch):
 async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"watch_forum_channel_id": 123}}}
     sent_messages: list[dict[str, object]] = []
+    recorded_results: list[dict[str, object]] = []
 
     class Thread:
+        id = 777
+
         async def send(self, content: str | None = None, *, embed=None):
             sent_messages.append({"content": content, "embed": embed})
+            return type("Message", (), {"id": 888})()
 
     async def fake_upsert_daily_post(**kwargs):
         assert kwargs["command_key"] == "dashboard-alerts"
@@ -119,9 +123,13 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
             }
         ]
 
+    async def fake_record_results(results):
+        recorded_results.extend(results)
+
     monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_alert_deliveries", fake_fetch_alerts)
+    monkeypatch.setattr(intel_scheduler, "_record_dashboard_alert_delivery_results", fake_record_results)
     monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fake_upsert_daily_post)
 
     now = datetime(2026, 2, 13, 10, 0, tzinfo=KST)
@@ -134,6 +142,19 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert embed.title == "[AI·반도체] (000660) SK하이닉스"
     assert embed.description == "🔵 전일 대비 **-8.24%**"
     assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
+    assert recorded_results == [
+        {
+            "alertId": "price-KRX:000660-down-8",
+            "channelId": "777",
+            "guildId": "1",
+            "messageId": "888",
+            "reason": "",
+            "status": "sent",
+            "target": "stock",
+            "threadId": "777",
+            "title": "[AI·반도체] (000660) SK하이닉스",
+        }
+    ]
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660-down-8"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
 
@@ -158,12 +179,15 @@ def test_dashboard_stock_alert_title_omits_direct_add_category():
 async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"schedule_alert_channel_id": 456}}}
     sent_messages: list[dict[str, object]] = []
+    recorded_results: list[dict[str, object]] = []
 
     class Channel:
+        id = 456
         guild = type("Guild", (), {"id": 1})()
 
         async def send(self, content: str | None = None, *, embed=None):
             sent_messages.append({"content": content, "embed": embed})
+            return type("Message", (), {"id": 889})()
 
     class Client:
         def get_channel(self, channel_id: int):
@@ -188,6 +212,11 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
     monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_alert_deliveries", fake_fetch_alerts)
 
+    async def fake_record_results(results):
+        recorded_results.extend(results)
+
+    monkeypatch.setattr(intel_scheduler, "_record_dashboard_alert_delivery_results", fake_record_results)
+
     now = datetime(2026, 6, 18, 7, 50, tzinfo=KST)
     await intel_scheduler._run_dashboard_alert_delivery(client=Client(), now=now)  # type: ignore[arg-type]
 
@@ -198,6 +227,19 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     assert embed.description == "**03:00** · FOMC 정책금리 결정"
     assert "https://example.com/earnings" not in embed.description
     assert embed.color.value == 0xF59E0B
+    assert recorded_results == [
+        {
+            "alertId": "event-earnings-KRX:005930-2026-06-18",
+            "channelId": "456",
+            "guildId": "1",
+            "messageId": "889",
+            "reason": "",
+            "status": "sent",
+            "target": "schedule",
+            "threadId": "",
+            "title": "삼성전자 실적 발표 D-DAY",
+        }
+    ]
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-earnings-KRX:005930-2026-06-18"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "ok"
 

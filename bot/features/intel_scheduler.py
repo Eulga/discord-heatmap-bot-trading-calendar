@@ -404,6 +404,37 @@ async def _fetch_dashboard_alert_deliveries() -> list[dict[str, Any]]:
     return await asyncio.to_thread(_fetch_dashboard_alert_deliveries_sync)
 
 
+def _post_dashboard_alert_delivery_results_sync(results: list[dict[str, Any]]) -> None:
+    if not results or not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        return
+
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}/api/discord/deliveries/alerts",
+        data=json.dumps({"results": results}, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "discord-heatmap-bot/1.0",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+        method="POST",
+    )
+
+    with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+        if response.status >= 400:
+            raise RuntimeError(f"dashboard-alert-result-save-failed:{response.status}")
+
+
+async def _record_dashboard_alert_delivery_results(results: list[dict[str, Any]]) -> None:
+    if not results:
+        return
+
+    try:
+        await asyncio.to_thread(_post_dashboard_alert_delivery_results_sync, results)
+    except Exception as exc:
+        logger.warning("[intel] dashboard alert delivery result save failed: %s", exc)
+
+
 def _dashboard_alert_sent_ids(state: dict, guild_id: int) -> list[str]:
     system = state.setdefault("system", {})
     if not isinstance(system, dict):
@@ -665,6 +696,35 @@ def _dashboard_alert_starter_body(now: datetime, alert_count: int) -> str:
     return f"{timestamp_text(now)} 기준 대시보드 주요 알림 {alert_count}건"
 
 
+def _dashboard_delivery_result(
+    alert: dict[str, Any],
+    *,
+    guild_id: int,
+    status: str,
+    target: str,
+    channel_id: int | str | None = None,
+    message_id: int | str | None = None,
+    reason: str | None = None,
+    thread_id: int | str | None = None,
+) -> dict[str, Any]:
+    title = (
+        _format_dashboard_schedule_alert_title(alert)
+        if target == "schedule"
+        else _format_dashboard_stock_alert_title(alert)
+    )
+    return {
+        "alertId": str(alert.get("id") or ""),
+        "channelId": str(channel_id or ""),
+        "guildId": str(guild_id),
+        "messageId": str(message_id or ""),
+        "reason": reason or "",
+        "status": status,
+        "target": target,
+        "threadId": str(thread_id or ""),
+        "title": title,
+    }
+
+
 async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -> None:
     state = load_state()
     pending_guilds: list[tuple[int, int | None, int | None]] = []
@@ -711,6 +771,7 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
     failed = 0
     skipped = 0
     no_route = 0
+    delivery_results: list[dict[str, Any]] = []
 
     for guild_id, forum_channel_id, schedule_channel_id in pending_guilds:
         sent_ids = set(_dashboard_alert_sent_ids(state, guild_id))
@@ -730,6 +791,17 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     guild_id,
                     [str(alert.get("id") or "") for alert in stock_alerts if str(alert.get("id") or "")],
                 )
+                delivery_results.extend(
+                    _dashboard_delivery_result(
+                        alert,
+                        guild_id=guild_id,
+                        reason="watch-forum-not-configured",
+                        status="skipped",
+                        target="stock",
+                    )
+                    for alert in stock_alerts
+                    if str(alert.get("id") or "")
+                )
             else:
                 try:
                     thread, _action = await upsert_daily_post(
@@ -746,15 +818,38 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     for alert in stock_alerts:
                         embed = _build_dashboard_stock_alert_embed(alert)
                         if embed is None:
-                            await thread.send(_format_dashboard_alert_message(alert))
+                            message = await thread.send(_format_dashboard_alert_message(alert))
                         else:
-                            await thread.send(embed=embed)
+                            message = await thread.send(embed=embed)
                         alert_id = str(alert.get("id") or "")
                         sent_now.append(alert_id)
                         _mark_dashboard_alerts_sent(state, guild_id, [alert_id])
+                        delivery_results.append(
+                            _dashboard_delivery_result(
+                                alert,
+                                channel_id=getattr(thread, "id", None),
+                                guild_id=guild_id,
+                                message_id=getattr(message, "id", None),
+                                status="sent",
+                                target="stock",
+                                thread_id=getattr(thread, "id", None),
+                            )
+                        )
                     posted += len(sent_now)
                 except Exception as exc:
                     failed += 1
+                    delivery_results.extend(
+                        _dashboard_delivery_result(
+                            alert,
+                            channel_id=forum_channel_id,
+                            guild_id=guild_id,
+                            reason=str(exc),
+                            status="failed",
+                            target="stock",
+                        )
+                        for alert in stock_alerts
+                        if str(alert.get("id") or "")
+                    )
                     logger.exception("[intel] dashboard alert delivery post failed guild=%s: %s", guild_id, exc)
 
         if schedule_alerts:
@@ -765,6 +860,17 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     guild_id,
                     [str(alert.get("id") or "") for alert in schedule_alerts if str(alert.get("id") or "")],
                 )
+                delivery_results.extend(
+                    _dashboard_delivery_result(
+                        alert,
+                        guild_id=guild_id,
+                        reason="schedule-channel-not-configured",
+                        status="skipped",
+                        target="schedule",
+                    )
+                    for alert in schedule_alerts
+                    if str(alert.get("id") or "")
+                )
             else:
                 try:
                     channel = await _resolve_guild_message_channel(client, guild_id, schedule_channel_id)
@@ -774,15 +880,37 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     for alert in schedule_alerts:
                         embed = _build_dashboard_schedule_alert_embed(alert)
                         if embed is None:
-                            await channel.send(_format_dashboard_alert_message(alert))
+                            message = await channel.send(_format_dashboard_alert_message(alert))
                         else:
-                            await channel.send(embed=embed)
+                            message = await channel.send(embed=embed)
                         alert_id = str(alert.get("id") or "")
                         sent_now.append(alert_id)
                         _mark_dashboard_alerts_sent(state, guild_id, [alert_id])
+                        delivery_results.append(
+                            _dashboard_delivery_result(
+                                alert,
+                                channel_id=getattr(channel, "id", None) or schedule_channel_id,
+                                guild_id=guild_id,
+                                message_id=getattr(message, "id", None),
+                                status="sent",
+                                target="schedule",
+                            )
+                        )
                     posted += len(sent_now)
                 except Exception as exc:
                     failed += 1
+                    delivery_results.extend(
+                        _dashboard_delivery_result(
+                            alert,
+                            channel_id=schedule_channel_id,
+                            guild_id=guild_id,
+                            reason=str(exc),
+                            status="failed",
+                            target="schedule",
+                        )
+                        for alert in schedule_alerts
+                        if str(alert.get("id") or "")
+                    )
                     logger.exception("[intel] dashboard schedule alert delivery failed guild=%s: %s", guild_id, exc)
 
     status = "ok" if posted > 0 and failed == 0 else "failed" if failed > 0 else "skipped"
@@ -792,6 +920,7 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
     )
     set_job_last_run(state, "dashboard_alert_delivery", status, detail)
     save_state(state)
+    await _record_dashboard_alert_delivery_results(delivery_results)
     _log_job_result("dashboard_alert_delivery", status, detail)
 
 
