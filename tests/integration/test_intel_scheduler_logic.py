@@ -108,7 +108,7 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
         return [
             {
                 "description": "SK하이닉스 -8.24%",
-                "id": "price-KRX:000660",
+                "id": "price-KRX:000660-down-8",
                 "category": "AI·반도체",
                 "market": "국장",
                 "priority": "높음",
@@ -134,7 +134,7 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert embed.title == "[AI·반도체] (000660) SK하이닉스"
     assert embed.description == "🔵 전일 대비 **-8.24%**"
     assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
-    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660"]
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-KRX:000660-down-8"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
 
 

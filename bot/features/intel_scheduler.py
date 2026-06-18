@@ -437,7 +437,15 @@ def _dashboard_alert_canonical_symbol(alert: dict[str, Any]) -> str:
     alert_id = str(alert.get("id") or "").strip()
     if not alert_id.startswith("price-"):
         return ""
-    return alert_id.removeprefix("price-").strip()
+    canonical_symbol = alert_id.removeprefix("price-").strip()
+    for suffix in ("-up", "-down"):
+        marker_index = canonical_symbol.rfind(suffix)
+        if marker_index == -1:
+            continue
+        band = canonical_symbol[marker_index + len(suffix) + 1 :]
+        if band.isdigit():
+            return canonical_symbol[:marker_index].strip()
+    return canonical_symbol
 
 
 def _dashboard_alert_ticker(alert: dict[str, Any]) -> str:
