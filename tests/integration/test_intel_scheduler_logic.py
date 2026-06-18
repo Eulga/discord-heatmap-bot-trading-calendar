@@ -140,7 +140,8 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
     assert embed.title == "[AI·반도체] (000660) SK하이닉스"
-    assert embed.description == "🔵 전일 대비 **-8.24%**"
+    assert embed.description == "🔵 전일종가 대비 **-8.24%**"
+    assert embed.footer.text == "🇰🇷 국장 정규장 · 2026-02-13 · 전일종가 대비"
     assert embed.color.value == intel_scheduler.DASHBOARD_ALERT_COLOR_KR_DOWN
     assert recorded_results == [
         {
@@ -223,10 +224,11 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     assert len(sent_messages) == 1
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
-    assert embed.title == "삼성전자 실적 발표 D-DAY"
+    assert embed.title == "🌐 삼성전자 실적 발표 D-DAY"
     assert embed.description == "**03:00** · FOMC 정책금리 결정"
     assert "https://example.com/earnings" not in embed.description
     assert embed.color.value == 0xF59E0B
+    assert embed.footer.text == "일정 알림 · KST 기준"
     assert recorded_results == [
         {
             "alertId": "event-earnings-KRX:005930-2026-06-18",
@@ -237,7 +239,7 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
             "status": "sent",
             "target": "schedule",
             "threadId": "",
-            "title": "삼성전자 실적 발표 D-DAY",
+            "title": "🌐 삼성전자 실적 발표 D-DAY",
         }
     ]
     assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-earnings-KRX:005930-2026-06-18"]

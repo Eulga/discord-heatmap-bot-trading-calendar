@@ -26,9 +26,11 @@ def test_build_quote_embed_groups_theme_quotes_in_one_card():
 
     assert embed.title == "반도체 시세"
     assert "(420770) 기가비스" in embed.description
-    assert "🔴 전일 대비 +5.26%" in embed.description
+    assert "🔴" in embed.description
+    assert "+5.26%" in embed.description
     assert "(010120) 엘에스일렉트릭" in embed.description
-    assert "🔵 전일 대비 -5.10%" in embed.description
+    assert "🔵" in embed.description
+    assert "-5.10%" in embed.description
     assert "급등" not in embed.description
     assert "급락" not in embed.description
     assert embed.color.value == quote_command.QUOTE_EMBED_COLOR
@@ -60,7 +62,9 @@ def test_build_stock_embed_shows_single_stock_summary():
     assert embed.title == "(420770) 기가비스"
     assert "반도체 · 국장" in embed.description
     assert "현재가 42,000" in embed.description
-    assert "🔴 전일 대비 +5.26%" in embed.description
+    assert "🔴" in embed.description
+    assert "+5.26%" in embed.description
+    assert embed.footer.text is not None
 
 
 def test_build_news_embed_lists_theme_news():
@@ -100,9 +104,10 @@ def test_build_schedule_embed_lists_events():
     )
 
     assert embed.title == "오늘 일정"
-    assert "2026-06-18 · 03:00" in embed.description
+    assert "🌐 매크로 경제" in embed.description
+    assert "2026-06-18 03:00 · 미국 기준금리 발표" in embed.description
     assert "미국 기준금리 발표" in embed.description
-    assert "경제 · 미장" in embed.description
+    assert embed.footer.text == "KST 기준"
 
 
 def test_build_help_embed_lists_supported_commands():

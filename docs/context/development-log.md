@@ -1967,6 +1967,19 @@
 1. 운영 환경에서는 Dashboard와 Bot에 동일한 내부 토큰을 넣고 `NEWS_PROVIDER_KIND=dashboard`로 전환한다.
 - Status: done
 
+## 2026-06-19
+- Context: 대시보드 알림과 슬래시 명령 응답에서 국장/미장 기준일과 장 구분을 사용자가 바로 이해할 수 있게 다듬는 작업
+- Change:
+1. 관심종목 시세/알림 카드에 시장별 세션, 시장일, 가격 비교 기준을 footer와 본문 문구로 표시하도록 했다.
+2. 국장은 장전/정규장/시간외/장마감, 미장은 프리마켓/정규장/애프터마켓/장마감 기준으로 `전일종가 대비`, `정규장 종가 대비`, `최근 종가 기준` 문구를 나눴다.
+3. 일정 명령과 일정 알림은 매크로/국장/미장/공시 아이콘을 붙이고, 명령 응답에서는 섹션별로 묶어 보이게 했다.
+- Verification:
+1. `DISCORD_BOT_TOKEN=ci-placeholder-token` 기준 `.\.venv\Scripts\python.exe scripts\run_repo_checks.py unit` 통과
+2. 관심종목/일정 알림 라우팅 관련 통합 테스트 2건을 별도로 확인했다.
+- Next:
+1. 운영 봇 재기동 후 실제 Discord 카드가 의도한 줄바꿈과 footer로 표시되는지 확인한다.
+- Status: done
+
 ## 2026-03-17
 - Context: 현재 브랜치 변경을 재검토하고 `develop` PR 흐름으로 넘기려는 작업
 - Change:

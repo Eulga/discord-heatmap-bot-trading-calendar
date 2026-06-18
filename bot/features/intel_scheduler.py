@@ -57,6 +57,7 @@ from bot.features.news.trend_policy import (
     build_trend_region_messages,
     build_trend_starter_body,
 )
+from bot.features.dashboard_session import dashboard_market_session, schedule_icon
 from bot.features.watch.service import (
     calculate_change_pct,
     evaluate_band_event,
@@ -554,9 +555,11 @@ def _format_dashboard_stock_alert_title(alert: dict[str, Any]) -> str:
 def _format_dashboard_schedule_alert_title(alert: dict[str, Any]) -> str:
     title = str(alert.get("title") or "일정 알림").strip()
     status = str(alert.get("status") or "").strip()
+    description = str(alert.get("description") or "").strip()
+    icon = schedule_icon(str(alert.get("market") or ""), str(alert.get("eventType") or ""), f"{title} {description}")
     if status and status not in title:
-        return f"{title} {status}".strip()
-    return title
+        return f"{icon} {title} {status}".strip()
+    return f"{icon} {title}".strip()
 
 
 def _is_dashboard_alert_date_part(value: str) -> bool:
@@ -592,35 +595,40 @@ def _format_dashboard_schedule_alert_description(alert: dict[str, Any]) -> str:
     return compact
 
 
-def _build_dashboard_stock_alert_embed(alert: dict[str, Any]) -> discord.Embed | None:
+def _build_dashboard_stock_alert_embed(alert: dict[str, Any], now: datetime | None = None) -> discord.Embed | None:
     if str(alert.get("type") or "").strip() != "stock":
         return None
 
     direction_key = _dashboard_alert_direction_key(alert)
     change_text = _dashboard_alert_change_text(alert)
     marker = _dashboard_alert_marker(alert, direction_key)
-    description = f"{marker} 전일 대비 **{change_text}**" if change_text else ""
-    return discord.Embed(
+    session = dashboard_market_session(str(alert.get("market") or ""), now)
+    description = f"{marker} {session.basis_label} **{change_text}**" if change_text else ""
+    embed = discord.Embed(
         title=_format_dashboard_stock_alert_title(alert),
         description=description,
         color=_dashboard_alert_color(alert, direction_key),
     )
+    embed.set_footer(text=session.footer_text)
+    return embed
 
 
-def _build_dashboard_schedule_alert_embed(alert: dict[str, Any]) -> discord.Embed | None:
+def _build_dashboard_schedule_alert_embed(alert: dict[str, Any], now: datetime | None = None) -> discord.Embed | None:
     if str(alert.get("type") or "").strip() != "event":
         return None
 
     priority = str(alert.get("priority") or "").strip()
     color = 0xF59E0B if priority == "높음" else 0x22D3EE
-    return discord.Embed(
+    embed = discord.Embed(
         title=_format_dashboard_schedule_alert_title(alert),
         description=_format_dashboard_schedule_alert_description(alert),
         color=color,
     )
+    embed.set_footer(text="일정 알림 · KST 기준")
+    return embed
 
 
-def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
+def _format_dashboard_alert_message(alert: dict[str, Any], now: datetime | None = None) -> str:
     title = str(alert.get("title") or "관심종목 알림").strip()
     status = str(alert.get("status") or "").strip()
     priority = str(alert.get("priority") or "").strip()
@@ -633,9 +641,11 @@ def _format_dashboard_alert_message(alert: dict[str, Any]) -> str:
     if alert_type == "stock":
         direction_key = _dashboard_alert_direction_key(alert)
         marker = _dashboard_alert_marker(alert, direction_key)
+        session = dashboard_market_session(market, now)
         lines = [f"**{_format_dashboard_stock_alert_title(alert)}**"]
         if description:
-            lines.append(f"{marker} 전일 대비 **{_dashboard_alert_change_text(alert)}**")
+            lines.append(f"{marker} {session.basis_label} **{_dashboard_alert_change_text(alert)}**")
+        lines.append(session.footer_text)
         return "\n".join(lines)[:1900]
 
     if alert_type == "event":
@@ -841,9 +851,9 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     )
                     sent_now: list[str] = []
                     for alert in stock_alerts:
-                        embed = _build_dashboard_stock_alert_embed(alert)
+                        embed = _build_dashboard_stock_alert_embed(alert, now)
                         if embed is None:
-                            message = await thread.send(_format_dashboard_alert_message(alert))
+                            message = await thread.send(_format_dashboard_alert_message(alert, now))
                         else:
                             message = await thread.send(embed=embed)
                         alert_id = str(alert.get("id") or "")
@@ -903,9 +913,9 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                         raise RuntimeError("schedule-channel-unavailable")
                     sent_now = []
                     for alert in schedule_alerts:
-                        embed = _build_dashboard_schedule_alert_embed(alert)
+                        embed = _build_dashboard_schedule_alert_embed(alert, now)
                         if embed is None:
-                            message = await channel.send(_format_dashboard_alert_message(alert))
+                            message = await channel.send(_format_dashboard_alert_message(alert, now))
                         else:
                             message = await channel.send(embed=embed)
                         alert_id = str(alert.get("id") or "")

@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 
 from bot.app.settings import INTEL_API_TIMEOUT_SECONDS, STOCK_DASHBOARD_API_BASE_URL, STOCK_DASHBOARD_INTERNAL_TOKEN
+from bot.features.dashboard_session import dashboard_market_session, schedule_icon
 
 logger = logging.getLogger(__name__)
 QUOTE_EMBED_COLOR = 0x22D3EE
@@ -63,6 +64,7 @@ def _format_quote_item(item: dict[str, Any]) -> str:
     name = str(item.get("name") or symbol or "관심종목").strip()
     market = str(item.get("market") or "").strip()
     change = _change_value(str(item.get("change") or ""))
+    session = dashboard_market_session(market)
     title = f"({symbol}) {name}".strip() if symbol else name
 
     if item.get("quoteAvailable") is False:
@@ -70,9 +72,9 @@ def _format_quote_item(item: dict[str, Any]) -> str:
 
     change_text = _signed_change_text(str(item.get("change") or ""))
     if not change_text:
-        return f"{title}\n⚪ 전일 대비 확인 안됨"
+        return f"{title}\n⚪ {session.basis_label} 확인 안됨"
 
-    return f"{title}\n{_market_marker(market, change)} 전일 대비 {change_text}"
+    return f"{title}\n{_market_marker(market, change)} {session.basis_label} {change_text}"
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -180,7 +182,9 @@ def _build_quote_embed(payload: dict[str, Any]) -> discord.Embed:
     description = "\n\n".join(blocks)
     description = _truncate(description, QUOTE_EMBED_DESCRIPTION_LIMIT)
 
-    return discord.Embed(title=f"{theme} 시세", description=description, color=QUOTE_EMBED_COLOR)
+    embed = discord.Embed(title=f"{theme} 시세", description=description, color=QUOTE_EMBED_COLOR)
+    embed.set_footer(text="시장별 현재 세션 기준")
+    return embed
 
 
 def _build_stock_embed(payload: dict[str, Any]) -> discord.Embed:
@@ -201,21 +205,24 @@ def _build_stock_embed(payload: dict[str, Any]) -> discord.Embed:
     change_text = _signed_change_text(str(item.get("change") or ""))
     change = _change_value(str(item.get("change") or ""))
     news = str(item.get("news") or "").strip()
+    session = dashboard_market_session(market)
 
     lines = [
         " · ".join(part for part in [category if category != "직접 추가" else "", market] if part),
         f"현재가 {price}",
     ]
     if change_text:
-        lines.append(f"{_market_marker(market, change)} 전일 대비 {change_text}")
+        lines.append(f"{_market_marker(market, change)} {session.basis_label} {change_text}")
     if news:
         lines.append(f"뉴스: {news}")
 
-    return discord.Embed(
+    embed = discord.Embed(
         title=f"({symbol}) {name}" if symbol else name,
         description="\n".join(line for line in lines if line),
         color=STOCK_EMBED_COLOR,
     )
+    embed.set_footer(text=session.footer_text)
+    return embed
 
 
 def _build_news_embed(payload: dict[str, Any]) -> discord.Embed:
@@ -250,19 +257,28 @@ def _build_schedule_embed(payload: dict[str, Any]) -> discord.Embed:
     if not isinstance(items, list) or not items:
         return discord.Embed(title=title, description="표시할 일정이 없습니다.", color=SCHEDULE_EMBED_COLOR)
 
-    blocks = []
+    sections: dict[str, list[str]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         date = str(item.get("date") or "").strip()
         time = str(item.get("time") or "").strip()
         event_title = str(item.get("title") or "").strip()
-        event_type = "경제" if item.get("eventType") == "economic" else "실적"
+        raw_event_type = str(item.get("eventType") or "earnings").strip()
+        event_type = "경제" if raw_event_type == "economic" else "공시" if raw_event_type == "disclosure" else "실적"
         market = str(item.get("market") or "").strip()
-        blocks.append(f"{date} · {time}\n{event_title}\n{event_type} · {market}".strip())
+        icon = schedule_icon(market, raw_event_type, event_title)
+        market_label = "매크로" if raw_event_type == "economic" else market or "일정"
+        section = f"{icon} {market_label} {event_type}".strip()
+        schedule_time = " ".join(part for part in [date, time] if part)
+        line = f"• {schedule_time} · {event_title}".strip()
+        sections.setdefault(section, []).append(line)
 
+    blocks = [f"**{section}**\n" + "\n".join(lines) for section, lines in sections.items()]
     description = _truncate("\n\n".join(blocks), QUOTE_EMBED_DESCRIPTION_LIMIT)
-    return discord.Embed(title=title, description=description, color=SCHEDULE_EMBED_COLOR)
+    embed = discord.Embed(title=title, description=description, color=SCHEDULE_EMBED_COLOR)
+    embed.set_footer(text="KST 기준")
+    return embed
 
 
 def _build_help_embed() -> discord.Embed:
