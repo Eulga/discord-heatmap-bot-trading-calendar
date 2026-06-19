@@ -290,11 +290,43 @@ async def test_dashboard_report_delivery_posts_market_and_watchlist_reports(monk
     assert [call["forum_channel_id"] for call in upsert_calls] == [321, 654]
     assert [call["post_title"] for call in upsert_calls] == ["2026-06-19 시장 리포트", "2026-06-19 관종 리포트"]
     assert len(sent_messages) == 2
-    assert sent_messages[0]["embed"].title == "시장 리포트: 금리 우선"
-    assert "https://dashboard.example/?view=report&reportId=1" in sent_messages[0]["embed"].fields[1].value
+    market_embed = sent_messages[0]["embed"]
+    assert market_embed.title == "시장 리포트: 금리 우선"
+    assert market_embed.url == "https://dashboard.example/?view=report&reportId=1"
+    assert market_embed.fields[0].name == "핵심 요약"
+    assert market_embed.fields[1].name == "전체 보기"
+    assert "https://dashboard.example/?view=report&reportId=1" in market_embed.fields[1].value
     assert recorded_results[0][0] == "reports"
     assert [result["deliveryId"] for result in recorded_results[0][1]] == ["report:market:1", "report:watchlist:2"]
     assert state["system"]["job_last_runs"]["dashboard_report_delivery"]["status"] == "ok"
+
+
+def test_dashboard_report_delivery_embed_sends_body_when_link_is_missing(monkeypatch):
+    monkeypatch.setattr(intel_scheduler, "STOCK_DASHBOARD_WEB_BASE_URL", "")
+    body = "\n".join(
+        [
+            "1. 시장 판단",
+            "- 금리와 환율 변동을 우선 확인합니다.",
+            "2. 뉴스와 이벤트",
+            "- 원문 링크가 없으면 사용자가 볼 수 있도록 본문을 직접 보냅니다.",
+        ]
+    )
+
+    embed = intel_scheduler._build_dashboard_report_delivery_embed(
+        {
+            "body": body,
+            "id": "report:market:no-link",
+            "kind": "market",
+            "reportDate": "2026-06-19",
+            "summary": "링크 없는 시장 리포트",
+            "title": "시장 리포트: 링크 없음",
+        }
+    )
+
+    assert embed.url is None
+    assert embed.fields[0].name == "본문 1"
+    assert "금리와 환율 변동" in embed.fields[0].value
+    assert "전체 보기" not in [field.name for field in embed.fields]
 
 
 def test_dashboard_stock_alert_title_omits_direct_add_category():

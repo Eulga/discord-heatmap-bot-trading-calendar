@@ -1173,6 +1173,34 @@ def _dashboard_report_body_lines(item: dict[str, Any], *, max_lines: int = 6) ->
     return lines
 
 
+def _dashboard_report_body_chunks(item: dict[str, Any], *, max_chunks: int = 5, max_chars: int = 1024) -> list[str]:
+    body = str(item.get("body") or "").strip()
+    if not body:
+        return []
+
+    remaining = "\n".join(line.rstrip() for line in body.splitlines()).strip()
+    chunks: list[str] = []
+    while remaining and len(chunks) < max_chunks:
+        if len(remaining) <= max_chars:
+            chunks.append(remaining)
+            remaining = ""
+            break
+
+        split_at = remaining.rfind("\n", 0, max_chars)
+        if split_at < max_chars // 2:
+            split_at = remaining.rfind(" ", 0, max_chars)
+        if split_at < max_chars // 2:
+            split_at = max_chars
+
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+
+    if remaining and chunks:
+        chunks[-1] = f"{chunks[-1][: max(0, max_chars - 2)].rstrip()}\n…"
+
+    return chunks
+
+
 def _build_dashboard_report_delivery_embed(item: dict[str, Any]) -> discord.Embed:
     kind = _dashboard_report_kind(item)
     title = _short_text(str(item.get("title") or _dashboard_report_post_title(kind, "")).strip(), 220)
@@ -1180,15 +1208,24 @@ def _build_dashboard_report_delivery_embed(item: dict[str, Any]) -> discord.Embe
     url = _dashboard_report_url(item)
     embed = discord.Embed(
         title=title,
+        url=url or None,
         description=summary or None,
         color=_dashboard_report_color(kind),
     )
 
-    body_lines = _dashboard_report_body_lines(item)
-    if body_lines:
-        embed.add_field(name="핵심 요약", value="\n".join(f"{index}. {line}" for index, line in enumerate(body_lines, start=1))[:1024], inline=False)
     if url:
+        body_lines = _dashboard_report_body_lines(item)
+        if body_lines:
+            embed.add_field(
+                name="핵심 요약",
+                value="\n".join(f"{index}. {line}" for index, line in enumerate(body_lines, start=1))[:1024],
+                inline=False,
+            )
         embed.add_field(name="전체 보기", value=f"[웹에서 열기]({url})", inline=False)
+    else:
+        body_chunks = _dashboard_report_body_chunks(item)
+        for index, chunk in enumerate(body_chunks, start=1):
+            embed.add_field(name=f"본문 {index}", value=chunk or "-", inline=False)
     embed.set_footer(text=f"{_dashboard_report_kind_label(kind)} 리포트")
     return embed
 

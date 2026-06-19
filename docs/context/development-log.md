@@ -2097,3 +2097,15 @@
 - Next:
 1. 운영 Discord에서 실제 기사 요약 길이와 분류 아이콘이 과하거나 부족하지 않은지 하루 정도 모니터링한다.
 - Status: done
+
+## 2026-06-19
+- Context: Stock Dashboard가 생성한 시장/관종 리포트를 Discord에 보낼 때 웹 링크가 없으면 본문을 볼 수 없었다.
+- Change:
+1. Dashboard 리포트 embed에 웹 링크가 있으면 `전체 보기` 링크를 붙이고, 링크가 없으면 본문을 여러 필드로 나눠 직접 전송하게 했다.
+2. 시장 리포트와 관종 리포트 전송 테스트에 링크 포함/링크 없음 케이스를 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe scripts\run_repo_checks.py integration tests\integration\test_intel_scheduler_logic.py` 통과
+2. `.\.venv\Scripts\python.exe -m pytest -q` 통과
+- Next:
+1. 운영 Discord에서 실제 리포트 카드가 너무 길거나 핵심 요약이 부족하면 필드 개수와 요약 줄 수를 조정한다.
+- Status: done
