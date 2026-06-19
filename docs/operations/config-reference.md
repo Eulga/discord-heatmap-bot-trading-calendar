@@ -67,6 +67,11 @@
   - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED`
   - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`
   - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH`
+  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED`
+  - `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS`
+  - `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID`
+  - `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID`
+  - `STOCK_DASHBOARD_WEB_BASE_URL`
 - Watch:
   - `WATCH_FEATURE_ENABLED`
   - `WATCH_POLL_ENABLED`
@@ -108,6 +113,8 @@
   - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED = True`
   - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS = 300`
   - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH = 6`
+  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED = True`
+  - `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS = 300`
 - Watch:
   - `WATCH_FEATURE_ENABLED = False`
   - `WATCH_POLL_ENABLED = False`
@@ -141,6 +148,8 @@
   - `NEWS_PROVIDER_KIND = "marketaux"` -> `MarketauxNewsProvider` or `ErrorNewsProvider` when the token is missing
   - `NEWS_PROVIDER_KIND = "hybrid"` -> `HybridNewsProvider` combining Naver for domestic and Marketaux for global, or `ErrorNewsProvider` when either credential set is missing
   - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/news` and post unsent important articles to the configured news forum every `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`.
+  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/reports` and post unsent market/watchlist reports to `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID` and `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID` every `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS`.
+  - `STOCK_DASHBOARD_WEB_BASE_URL` is used only to build the report "open in web" link inside Discord embeds.
 - Market data provider selection:
   - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`
   - `MARKET_DATA_PROVIDER_KIND = "kis"` -> `KisMarketDataProvider` or `ErrorMarketDataProvider` when KIS credentials are missing

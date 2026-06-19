@@ -46,6 +46,11 @@ from bot.app.settings import (
     STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED,
     STOCK_DASHBOARD_NEWS_MAX_PER_BATCH,
     STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS,
+    STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID,
+    STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED,
+    STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS,
+    STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID,
+    STOCK_DASHBOARD_WEB_BASE_URL,
     WATCH_FEATURE_ENABLED,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
@@ -140,9 +145,12 @@ NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
 DASHBOARD_ALERT_DELIVERY_COMMAND_KEY = "dashboard-alerts"
 DASHBOARD_NEWS_DELIVERY_COMMAND_KEY = "dashboard-news-delivery"
+DASHBOARD_REPORT_DELIVERY_COMMAND_KEY_PREFIX = "dashboard-report-delivery"
 DASHBOARD_ALERT_SENT_IDS_KEY = "dashboard_alert_sent_ids_by_guild"
 DASHBOARD_ALERT_SENT_ID_LIMIT = 300
 DASHBOARD_NEWS_COLOR = 0x22D3EE
+DASHBOARD_REPORT_MARKET_COLOR = 0x38BDF8
+DASHBOARD_REPORT_WATCHLIST_COLOR = 0xA78BFA
 DASHBOARD_ALERT_COLOR_KR_UP = 0xFF5A52
 DASHBOARD_ALERT_COLOR_KR_DOWN = 0x2F80ED
 DASHBOARD_ALERT_COLOR_US_UP = 0x30D158
@@ -459,6 +467,52 @@ def _fetch_dashboard_news_deliveries_sync() -> list[dict[str, Any]]:
 
 async def _fetch_dashboard_news_deliveries() -> list[dict[str, Any]]:
     return await asyncio.to_thread(_fetch_dashboard_news_deliveries_sync)
+
+
+def _fetch_dashboard_report_deliveries_sync() -> list[dict[str, Any]]:
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        raise RuntimeError("dashboard-report-config-missing")
+
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}/api/discord/deliveries/reports",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "discord-heatmap-bot/1.0",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise RuntimeError(f"dashboard-report-auth-failed:{exc.code}") from exc
+        raise RuntimeError(f"dashboard-report-upstream-error:{exc.code}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dashboard-report-invalid-response") from exc
+    except URLError as exc:
+        raise RuntimeError("dashboard-report-unreachable") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise RuntimeError("dashboard-report-invalid-response")
+
+    reports: list[dict[str, Any]] = []
+    for item in payload["data"]:
+        if not isinstance(item, dict):
+            continue
+        delivery_id = str(item.get("id") or "").strip()
+        kind = str(item.get("kind") or "").strip()
+        title = str(item.get("title") or "").strip()
+        body = str(item.get("body") or "").strip()
+        if not delivery_id or kind not in {"market", "watchlist"} or not title or not body:
+            continue
+        reports.append(item)
+    return reports
+
+
+async def _fetch_dashboard_report_deliveries() -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_fetch_dashboard_report_deliveries_sync)
 
 
 def _post_dashboard_alert_delivery_results_sync(results: list[dict[str, Any]]) -> None:
@@ -1061,6 +1115,222 @@ async def _run_dashboard_news_delivery(client: discord.Client, now: datetime) ->
     save_state(state)
     await record_dashboard_delivery_results("news", delivery_results)
     _log_job_result("dashboard_news_delivery", status, detail)
+
+
+def _dashboard_report_delivery_id(item: dict[str, Any]) -> str:
+    return str(item.get("id") or item.get("reportId") or "").strip()
+
+
+def _dashboard_report_kind(item: dict[str, Any]) -> str:
+    kind = str(item.get("kind") or "").strip().lower()
+    return kind if kind in {"market", "watchlist"} else ""
+
+
+def _dashboard_report_kind_label(kind: str) -> str:
+    return "시장" if kind == "market" else "관종"
+
+
+def _dashboard_report_forum_id(kind: str) -> int | None:
+    if kind == "market":
+        return STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID
+    if kind == "watchlist":
+        return STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID
+    return None
+
+
+def _dashboard_report_color(kind: str) -> int:
+    return DASHBOARD_REPORT_MARKET_COLOR if kind == "market" else DASHBOARD_REPORT_WATCHLIST_COLOR
+
+
+def _dashboard_report_url(item: dict[str, Any]) -> str:
+    path = str(item.get("urlPath") or "").strip()
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    if path and STOCK_DASHBOARD_WEB_BASE_URL:
+        return f"{STOCK_DASHBOARD_WEB_BASE_URL}{path if path.startswith('/') else f'/{path}'}"
+    return ""
+
+
+def _dashboard_report_post_title(kind: str, report_date: str) -> str:
+    date_text = report_date or date_key(now_kst())
+    return f"{date_text} {_dashboard_report_kind_label(kind)} 리포트"
+
+
+def _dashboard_report_starter_body(kind: str, report_date: str) -> str:
+    return f"{report_date or date_key(now_kst())} 기준 {_dashboard_report_kind_label(kind)} 리포트"
+
+
+def _dashboard_report_body_lines(item: dict[str, Any], *, max_lines: int = 6) -> list[str]:
+    body = str(item.get("body") or "").strip()
+    lines = []
+    for raw_line in body.splitlines():
+        normalized = " ".join(raw_line.strip(" -").split())
+        if not normalized:
+            continue
+        lines.append(_short_text(normalized, 180))
+        if len(lines) >= max_lines:
+            break
+    return lines
+
+
+def _build_dashboard_report_delivery_embed(item: dict[str, Any]) -> discord.Embed:
+    kind = _dashboard_report_kind(item)
+    title = _short_text(str(item.get("title") or _dashboard_report_post_title(kind, "")).strip(), 220)
+    summary = _short_text(str(item.get("summary") or "").strip(), 260)
+    url = _dashboard_report_url(item)
+    embed = discord.Embed(
+        title=title,
+        description=summary or None,
+        color=_dashboard_report_color(kind),
+    )
+
+    body_lines = _dashboard_report_body_lines(item)
+    if body_lines:
+        embed.add_field(name="핵심 요약", value="\n".join(f"{index}. {line}" for index, line in enumerate(body_lines, start=1))[:1024], inline=False)
+    if url:
+        embed.add_field(name="전체 보기", value=f"[웹에서 열기]({url})", inline=False)
+    embed.set_footer(text=f"{_dashboard_report_kind_label(kind)} 리포트")
+    return embed
+
+
+async def _resolve_report_forum_channel(client: discord.Client, channel_id: int) -> Any | None:
+    get_channel = getattr(client, "get_channel", None)
+    fetch_channel = getattr(client, "fetch_channel", None)
+    channel = get_channel(channel_id) if callable(get_channel) else None
+    if channel is None and callable(fetch_channel):
+        try:
+            channel = await fetch_channel(channel_id)
+        except discord.NotFound:
+            return None
+    if channel is None:
+        return None
+    if not isinstance(channel, discord.ForumChannel):
+        return None
+    return channel
+
+
+async def _run_dashboard_report_delivery(client: discord.Client, now: datetime) -> None:
+    configured_forums = {
+        "market": STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID,
+        "watchlist": STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID,
+    }
+    if not any(configured_forums.values()):
+        detail = "no-report-forums"
+        state = load_state()
+        set_job_last_run(state, "dashboard_report_delivery", "skipped", detail)
+        save_state(state)
+        _log_job_result("dashboard_report_delivery", "skipped", detail)
+        return
+
+    try:
+        report_items = await _fetch_dashboard_report_deliveries()
+    except Exception as exc:
+        state = load_state()
+        set_job_last_run(state, "dashboard_report_delivery", "failed", str(exc))
+        set_provider_status(state, "dashboard_reports", False, str(exc))
+        save_state(state)
+        _log_job_result("dashboard_report_delivery", "failed", str(exc))
+        logger.exception("[intel] dashboard report delivery fetch failed: %s", exc)
+        return
+
+    state = load_state()
+    set_provider_status(state, "dashboard_reports", True, f"fetched={len(report_items)}")
+
+    if not report_items:
+        set_job_last_run(state, "dashboard_report_delivery", "skipped", "no-reports")
+        save_state(state)
+        _log_job_result("dashboard_report_delivery", "skipped", "no-reports")
+        return
+
+    posted = 0
+    failed = 0
+    skipped = 0
+    delivery_results: list[dict[str, Any]] = []
+
+    for item in report_items:
+        kind = _dashboard_report_kind(item)
+        delivery_id = _dashboard_report_delivery_id(item)
+        forum_channel_id = _dashboard_report_forum_id(kind)
+        title = str(item.get("title") or _dashboard_report_post_title(kind, "")).strip()
+        if not kind or not delivery_id or forum_channel_id is None:
+            skipped += 1
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=delivery_id or "unknown-report",
+                    guild_id=0,
+                    reason="report-forum-missing",
+                    status="skipped",
+                    target=f"{kind or 'unknown'}-report",
+                    title=title or "리포트",
+                )
+            )
+            continue
+
+        channel = await _resolve_report_forum_channel(client, forum_channel_id)
+        if channel is None:
+            failed += 1
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=delivery_id,
+                    guild_id=0,
+                    reason="report-forum-not-found",
+                    status="failed",
+                    target=f"{kind}-report",
+                    title=title,
+                )
+            )
+            continue
+
+        guild_id = int(getattr(getattr(channel, "guild", None), "id", 0) or 0)
+        try:
+            report_date = str(item.get("reportDate") or date_key(now)).strip()
+            thread, _action = await upsert_daily_post(
+                client=client,
+                state=state,
+                guild_id=guild_id,
+                forum_channel_id=forum_channel_id,
+                command_key=f"{DASHBOARD_REPORT_DELIVERY_COMMAND_KEY_PREFIX}-{kind}",
+                post_title=_dashboard_report_post_title(kind, report_date),
+                body_text=_dashboard_report_starter_body(kind, report_date),
+                image_paths=[],
+            )
+            message = await thread.send(embed=_build_dashboard_report_delivery_embed(item))
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=delivery_id,
+                    guild_id=guild_id,
+                    message_id=getattr(message, "id", None),
+                    status="sent",
+                    target=f"{kind}-report",
+                    thread_id=getattr(thread, "id", None),
+                    title=title,
+                )
+            )
+            posted += 1
+        except Exception as exc:
+            failed += 1
+            delivery_results.append(
+                _dashboard_content_delivery_result(
+                    channel_id=forum_channel_id,
+                    delivery_id=delivery_id,
+                    guild_id=guild_id,
+                    reason=str(exc),
+                    status="failed",
+                    target=f"{kind}-report",
+                    title=title,
+                )
+            )
+            logger.exception("[intel] dashboard report delivery post failed kind=%s delivery_id=%s: %s", kind, delivery_id, exc)
+
+    status = "ok" if posted > 0 and failed == 0 else "failed" if failed > 0 else "skipped"
+    detail = f"reports={len(report_items)} posted={posted} skipped={skipped} failed={failed}"
+    set_job_last_run(state, "dashboard_report_delivery", status, detail)
+    save_state(state)
+    await record_dashboard_delivery_results("reports", delivery_results)
+    _log_job_result("dashboard_report_delivery", status, detail)
 
 
 async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -> None:
@@ -2570,6 +2840,7 @@ async def intel_scheduler(client: discord.Client) -> None:
     last_watch_run: datetime | None = None
     last_dashboard_alert_run: datetime | None = None
     last_dashboard_news_run: datetime | None = None
+    last_dashboard_report_run: datetime | None = None
     registry_refresh_task: asyncio.Task[dict[str, int | str]] | None = None
 
     while True:
@@ -2631,6 +2902,14 @@ async def intel_scheduler(client: discord.Client) -> None:
                 ):
                     await _run_dashboard_news_delivery(client, now)
                     last_dashboard_news_run = now
+
+            if STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED:
+                if (
+                    last_dashboard_report_run is None
+                    or (now - last_dashboard_report_run).total_seconds() >= STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS
+                ):
+                    await _run_dashboard_report_delivery(client, now)
+                    last_dashboard_report_run = now
 
             if WATCH_FEATURE_ENABLED and WATCH_POLL_ENABLED:
                 if last_watch_run is None or (now - last_watch_run).total_seconds() >= WATCH_POLL_INTERVAL_SECONDS:

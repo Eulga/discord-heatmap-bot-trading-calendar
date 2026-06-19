@@ -1,5 +1,16 @@
 # Development Log
 
+## 2026-06-19
+- Context: Stock Dashboard에서 시장 리포트와 관심종목 리포트를 분리 저장하고, 각각 별도 Discord 포럼 채널로 전송해야 했다.
+- Change:
+1. Dashboard `GET /api/discord/deliveries/reports` 후보를 읽어 시장/관종 리포트 포럼으로 전송하는 스케줄러를 추가했다.
+2. `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID`, `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID`, `STOCK_DASHBOARD_WEB_BASE_URL` 설정을 추가했다.
+3. 리포트 전송 결과는 기존 Dashboard delivery result API 패턴을 재사용해 `/api/discord/deliveries/reports`에 저장한다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py integration`
+2. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py unit`
+- Status: done
+
 ## 2026-06-18
 - Context: Stock Dashboard에서 Discord 뉴스/히트맵 전송 성공 여부도 ActivityLog로 확인할 필요가 있었다.
 - Change:

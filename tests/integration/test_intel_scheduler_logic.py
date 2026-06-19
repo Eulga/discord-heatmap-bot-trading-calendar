@@ -218,6 +218,85 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     assert state["system"]["job_last_runs"]["dashboard_news_delivery"]["status"] == "skipped"
 
 
+@pytest.mark.asyncio
+async def test_dashboard_report_delivery_posts_market_and_watchlist_reports(monkeypatch):
+    state = {"commands": {}, "guilds": {}, "system": {}}
+    sent_messages: list[dict[str, object]] = []
+    recorded_results: list[tuple[str, list[dict[str, object]]]] = []
+    upsert_calls: list[dict[str, object]] = []
+
+    class Thread:
+        id = 777
+
+        async def send(self, content: str | None = None, *, embed=None):
+            sent_messages.append({"content": content, "embed": embed})
+            return type("Message", (), {"id": 888})()
+
+    class ReportForumChannel:
+        def __init__(self, channel_id: int, guild_id: int):
+            self.id = channel_id
+            self.guild = SimpleNamespace(id=guild_id)
+
+    class Client:
+        def get_channel(self, channel_id: int):
+            if channel_id == 321:
+                return ReportForumChannel(channel_id, 1)
+            if channel_id == 654:
+                return ReportForumChannel(channel_id, 1)
+            return None
+
+    async def fake_upsert_daily_post(**kwargs):
+        upsert_calls.append(kwargs)
+        return Thread(), "created"
+
+    async def fake_fetch_reports():
+        return [
+            {
+                "body": "1. 시장 판단\n- 금리와 환율을 우선 확인",
+                "id": "report:market:1",
+                "kind": "market",
+                "reportDate": "2026-06-19",
+                "summary": "시장 리스크를 먼저 봅니다.",
+                "title": "시장 리포트: 금리 우선",
+                "urlPath": "/?view=report&reportId=1",
+            },
+            {
+                "body": "1. 관종 판단\n- 삼성전자 공시 확인",
+                "id": "report:watchlist:2",
+                "kind": "watchlist",
+                "reportDate": "2026-06-19",
+                "summary": "관심종목 변동을 봅니다.",
+                "title": "관종 리포트: 반도체 확인",
+                "urlPath": "/?view=report&reportId=2",
+            },
+        ]
+
+    async def fake_record_results(kind, results):
+        recorded_results.append((kind, results))
+
+    monkeypatch.setattr(intel_scheduler.discord, "ForumChannel", ReportForumChannel)
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID", 321)
+    monkeypatch.setattr(intel_scheduler, "STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID", 654)
+    monkeypatch.setattr(intel_scheduler, "STOCK_DASHBOARD_WEB_BASE_URL", "https://dashboard.example")
+    monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_report_deliveries", fake_fetch_reports)
+    monkeypatch.setattr(intel_scheduler, "record_dashboard_delivery_results", fake_record_results)
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fake_upsert_daily_post)
+
+    now = datetime(2026, 6, 19, 7, 45, tzinfo=KST)
+    await intel_scheduler._run_dashboard_report_delivery(client=Client(), now=now)  # type: ignore[arg-type]
+
+    assert [call["forum_channel_id"] for call in upsert_calls] == [321, 654]
+    assert [call["post_title"] for call in upsert_calls] == ["2026-06-19 시장 리포트", "2026-06-19 관종 리포트"]
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["embed"].title == "시장 리포트: 금리 우선"
+    assert "https://dashboard.example/?view=report&reportId=1" in sent_messages[0]["embed"].fields[1].value
+    assert recorded_results[0][0] == "reports"
+    assert [result["deliveryId"] for result in recorded_results[0][1]] == ["report:market:1", "report:watchlist:2"]
+    assert state["system"]["job_last_runs"]["dashboard_report_delivery"]["status"] == "ok"
+
+
 def test_dashboard_stock_alert_title_omits_direct_add_category():
     assert (
         intel_scheduler._format_dashboard_stock_alert_title(
