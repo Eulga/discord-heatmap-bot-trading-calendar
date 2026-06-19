@@ -34,6 +34,7 @@ from bot.features.status.command import register as register_status
 from bot.features.usheatmap.command import register as register_usheatmap
 from bot.features.watch.command import register as register_watch
 from bot.features.intel_scheduler import intel_scheduler
+from bot.features.stock_roles.service import stock_role_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ class BotApp:
         self._synced = False
         self._scheduler_task: asyncio.Task | None = None
         self._intel_task: asyncio.Task | None = None
+        self._stock_role_task: asyncio.Task | None = None
         self._internal_api_runner = None
 
         register_admin(self.tree, self.client)
@@ -178,6 +180,9 @@ class BotApp:
             if self._intel_task is None or self._intel_task.done():
                 self._intel_task = asyncio.create_task(intel_scheduler(self.client))
                 logger.info("Intel scheduler started.")
+            if self._stock_role_task is None or self._stock_role_task.done():
+                self._stock_role_task = asyncio.create_task(stock_role_scheduler(self.client))
+                logger.info("Stock role scheduler started.")
             if self._internal_api_runner is None:
                 self._internal_api_runner = await start_internal_api_server()
             logger.info("Logged in as %s (ID: %s)", self.client.user, self.client.user.id)

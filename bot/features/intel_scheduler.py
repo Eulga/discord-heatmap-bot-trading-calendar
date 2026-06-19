@@ -61,6 +61,7 @@ from bot.features.news.trend_policy import (
     build_trend_starter_body,
 )
 from bot.features.dashboard_session import dashboard_market_session, schedule_icon
+from bot.features.stock_roles.service import stock_role_mentions_for_items, stock_role_mentions_for_text
 from bot.features.watch.service import (
     calculate_change_pct,
     evaluate_band_event,
@@ -974,7 +975,15 @@ async def _run_dashboard_news_delivery(client: discord.Client, now: datetime) ->
                 image_paths=[],
             )
             embed = _build_dashboard_news_delivery_embed(new_items, now)
-            message = await thread.send(embed=embed)
+            role_mentions = stock_role_mentions_for_items(state, guild_id, new_items)
+            if role_mentions:
+                message = await thread.send(
+                    content=role_mentions,
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+                )
+            else:
+                message = await thread.send(embed=embed)
             for item in new_items:
                 delivery_id = _dashboard_news_delivery_id(item)
                 mark_news_dedup_seen(state, f"{guild_id}:{delivery_id}", run_date)
@@ -1111,10 +1120,40 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     sent_now: list[str] = []
                     for alert in stock_alerts:
                         embed = _build_dashboard_stock_alert_embed(alert, now)
+                        role_mentions = stock_role_mentions_for_text(
+                            state,
+                            guild_id,
+                            "\n".join(
+                                [
+                                    str(alert.get("ticker") or ""),
+                                    str(alert.get("title") or ""),
+                                    str(alert.get("description") or ""),
+                                    str(alert.get("category") or ""),
+                                ]
+                            ),
+                            limit=1,
+                        )
+                        allowed_mentions = (
+                            discord.AllowedMentions(roles=True, users=False, everyone=False)
+                            if role_mentions
+                            else None
+                        )
                         if embed is None:
-                            message = await thread.send(_format_dashboard_alert_message(alert, now))
+                            content = _format_dashboard_alert_message(alert, now)
+                            if role_mentions:
+                                content = f"{role_mentions}\n{content}"
+                                message = await thread.send(content, allowed_mentions=allowed_mentions)
+                            else:
+                                message = await thread.send(content)
                         else:
-                            message = await thread.send(embed=embed)
+                            if role_mentions:
+                                message = await thread.send(
+                                    content=role_mentions,
+                                    embed=embed,
+                                    allowed_mentions=allowed_mentions,
+                                )
+                            else:
+                                message = await thread.send(embed=embed)
                         alert_id = str(alert.get("id") or "")
                         sent_now.append(alert_id)
                         _mark_dashboard_alerts_sent(state, guild_id, [alert_id])
