@@ -1,5 +1,7 @@
 from bot.features.stock_roles.service import (
     StockRoleTarget,
+    _stock_role_targets_from_state,
+    _subscription_option_label,
     chunk_stock_role_targets,
     stock_role_key,
     stock_role_mentions_for_items,
@@ -116,3 +118,41 @@ def test_stale_stock_role_targets_excludes_active_keys():
         "KRX:000660": {"role_id": 30},
         "KRX:080220": {"name": "제주반도체", "role_id": 10},
     }
+
+
+def test_subscription_option_label_marks_current_subscription():
+    target = StockRoleTarget(key="KRX:080220", symbol="080220", name="제주반도체", market="국장", category="반도체")
+
+    assert _subscription_option_label(target, True).startswith("✅ ")
+    assert _subscription_option_label(target, False).startswith("▫ ")
+
+
+def test_stock_role_targets_from_state_restores_active_targets():
+    state = {
+        "guilds": {
+            "1": {
+                "stock_role_targets": {
+                    "KRX:080220": {
+                        "category": "반도체",
+                        "market": "국장",
+                        "name": "제주반도체",
+                        "role_id": 123,
+                        "symbol": "080220",
+                    }
+                }
+            }
+        }
+    }
+
+    targets = _stock_role_targets_from_state(state, 1)
+
+    assert targets == [
+        StockRoleTarget(
+            key="KRX:080220",
+            symbol="080220",
+            name="제주반도체",
+            market="국장",
+            category="반도체",
+            role_id=123,
+        )
+    ]

@@ -195,21 +195,50 @@ def _option_description(target: StockRoleTarget) -> str | None:
     return " · ".join(parts)[:100] if parts else None
 
 
-class StockRoleSelect(discord.ui.Select):
-    def __init__(self, index: int, targets: list[StockRoleTarget]) -> None:
+def _subscription_option_label(target: StockRoleTarget, subscribed: bool) -> str:
+    prefix = "✅ " if subscribed else "▫ "
+    return f"{prefix}{_option_label(target)}"[:100]
+
+
+def _stock_role_targets_from_state(state: dict[str, Any], guild_id: int) -> list[StockRoleTarget]:
+    raw_targets = get_guild_stock_role_targets(state, guild_id)
+    targets: list[StockRoleTarget] = []
+    for target_key, payload in raw_targets.items():
+        role_id = payload.get("role_id")
+        targets.append(
+            StockRoleTarget(
+                key=target_key,
+                symbol=str(payload.get("symbol") or ""),
+                name=str(payload.get("name") or payload.get("symbol") or target_key),
+                market=str(payload.get("market") or ""),
+                category=str(payload.get("category") or ""),
+                role_id=role_id if isinstance(role_id, int) else None,
+            )
+        )
+    return sorted(targets, key=lambda target: (target.category, target.market, target.name, target.symbol))
+
+
+def _member_role_ids(member: discord.Member) -> set[int]:
+    return {role.id for role in member.roles}
+
+
+class PersonalStockRoleSelect(discord.ui.Select):
+    def __init__(self, index: int, targets: list[StockRoleTarget], member_role_ids: set[int]) -> None:
+        self.targets = targets
         options = [
             discord.SelectOption(
-                label=_option_label(target),
+                label=_subscription_option_label(target, target.role_id in member_role_ids),
                 value=target.key,
                 description=_option_description(target),
+                default=target.role_id in member_role_ids,
             )
             for target in targets
             if target.role_id is not None
         ]
         super().__init__(
-            custom_id=f"stock-role-select-{index}",
-            placeholder=f"관심종목 선택 {index + 1}",
-            min_values=1,
+            custom_id=f"stock-role-personal-select-{index}",
+            placeholder=f"구독 종목 선택 {index + 1}",
+            min_values=0,
             max_values=max(1, min(len(options), MAX_SELECT_OPTIONS)),
             options=options,
         )
@@ -231,44 +260,87 @@ class StockRoleSelect(discord.ui.Select):
         added: list[str] = []
         removed: list[str] = []
         missing: list[str] = []
+        selected_keys = set(self.values)
 
-        for target_key in self.values:
-            role_id = role_ids.get(target_key)
+        for target in self.targets:
+            role_id = target.role_id if isinstance(target.role_id, int) else role_ids.get(target.key)
             if not isinstance(role_id, int):
-                role_target = role_targets.get(target_key)
+                role_target = role_targets.get(target.key)
                 if isinstance(role_target, dict):
                     fallback_role_id = role_target.get("role_id")
                     role_id = fallback_role_id if isinstance(fallback_role_id, int) else None
             role = guild.get_role(role_id) if isinstance(role_id, int) else None
             if role is None:
-                missing.append(target_key)
+                missing.append(target.key)
                 continue
 
-            if role in member.roles:
-                await member.remove_roles(role, reason="관심종목 알림 역할 해제")
-                removed.append(role.name)
-            else:
+            is_selected = target.key in selected_keys
+            has_role = role in member.roles
+            if is_selected and not has_role:
                 await member.add_roles(role, reason="관심종목 알림 역할 부여")
                 added.append(role.name)
+            elif not is_selected and has_role:
+                await member.remove_roles(role, reason="관심종목 알림 역할 해제")
+                removed.append(role.name)
 
         lines = []
         if added:
-            lines.append("추가: " + ", ".join(added))
+            lines.append("구독 추가: " + ", ".join(added))
         if removed:
-            lines.append("해제: " + ", ".join(removed))
+            lines.append("구독 해제: " + ", ".join(removed))
         if missing:
             lines.append("역할을 찾지 못한 종목이 있습니다. 잠시 후 다시 시도해주세요.")
 
-        await interaction.response.send_message("\n".join(lines) if lines else "변경된 역할이 없습니다.", ephemeral=True)
+        await interaction.response.send_message("\n".join(lines) if lines else "변경된 구독이 없습니다.", ephemeral=True)
 
 
-class StockRoleView(discord.ui.View):
-    def __init__(self, targets: list[StockRoleTarget]) -> None:
-        super().__init__(timeout=None)
+class PersonalStockRoleView(discord.ui.View):
+    def __init__(self, targets: list[StockRoleTarget], member: discord.Member) -> None:
+        super().__init__(timeout=300)
+        member_role_ids = _member_role_ids(member)
         for index, chunk in enumerate(chunk_stock_role_targets(targets)):
             selectable = [target for target in chunk if target.role_id is not None]
             if selectable:
-                self.add_item(StockRoleSelect(index, selectable))
+                self.add_item(PersonalStockRoleSelect(index, selectable, member_role_ids))
+
+
+class StockRoleManageButton(discord.ui.Button):
+    def __init__(self, disabled: bool = False) -> None:
+        super().__init__(
+            label="구독 관리",
+            style=discord.ButtonStyle.primary,
+            custom_id="stock-role-manage",
+            disabled=disabled,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("서버 안에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            member = await guild.fetch_member(interaction.user.id)
+
+        state = load_state()
+        targets = _stock_role_targets_from_state(state, guild.id)
+        if not targets:
+            await interaction.response.send_message("구독할 관심종목이 없습니다.", ephemeral=True)
+            return
+
+        view = PersonalStockRoleView(targets, member)
+        await interaction.response.send_message(
+            "체크된 종목은 현재 구독 중입니다. 구독할 종목만 선택한 뒤 저장하면 됩니다.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class StockRoleView(discord.ui.View):
+    def __init__(self, target_count: int) -> None:
+        super().__init__(timeout=None)
+        self.add_item(StockRoleManageButton(disabled=target_count <= 0))
 
 
 async def _fetch_text_channel(client: discord.Client, channel_id: int) -> discord.TextChannel | None:
@@ -358,8 +430,8 @@ async def cleanup_stale_stock_roles(guild: discord.Guild) -> StockRoleCleanupRes
 
 def _role_message_embed(target_count: int) -> discord.Embed:
     description = (
-        "아래 목록에서 종목을 선택하면 해당 종목 알림 역할을 받거나 해제합니다.\n"
-        "관심종목 뉴스나 등락 알림이 올라올 때 선택한 종목 역할이 함께 태그됩니다."
+        "`구독 관리` 버튼을 누르면 본인에게만 보이는 종목 선택창이 열립니다.\n"
+        "체크된 종목은 현재 구독 중이며, 관심종목 뉴스나 등락 알림이 올라올 때 해당 역할이 태그됩니다."
     )
     embed = discord.Embed(title="관심종목 알림 구독", description=description, color=0x14B8A6)
     embed.set_footer(text=f"현재 {target_count}개 종목")
@@ -433,7 +505,7 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
         {target.key: target.to_state() for target in synced_targets},
     )
 
-    view = StockRoleView(synced_targets)
+    view = StockRoleView(len(synced_targets))
     embed = _role_message_embed(len(synced_targets))
     message_id = get_guild_stock_role_message_id(state, guild.id)
     message: discord.Message | None = None
