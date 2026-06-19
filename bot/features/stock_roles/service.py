@@ -275,6 +275,17 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
 
     guild = channel.guild
     set_guild_stock_role_channel_id(state, guild.id, channel.id)
+    bot_member = guild.me
+    if bot_member is None and client.user is not None:
+        try:
+            bot_member = await guild.fetch_member(client.user.id)
+        except Exception:
+            bot_member = None
+    if bot_member is None or not bot_member.guild_permissions.manage_roles:
+        set_job_last_run(state, ROLE_SYNC_JOB_KEY, "failed", "missing-manage-roles-permission")
+        save_state(state)
+        logger.warning("[stock-role] 역할 동기화 중단: 봇에 역할 관리 권한이 없습니다 guild=%s", guild.id)
+        return
 
     try:
         fetched_targets = await asyncio.to_thread(fetch_dashboard_stock_role_targets)
