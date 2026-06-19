@@ -2109,3 +2109,14 @@
 - Next:
 1. 운영 Discord에서 실제 리포트 카드가 너무 길거나 핵심 요약이 부족하면 필드 개수와 요약 줄 수를 조정한다.
 - Status: done
+
+## 2026-06-19
+- Context: Dashboard에서 시장 리포트와 관종 리포트를 몇 초 간격으로 생성하면 5분 poll 사이에 한쪽만 먼저 전송되어 누락처럼 보일 수 있었다.
+- Change:
+1. `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS` 기본값과 예시값을 300초에서 60초로 낮췄다.
+2. 운영 설정 문서에 리포트 전송만 뉴스 5분 주기보다 짧게 두는 이유를 추가했다.
+- Verification:
+1. 리포트 전송 기록상 관종 리포트는 실패가 아니라 다음 poll에서 전송 완료된 것을 확인했다.
+- Next:
+1. 운영에서 리포트 전송 지연이 여전히 거슬리면 Dashboard 생성 직후 Discord delivery trigger API를 별도로 설계한다.
+- Status: done
