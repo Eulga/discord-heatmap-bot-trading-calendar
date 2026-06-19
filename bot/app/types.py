@@ -58,6 +58,7 @@ class GuildConfig(TypedDict):
     stock_role_message_id: NotRequired[int]
     stock_role_ids: NotRequired[dict[str, int]]
     stock_role_targets: NotRequired[dict[str, dict[str, Any]]]
+    stock_role_stale_targets: NotRequired[dict[str, dict[str, Any]]]
     watch_forum_channel_id: NotRequired[int]
     auto_screenshot_enabled: NotRequired[bool]
     last_auto_attempts: NotRequired[dict[str, str]]

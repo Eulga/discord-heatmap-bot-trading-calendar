@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 
 from bot.app.settings import DISCORD_GLOBAL_ADMIN_USER_IDS, WATCH_FEATURE_ENABLED
+from bot.features.stock_roles.service import cleanup_stale_stock_roles
 from bot.forum.repository import (
     get_guild_watch_forum_channel_id,
     load_state,
@@ -37,6 +38,36 @@ def _is_authorized_admin(interaction: discord.Interaction) -> bool:
 
 
 def register(tree: app_commands.CommandTree, client) -> None:
+    @tree.command(name="역할정리", description="Delete unused stock alert roles.")
+    async def cleanup_stock_roles_command(interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            logger.warning("[command] 역할정리 rejected reason=no-guild user=%s", _interaction_user_id(interaction))
+            await interaction.response.send_message("서버 안에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        if not _is_authorized_admin(interaction):
+            logger.warning("[command] 역할정리 rejected reason=unauthorized guild=%s user=%s", guild.id, _interaction_user_id(interaction))
+            await interaction.response.send_message("권한이 없습니다.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await cleanup_stale_stock_roles(guild)
+        if result.deleted == 0 and result.missing == 0 and result.failed == 0:
+            await interaction.followup.send("정리할 미사용 종목 역할이 없습니다.", ephemeral=True)
+            return
+
+        names = ", ".join(result.names[:8])
+        if len(result.names) > 8:
+            names += f" 외 {len(result.names) - 8}개"
+        detail = f"삭제 {result.deleted}개"
+        if result.missing:
+            detail += f", 이미 없음 {result.missing}개"
+        if result.failed:
+            detail += f", 실패 {result.failed}개"
+        if names:
+            detail += f"\n정리한 역할: {names}"
+        await interaction.followup.send(detail, ephemeral=True)
+
     @tree.command(name="setforumchannel", description="Set forum channel for this server.")
     async def set_forum_channel_command(
         interaction: discord.Interaction,

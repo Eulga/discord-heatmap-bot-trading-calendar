@@ -19,12 +19,15 @@ from bot.features.quote.command import _fetch_dashboard_quotes, _fetch_dashboard
 from bot.forum.repository import (
     get_guild_stock_role_ids,
     get_guild_stock_role_message_id,
+    get_guild_stock_role_stale_targets,
     get_guild_stock_role_targets,
     load_state,
+    remove_guild_stock_role_id,
     save_state,
     set_guild_stock_role_channel_id,
     set_guild_stock_role_id,
     set_guild_stock_role_message_id,
+    set_guild_stock_role_stale_targets,
     set_guild_stock_role_targets,
     set_job_last_run,
 )
@@ -33,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 MAX_SELECT_OPTIONS = 25
 ROLE_SYNC_JOB_KEY = "stock_role_sync"
+STALE_ROLE_PREFIX = "미사용 "
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,14 @@ class StockRoleTarget:
         if self.role_id is not None:
             payload["role_id"] = self.role_id
         return payload
+
+
+@dataclass(frozen=True)
+class StockRoleCleanupResult:
+    deleted: int
+    missing: int
+    failed: int
+    names: list[str]
 
 
 def _normalize_text(value: str) -> str:
@@ -89,6 +101,32 @@ def stock_role_name(target: StockRoleTarget) -> str:
     if symbol and symbol not in name:
         name = f"{name} {symbol}"
     return f"{prefix} {name}"[:100].strip()
+
+
+def unused_stock_role_name(role_name: str) -> str:
+    cleaned_name = _safe_role_text(role_name)
+    if cleaned_name.startswith(STALE_ROLE_PREFIX):
+        return cleaned_name[:100].strip()
+    return f"{STALE_ROLE_PREFIX}{cleaned_name}"[:100].strip()
+
+
+def stale_stock_role_targets(
+    previous_targets: dict[str, dict[str, Any]],
+    role_ids: dict[str, int],
+    active_keys: set[str],
+) -> dict[str, dict[str, Any]]:
+    stale_targets: dict[str, dict[str, Any]] = {}
+    candidate_keys = set(previous_targets) | set(role_ids)
+    for target_key in sorted(candidate_keys - active_keys):
+        payload = dict(previous_targets.get(target_key) or {})
+        role_id = role_ids.get(target_key)
+        if not isinstance(role_id, int):
+            fallback_role_id = payload.get("role_id")
+            role_id = fallback_role_id if isinstance(fallback_role_id, int) else None
+        if isinstance(role_id, int):
+            payload["role_id"] = role_id
+            stale_targets[target_key] = payload
+    return stale_targets
 
 
 def _stock_target_from_item(item: dict[str, Any], fallback_category: str = "") -> StockRoleTarget | None:
@@ -249,10 +287,73 @@ async def _ensure_role(guild: discord.Guild, target: StockRoleTarget, role_id: i
     if role is None:
         role = discord.utils.get(guild.roles, name=desired_name)
     if role is None:
+        role = discord.utils.get(guild.roles, name=unused_stock_role_name(desired_name))
+    if role is None:
         return await guild.create_role(name=desired_name, mentionable=True, reason="관심종목 알림 역할 동기화")
-    if not role.mentionable:
-        await role.edit(mentionable=True, reason="관심종목 알림 역할 멘션 허용")
+    if role.name != desired_name or not role.mentionable:
+        await role.edit(name=desired_name, mentionable=True, reason="관심종목 알림 역할 동기화")
     return role
+
+
+async def _mark_stale_stock_roles(
+    guild: discord.Guild,
+    stale_targets: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    marked_targets: dict[str, dict[str, Any]] = {}
+    for target_key, payload in stale_targets.items():
+        role_id = payload.get("role_id")
+        role = guild.get_role(role_id) if isinstance(role_id, int) else None
+        if role is None:
+            continue
+        stale_name = unused_stock_role_name(role.name)
+        if role.name != stale_name:
+            try:
+                await role.edit(name=stale_name, reason="관심종목 삭제로 미사용 역할 표시")
+            except Exception as exc:
+                logger.exception("[stock-role] 미사용 역할 표시 실패 guild=%s role=%s: %s", guild.id, role.id, exc)
+                continue
+        marked_payload = dict(payload)
+        marked_payload["role_id"] = role.id
+        marked_targets[target_key] = marked_payload
+    return marked_targets
+
+
+async def cleanup_stale_stock_roles(guild: discord.Guild) -> StockRoleCleanupResult:
+    state = load_state()
+    stale_targets = get_guild_stock_role_stale_targets(state, guild.id)
+    role_ids = get_guild_stock_role_ids(state, guild.id)
+    if not stale_targets:
+        return StockRoleCleanupResult(deleted=0, missing=0, failed=0, names=[])
+
+    deleted_names: list[str] = []
+    missing = 0
+    failed = 0
+    for target_key, payload in list(stale_targets.items()):
+        role_id = payload.get("role_id")
+        if not isinstance(role_id, int):
+            role_id = role_ids.get(target_key)
+        role = guild.get_role(role_id) if isinstance(role_id, int) else None
+
+        if role is None:
+            missing += 1
+            stale_targets.pop(target_key, None)
+            remove_guild_stock_role_id(state, guild.id, target_key)
+            continue
+
+        try:
+            deleted_names.append(role.name)
+            await role.delete(reason="미사용 관심종목 역할 정리")
+        except Exception as exc:
+            failed += 1
+            logger.exception("[stock-role] 미사용 역할 삭제 실패 guild=%s role=%s: %s", guild.id, role.id, exc)
+            continue
+
+        stale_targets.pop(target_key, None)
+        remove_guild_stock_role_id(state, guild.id, target_key)
+
+    set_guild_stock_role_stale_targets(state, guild.id, stale_targets)
+    save_state(state)
+    return StockRoleCleanupResult(deleted=len(deleted_names), missing=missing, failed=failed, names=deleted_names)
 
 
 def _role_message_embed(target_count: int) -> discord.Embed:
@@ -302,6 +403,7 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
         return
 
     role_ids = get_guild_stock_role_ids(state, guild.id)
+    previous_targets = dict(get_guild_stock_role_targets(state, guild.id))
     synced_targets: list[StockRoleTarget] = []
     for target in fetched_targets:
         try:
@@ -321,6 +423,10 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
             )
         )
 
+    active_keys = {target.key for target in synced_targets}
+    stale_targets = stale_stock_role_targets(previous_targets, role_ids, active_keys)
+    marked_stale_targets = await _mark_stale_stock_roles(guild, stale_targets)
+    set_guild_stock_role_stale_targets(state, guild.id, marked_stale_targets)
     set_guild_stock_role_targets(
         state,
         guild.id,
@@ -343,7 +449,12 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
         await message.edit(embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
 
     set_guild_stock_role_message_id(state, guild.id, message.id)
-    set_job_last_run(state, ROLE_SYNC_JOB_KEY, "ok", f"targets={len(synced_targets)} channel={channel.id}")
+    set_job_last_run(
+        state,
+        ROLE_SYNC_JOB_KEY,
+        "ok",
+        f"targets={len(synced_targets)} stale={len(marked_stale_targets)} channel={channel.id}",
+    )
     save_state(state)
     logger.info("[stock-role] 관심종목 역할 동기화 완료 guild=%s targets=%s", guild.id, len(synced_targets))
 

@@ -5,6 +5,8 @@ from bot.features.stock_roles.service import (
     stock_role_mentions_for_items,
     stock_role_mentions_for_text,
     stock_role_name,
+    stale_stock_role_targets,
+    unused_stock_role_name,
 )
 from bot.forum.repository import get_guild_stock_role_ids, set_guild_stock_role_id
 
@@ -94,3 +96,23 @@ def test_set_guild_stock_role_id_persists_into_state():
 
     assert state["guilds"]["1"]["stock_role_ids"] == {"KRX:080220": 123}
     assert get_guild_stock_role_ids(state, 1) == {"KRX:080220": 123}
+
+
+def test_unused_stock_role_name_is_idempotent():
+    assert unused_stock_role_name("종목 제주반도체 080220") == "미사용 종목 제주반도체 080220"
+    assert unused_stock_role_name("미사용 종목 제주반도체 080220") == "미사용 종목 제주반도체 080220"
+
+
+def test_stale_stock_role_targets_excludes_active_keys():
+    previous_targets = {
+        "KRX:080220": {"name": "제주반도체", "role_id": 10},
+        "US:AAPL": {"name": "Apple", "role_id": 20},
+    }
+    role_ids = {"KRX:080220": 10, "US:AAPL": 20, "KRX:000660": 30}
+
+    stale_targets = stale_stock_role_targets(previous_targets, role_ids, {"US:AAPL"})
+
+    assert stale_targets == {
+        "KRX:000660": {"role_id": 30},
+        "KRX:080220": {"name": "제주반도체", "role_id": 10},
+    }

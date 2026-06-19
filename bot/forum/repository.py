@@ -299,6 +299,11 @@ def set_guild_stock_role_id(state: AppState, guild_id: int, target_key: str, rol
     role_ids[str(target_key)] = int(role_id)
 
 
+def remove_guild_stock_role_id(state: AppState, guild_id: int, target_key: str) -> None:
+    role_ids = get_guild_stock_role_ids(state, guild_id)
+    role_ids.pop(str(target_key), None)
+
+
 def get_guild_stock_role_targets(state: AppState, guild_id: int) -> dict[str, dict[str, Any]]:
     cfg = _get_guild_config(state, guild_id)
     raw_targets = cfg.setdefault("stock_role_targets", {})
@@ -317,6 +322,24 @@ def get_guild_stock_role_targets(state: AppState, guild_id: int) -> dict[str, di
 
 def set_guild_stock_role_targets(state: AppState, guild_id: int, targets: dict[str, dict[str, Any]]) -> None:
     _get_guild_config(state, guild_id)["stock_role_targets"] = targets
+
+
+def get_guild_stock_role_stale_targets(state: AppState, guild_id: int) -> dict[str, dict[str, Any]]:
+    cfg = _get_guild_config(state, guild_id)
+    raw_targets = cfg.setdefault("stock_role_stale_targets", {})
+    if not isinstance(raw_targets, dict):
+        raw_targets = {}
+
+    cleaned: dict[str, dict[str, Any]] = {}
+    for key, value in raw_targets.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            cleaned[key] = value
+    cfg["stock_role_stale_targets"] = cleaned
+    return cleaned
+
+
+def set_guild_stock_role_stale_targets(state: AppState, guild_id: int, targets: dict[str, dict[str, Any]]) -> None:
+    _get_guild_config(state, guild_id)["stock_role_stale_targets"] = targets
 
 
 def set_guild_watch_forum_channel_id(state: AppState, guild_id: int, channel_id: int) -> None:
