@@ -3,6 +3,7 @@ from bot.features.stock_roles.service import (
     _stock_role_targets_from_state,
     _subscription_option_label,
     chunk_stock_role_targets,
+    legacy_unused_stock_role_names,
     stock_role_key,
     stock_role_mentions_for_items,
     stock_role_mentions_for_text,
@@ -87,8 +88,7 @@ def test_stock_role_name_keeps_symbol_for_disambiguation():
     target = StockRoleTarget(key="KRX:080220", symbol="080220", name="제주반도체", market="국장", category="반도체")
 
     role_name = stock_role_name(target)
-    assert "제주반도체" in role_name
-    assert "080220" in role_name
+    assert role_name == "제주반도체 080220"
 
 
 def test_set_guild_stock_role_id_persists_into_state():
@@ -101,8 +101,13 @@ def test_set_guild_stock_role_id_persists_into_state():
 
 
 def test_unused_stock_role_name_is_idempotent():
-    assert unused_stock_role_name("종목 제주반도체 080220") == "미사용 종목 제주반도체 080220"
-    assert unused_stock_role_name("미사용 종목 제주반도체 080220") == "미사용 종목 제주반도체 080220"
+    assert unused_stock_role_name("제주반도체 080220") == "미사용 제주반도체 080220"
+    assert unused_stock_role_name("종목 제주반도체 080220") == "미사용 제주반도체 080220"
+    assert unused_stock_role_name("미사용 종목 제주반도체 080220") == "미사용 제주반도체 080220"
+
+
+def test_legacy_unused_stock_role_names_keeps_lookup_for_old_roles():
+    assert legacy_unused_stock_role_names("제주반도체 080220") == ["미사용 종목 제주반도체 080220"]
 
 
 def test_stale_stock_role_targets_excludes_active_keys():

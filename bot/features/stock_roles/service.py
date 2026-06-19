@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 MAX_SELECT_OPTIONS = 25
 ROLE_SYNC_JOB_KEY = "stock_role_sync"
 STALE_ROLE_PREFIX = "미사용 "
+LEGACY_STOCK_ROLE_PREFIXES = ("종목",)
 
 
 @dataclass(frozen=True)
@@ -100,14 +101,39 @@ def stock_role_name(target: StockRoleTarget) -> str:
     prefix = _safe_role_text(STOCK_DASHBOARD_ROLE_PREFIX)
     if symbol and symbol not in name:
         name = f"{name} {symbol}"
-    return f"{prefix} {name}"[:100].strip()
+    if prefix:
+        return f"{prefix} {name}"[:100].strip()
+    return name[:100].strip()
+
+
+def _strip_stock_role_prefix(role_name: str) -> str:
+    cleaned_name = _safe_role_text(role_name)
+    prefixes = [STOCK_DASHBOARD_ROLE_PREFIX, *LEGACY_STOCK_ROLE_PREFIXES]
+    for raw_prefix in prefixes:
+        prefix = _safe_role_text(raw_prefix)
+        if prefix and cleaned_name.startswith(prefix + " "):
+            return cleaned_name[len(prefix) :].strip()
+    return cleaned_name
 
 
 def unused_stock_role_name(role_name: str) -> str:
     cleaned_name = _safe_role_text(role_name)
     if cleaned_name.startswith(STALE_ROLE_PREFIX):
-        return cleaned_name[:100].strip()
-    return f"{STALE_ROLE_PREFIX}{cleaned_name}"[:100].strip()
+        body = cleaned_name[len(STALE_ROLE_PREFIX) :].strip()
+    else:
+        body = cleaned_name
+    body = _strip_stock_role_prefix(body)
+    return f"{STALE_ROLE_PREFIX}{body}"[:100].strip()
+
+
+def legacy_unused_stock_role_names(role_name: str) -> list[str]:
+    cleaned_name = _safe_role_text(role_name)
+    names: list[str] = []
+    for raw_prefix in LEGACY_STOCK_ROLE_PREFIXES:
+        prefix = _safe_role_text(raw_prefix)
+        if prefix:
+            names.append(f"{STALE_ROLE_PREFIX}{prefix} {cleaned_name}"[:100].strip())
+    return names
 
 
 def stale_stock_role_targets(
@@ -360,6 +386,11 @@ async def _ensure_role(guild: discord.Guild, target: StockRoleTarget, role_id: i
         role = discord.utils.get(guild.roles, name=desired_name)
     if role is None:
         role = discord.utils.get(guild.roles, name=unused_stock_role_name(desired_name))
+    if role is None:
+        for legacy_name in legacy_unused_stock_role_names(desired_name):
+            role = discord.utils.get(guild.roles, name=legacy_name)
+            if role is not None:
+                break
     if role is None:
         return await guild.create_role(name=desired_name, mentionable=True, reason="관심종목 알림 역할 동기화")
     if role.name != desired_name or not role.mentionable:
