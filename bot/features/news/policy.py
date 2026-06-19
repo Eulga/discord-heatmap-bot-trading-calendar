@@ -20,14 +20,26 @@ def build_post_title(region: str | None = None, dt: datetime | None = None) -> s
 def _fmt(items: list[NewsItem]) -> list[str]:
     lines: list[str] = []
     for item in items:
-        lines.append(
-            f"- {item.title} | {item.source} | {item.published_at.strftime('%H:%M')} | {item.link}"
-        )
+        source_time = " · ".join(part for part in [item.source, item.published_at.strftime("%H:%M")] if part)
+        block = [f"**{item.title}**"]
+        if source_time:
+            block.append(source_time)
+        if item.summary:
+            block.append(f"> {_truncate_line(item.summary, 180)}")
+        block.append(item.link)
+        lines.append("\n".join(block))
     return lines
 
 
 def _fits(lines: list[str], future_lines: list[str], max_chars: int) -> bool:
     return len("\n".join(lines + future_lines)) <= max_chars
+
+
+def _truncate_line(text: str, max_chars: int) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= max_chars:
+        return text
+    return f"{text[: max(0, max_chars - 1)].rstrip()}…"
 
 
 def _append_section_items(lines: list[str], item_lines: list[str], future_lines: list[str], max_chars: int) -> None:

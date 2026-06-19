@@ -160,6 +160,62 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
 
 
+@pytest.mark.asyncio
+async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"news_forum_channel_id": 123}}, "system": {}}
+    sent_messages: list[dict[str, object]] = []
+    recorded_results: list[tuple[str, list[dict[str, object]]]] = []
+
+    class Thread:
+        id = 777
+
+        async def send(self, content: str | None = None, *, embed=None):
+            sent_messages.append({"content": content, "embed": embed})
+            return type("Message", (), {"id": 888})()
+
+    async def fake_upsert_daily_post(**kwargs):
+        assert kwargs["command_key"] == "dashboard-news-delivery"
+        assert kwargs["forum_channel_id"] == 123
+        return Thread(), "created"
+
+    async def fake_fetch_news():
+        return [
+            {
+                "id": "gdelt:fed-1",
+                "importance": "high",
+                "publishedAt": "2026-06-18T22:15:00Z",
+                "region": "global",
+                "source": "reuters.com",
+                "summary": "연준 발언 이후 금리 민감 업종 변동성이 커졌습니다.",
+                "title": "Fed commentary moves rates",
+                "url": "https://example.com/fed",
+            }
+        ]
+
+    async def fake_record_results(kind, results):
+        recorded_results.append((kind, results))
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_news_deliveries", fake_fetch_news)
+    monkeypatch.setattr(intel_scheduler, "record_dashboard_delivery_results", fake_record_results)
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fake_upsert_daily_post)
+
+    now = datetime(2026, 6, 19, 7, 30, tzinfo=KST)
+    await intel_scheduler._run_dashboard_news_delivery(client=object(), now=now)  # type: ignore[arg-type]
+    await intel_scheduler._run_dashboard_news_delivery(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert len(sent_messages) == 1
+    embed = sent_messages[0]["embed"]
+    assert embed.title == "시장 뉴스"
+    assert embed.fields[0].name == "[해외] Fed commentary moves rates"
+    assert "연준 발언 이후" in embed.fields[0].value
+    assert "[원문 보기](https://example.com/fed)" in embed.fields[0].value
+    assert recorded_results[0][0] == "news"
+    assert recorded_results[0][1][0]["deliveryId"] == "gdelt:fed-1"
+    assert state["system"]["job_last_runs"]["dashboard_news_delivery"]["status"] == "skipped"
+
+
 def test_dashboard_stock_alert_title_omits_direct_add_category():
     assert (
         intel_scheduler._format_dashboard_stock_alert_title(
@@ -606,8 +662,9 @@ async def test_news_job_uses_configured_limit_per_region(monkeypatch):
     assert "[해외]" not in domestic_body
     assert "[해외]" in global_body
     assert "[국내]" not in global_body
-    assert domestic_body.count("\n- ") + domestic_body.startswith("- ") == 20
-    assert global_body.count("\n- ") + global_body.startswith("- ") == 20
+    assert "**D0**" in domestic_body
+    assert "**G0**" in global_body
+    assert "(추가 기사" not in domestic_body
 
 
 @pytest.mark.asyncio

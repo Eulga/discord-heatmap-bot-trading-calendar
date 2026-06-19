@@ -2050,3 +2050,16 @@
 1. 운영 env에 KIS credential과 text `WATCH_ALERT_CHANNEL_ID`, 접근 가능한 `ADMIN_STATUS_CHANNEL_ID`를 채운 뒤 `watch add -> poll -> alert send -> /source-status` live smoke를 한 번 수행한다.
 2. live smoke 후 실제 provider 응답 기준으로 `not-found`, `stale`, rate-limit 메시지가 충분히 운영 친화적인지 한 번 더 점검한다.
 - Status: done
+
+## 2026-06-19
+- Context: Stock Dashboard가 저장한 뉴스 기사와 OpenRouter 요약 결과를 Discord 속보/브리핑으로 전달하는 작업
+- Change:
+1. `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED`, `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`, `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH` 설정을 추가했다.
+2. 스케줄러가 Dashboard `GET /api/discord/deliveries/news`를 5분 기본 간격으로 읽고, news forum 당일 스레드에 새 중요 기사만 임베드 카드로 묶어 보내도록 했다.
+3. 중복 발송은 guild별 `article_key` 기반으로 막고, 발송 성공 후에만 dedup 상태를 기록한다.
+4. 07:30 뉴스 브리핑 본문은 제목/출처/시간/요약/원문 링크가 보이는 블록형 문장으로 바꿨다.
+- Verification:
+1. 관련 단위/통합 테스트로 Dashboard news provider, 뉴스 본문 정책, news delivery dedup 경로를 검증한다.
+- Next:
+1. 운영 Discord에서 news forum route와 Dashboard internal token이 맞는지 live 발송으로 확인한다.
+- Status: done

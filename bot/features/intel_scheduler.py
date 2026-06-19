@@ -42,6 +42,9 @@ from bot.app.settings import (
     STOCK_DASHBOARD_ALERT_POLL_INTERVAL_SECONDS,
     STOCK_DASHBOARD_API_BASE_URL,
     STOCK_DASHBOARD_INTERNAL_TOKEN,
+    STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED,
+    STOCK_DASHBOARD_NEWS_MAX_PER_BATCH,
+    STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS,
     WATCH_FEATURE_ENABLED,
     WATCH_POLL_ENABLED,
     WATCH_POLL_INTERVAL_SECONDS,
@@ -70,6 +73,7 @@ from bot.features.watch.session import get_watch_market_session, is_adjacent_wat
 from bot.features.watch.thread_service import upsert_watch_thread
 from bot.forum.repository import (
     clear_watch_current_comment_id,
+    cleanup_news_dedup,
     get_daily_posts_for_guild,
     get_guild_eod_forum_channel_id,
     get_guild_forum_channel_id,
@@ -81,10 +85,12 @@ from bot.forum.repository import (
     get_job_last_runs,
     get_watch_reference_snapshot,
     get_watch_session_alert,
+    is_news_dedup_seen,
     list_guild_ids,
     list_active_watch_symbols,
     list_watch_tracked_symbols,
     load_state,
+    mark_news_dedup_seen,
     save_state,
     set_guild_last_auto_skip,
     set_guild_last_auto_run_date,
@@ -131,8 +137,10 @@ NEWS_BRIEFING_DOMESTIC_COMMAND_KEY = "newsbriefing-domestic"
 NEWS_BRIEFING_GLOBAL_COMMAND_KEY = "newsbriefing-global"
 TREND_BRIEFING_COMMAND_KEY = "trendbriefing"
 DASHBOARD_ALERT_DELIVERY_COMMAND_KEY = "dashboard-alerts"
+DASHBOARD_NEWS_DELIVERY_COMMAND_KEY = "dashboard-news-delivery"
 DASHBOARD_ALERT_SENT_IDS_KEY = "dashboard_alert_sent_ids_by_guild"
 DASHBOARD_ALERT_SENT_ID_LIMIT = 300
+DASHBOARD_NEWS_COLOR = 0x22D3EE
 DASHBOARD_ALERT_COLOR_KR_UP = 0xFF5A52
 DASHBOARD_ALERT_COLOR_KR_DOWN = 0x2F80ED
 DASHBOARD_ALERT_COLOR_US_UP = 0x30D158
@@ -404,6 +412,51 @@ def _fetch_dashboard_alert_deliveries_sync() -> list[dict[str, Any]]:
 
 async def _fetch_dashboard_alert_deliveries() -> list[dict[str, Any]]:
     return await asyncio.to_thread(_fetch_dashboard_alert_deliveries_sync)
+
+
+def _fetch_dashboard_news_deliveries_sync() -> list[dict[str, Any]]:
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        raise RuntimeError("dashboard-news-config-missing")
+
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}/api/discord/deliveries/news",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "discord-heatmap-bot/1.0",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise RuntimeError(f"dashboard-news-auth-failed:{exc.code}") from exc
+        raise RuntimeError(f"dashboard-news-upstream-error:{exc.code}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dashboard-news-invalid-response") from exc
+    except URLError as exc:
+        raise RuntimeError("dashboard-news-unreachable") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise RuntimeError("dashboard-news-invalid-response")
+
+    news_items: list[dict[str, Any]] = []
+    for item in payload["data"]:
+        if not isinstance(item, dict):
+            continue
+        delivery_id = str(item.get("id") or item.get("articleKey") or "").strip()
+        title = str(item.get("title") or "").strip()
+        url = str(item.get("url") or item.get("link") or "").strip()
+        if not delivery_id or not title or not url:
+            continue
+        news_items.append(item)
+    return news_items
+
+
+async def _fetch_dashboard_news_deliveries() -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_fetch_dashboard_news_deliveries_sync)
 
 
 def _post_dashboard_alert_delivery_results_sync(results: list[dict[str, Any]]) -> None:
@@ -741,6 +794,7 @@ def _dashboard_content_delivery_result(
     channel_id: int | str | None,
     delivery_id: str,
     guild_id: int,
+    message_id: int | str | None = None,
     reason: str | None = None,
     status: str,
     target: str,
@@ -751,13 +805,219 @@ def _dashboard_content_delivery_result(
         "channelId": str(channel_id or ""),
         "deliveryId": delivery_id,
         "guildId": str(guild_id),
-        "messageId": "",
+        "messageId": str(message_id or ""),
         "reason": reason or "",
         "status": status,
         "target": target,
         "threadId": str(thread_id or ""),
         "title": title,
     }
+
+
+def _short_text(text: str, max_chars: int) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= max_chars:
+        return text
+    return f"{text[: max(0, max_chars - 1)].rstrip()}…"
+
+
+def _dashboard_news_delivery_id(item: dict[str, Any]) -> str:
+    return str(item.get("id") or item.get("articleKey") or item.get("url") or "").strip()
+
+
+def _is_dashboard_news_sendable(item: dict[str, Any]) -> bool:
+    importance = str(item.get("importance") or "").strip().lower()
+    return importance != "low"
+
+
+def _dashboard_news_region_label(item: dict[str, Any]) -> str:
+    region = str(item.get("region") or "").strip().lower()
+    market = str(item.get("market") or "").strip()
+    if region == "domestic" or market == "국장":
+        return "국내"
+    if region == "global" or market == "미장":
+        return "해외"
+    return "시장"
+
+
+def _dashboard_news_time_text(item: dict[str, Any]) -> str:
+    published_at_text = str(item.get("publishedAt") or "").strip()
+    if not published_at_text:
+        return ""
+    try:
+        published_at = datetime.fromisoformat(published_at_text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=ZoneInfo("UTC"))
+    return published_at.astimezone(ZoneInfo("Asia/Seoul")).strftime("%H:%M")
+
+
+def _dashboard_news_source_text(item: dict[str, Any]) -> str:
+    source = str(item.get("source") or "").strip()
+    time_text = _dashboard_news_time_text(item)
+    return " · ".join(part for part in [source, time_text] if part)
+
+
+def _dashboard_news_delivery_post_title(now: datetime) -> str:
+    return f"뉴스 속보 {date_key(now)}"
+
+
+def _dashboard_news_delivery_starter_body(now: datetime) -> str:
+    return f"{timestamp_text(now)} 기준 주요 뉴스"
+
+
+def _build_dashboard_news_delivery_embed(items: list[dict[str, Any]], now: datetime) -> discord.Embed:
+    embed = discord.Embed(
+        title="시장 뉴스",
+        description=f"{timestamp_text(now)} 기준 새 중요 뉴스 {len(items)}건",
+        color=DASHBOARD_NEWS_COLOR,
+    )
+    for item in items:
+        title = _short_text(str(item.get("title") or "뉴스").strip(), 210)
+        region_label = _dashboard_news_region_label(item)
+        field_name = _short_text(f"[{region_label}] {title}", 256)
+        summary = str(item.get("summary") or item.get("marketReason") or "").strip()
+        source_text = _dashboard_news_source_text(item)
+        url = str(item.get("url") or item.get("link") or "").strip()
+        lines = []
+        if summary:
+            lines.append(_short_text(summary, 360))
+        if source_text:
+            lines.append(source_text)
+        if url:
+            lines.append(f"[원문 보기]({url})")
+        embed.add_field(name=field_name, value="\n".join(lines)[:1024] or "원문 링크를 확인하세요.", inline=False)
+    embed.set_footer(text="Stock Dashboard · article_key 기준 중복 방지")
+    return embed
+
+
+async def _upsert_daily_post_lenient(**kwargs: Any) -> tuple[Any | None, str]:
+    result = await upsert_daily_post(**kwargs)
+    if isinstance(result, tuple):
+        thread = result[0] if len(result) >= 1 else None
+        action = str(result[1]) if len(result) >= 2 else ""
+        return thread, action
+    return None, ""
+
+
+async def _run_dashboard_news_delivery(client: discord.Client, now: datetime) -> None:
+    state = load_state()
+    pending_guilds: list[tuple[int, int]] = []
+    missing_forum = 0
+
+    for guild_id in list_guild_ids(state):
+        forum_channel_id = get_guild_news_forum_channel_id(state, guild_id)
+        if forum_channel_id is None:
+            missing_forum += 1
+            continue
+        pending_guilds.append((guild_id, forum_channel_id))
+
+    if not pending_guilds:
+        detail = f"no-target-forums missing_forum={missing_forum}"
+        set_job_last_run(state, "dashboard_news_delivery", "skipped", detail)
+        save_state(state)
+        _log_job_result("dashboard_news_delivery", "skipped", detail)
+        return
+
+    try:
+        news_items = await _fetch_dashboard_news_deliveries()
+    except Exception as exc:
+        set_job_last_run(state, "dashboard_news_delivery", "failed", str(exc))
+        set_provider_status(state, "dashboard_news", False, str(exc))
+        save_state(state)
+        _log_job_result("dashboard_news_delivery", "failed", str(exc))
+        logger.exception("[intel] dashboard news delivery fetch failed: %s", exc)
+        return
+
+    sendable_items = [item for item in news_items if _is_dashboard_news_sendable(item)]
+    set_provider_status(state, "dashboard_news", True, f"fetched={len(news_items)} sendable={len(sendable_items)}")
+    cleanup_news_dedup(state, keep_recent_days=7)
+
+    if not sendable_items:
+        set_job_last_run(state, "dashboard_news_delivery", "skipped", "no-news")
+        save_state(state)
+        _log_job_result("dashboard_news_delivery", "skipped", "no-news")
+        return
+
+    run_date = date_key(now)
+    posted = 0
+    failed = 0
+    skipped = 0
+    delivery_results: list[dict[str, Any]] = []
+
+    for guild_id, forum_channel_id in pending_guilds:
+        new_items = []
+        for item in sendable_items:
+            delivery_id = _dashboard_news_delivery_id(item)
+            if not delivery_id:
+                continue
+            dedup_key = f"{guild_id}:{delivery_id}"
+            if is_news_dedup_seen(state, dedup_key, run_date):
+                continue
+            new_items.append(item)
+            if len(new_items) >= STOCK_DASHBOARD_NEWS_MAX_PER_BATCH:
+                break
+
+        if not new_items:
+            skipped += 1
+            continue
+
+        try:
+            thread, _action = await upsert_daily_post(
+                client=client,
+                state=state,
+                guild_id=guild_id,
+                forum_channel_id=forum_channel_id,
+                command_key=DASHBOARD_NEWS_DELIVERY_COMMAND_KEY,
+                post_title=_dashboard_news_delivery_post_title(now),
+                body_text=_dashboard_news_delivery_starter_body(now),
+                image_paths=[],
+            )
+            embed = _build_dashboard_news_delivery_embed(new_items, now)
+            message = await thread.send(embed=embed)
+            for item in new_items:
+                delivery_id = _dashboard_news_delivery_id(item)
+                mark_news_dedup_seen(state, f"{guild_id}:{delivery_id}", run_date)
+                delivery_results.append(
+                    _dashboard_content_delivery_result(
+                        channel_id=getattr(thread, "id", None),
+                        delivery_id=delivery_id,
+                        guild_id=guild_id,
+                        message_id=getattr(message, "id", None),
+                        status="sent",
+                        target="news",
+                        thread_id=getattr(thread, "id", None),
+                        title=str(item.get("title") or "뉴스"),
+                    )
+                )
+            posted += len(new_items)
+        except Exception as exc:
+            failed += 1
+            for item in new_items:
+                delivery_id = _dashboard_news_delivery_id(item)
+                delivery_results.append(
+                    _dashboard_content_delivery_result(
+                        channel_id=forum_channel_id,
+                        delivery_id=delivery_id,
+                        guild_id=guild_id,
+                        reason=str(exc),
+                        status="failed",
+                        target="news",
+                        title=str(item.get("title") or "뉴스"),
+                    )
+                )
+            logger.exception("[intel] dashboard news delivery post failed guild=%s: %s", guild_id, exc)
+
+    status = "ok" if posted > 0 and failed == 0 else "failed" if failed > 0 else "skipped"
+    detail = (
+        f"news={len(news_items)} sendable={len(sendable_items)} posted={posted} "
+        f"skipped_guilds={skipped} failed_guilds={failed} missing_forum={missing_forum}"
+    )
+    set_job_last_run(state, "dashboard_news_delivery", status, detail)
+    save_state(state)
+    await record_dashboard_delivery_results("news", delivery_results)
+    _log_job_result("dashboard_news_delivery", status, detail)
 
 
 async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -> None:
@@ -1159,7 +1419,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
     for guild_id, forum_channel_id in pending_guilds:
         guild_failed = 0
         try:
-            domestic_thread, _domestic_action = await upsert_daily_post(
+            domestic_thread, _domestic_action = await _upsert_daily_post_lenient(
                 client=client,
                 state=state,
                 guild_id=guild_id,
@@ -1180,7 +1440,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
                     title=build_news_title("domestic", now),
                 )
             )
-            global_thread, _global_action = await upsert_daily_post(
+            global_thread, _global_action = await _upsert_daily_post_lenient(
                 client=client,
                 state=state,
                 guild_id=guild_id,
@@ -1205,7 +1465,7 @@ async def _run_news_job(client: discord.Client, now: datetime) -> None:
             posted += 1
             if trend_can_post:
                 try:
-                    trend_thread, _trend_action = await upsert_daily_post(
+                    trend_thread, _trend_action = await _upsert_daily_post_lenient(
                         client=client,
                         state=state,
                         guild_id=guild_id,
@@ -2236,6 +2496,7 @@ async def intel_scheduler(client: discord.Client) -> None:
     registry_h, registry_m = _parse_time(INSTRUMENT_REGISTRY_REFRESH_TIME, 6, 20)
     last_watch_run: datetime | None = None
     last_dashboard_alert_run: datetime | None = None
+    last_dashboard_news_run: datetime | None = None
     registry_refresh_task: asyncio.Task[dict[str, int | str]] | None = None
 
     while True:
@@ -2289,6 +2550,14 @@ async def intel_scheduler(client: discord.Client) -> None:
                 ):
                     await _run_dashboard_alert_delivery(client, now)
                     last_dashboard_alert_run = now
+
+            if STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED:
+                if (
+                    last_dashboard_news_run is None
+                    or (now - last_dashboard_news_run).total_seconds() >= STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS
+                ):
+                    await _run_dashboard_news_delivery(client, now)
+                    last_dashboard_news_run = now
 
             if WATCH_FEATURE_ENABLED and WATCH_POLL_ENABLED:
                 if last_watch_run is None or (now - last_watch_run).total_seconds() >= WATCH_POLL_INTERVAL_SECONDS:

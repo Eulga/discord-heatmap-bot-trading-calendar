@@ -607,6 +607,8 @@
 ### 4.7 Error / edge handling (As-Is)
 - Provider failure marks `news_briefing` and `trend_briefing` as failed and returns immediately.
 - `NEWS_PROVIDER_KIND=dashboard` reads the stock dashboard internal `GET /api/discord/deliveries/news` endpoint and converts the returned delivery items into existing domestic/global news briefing items.
+- When `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED=true`, the scheduler separately polls the same Dashboard news delivery endpoint every `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS` and posts unsent important articles into the configured news forum.
+- Dashboard news delivery deduplication uses the delivery item `id`/`articleKey` per guild and records the item as sent only after Discord posting succeeds.
 - If no unresolved target forums exist:
   - forum-resolution failure can mark failed
   - only-missing-forum with no completed guilds can mark skipped
@@ -1044,6 +1046,11 @@
   - Required vs optional: optional with default `mock`
   - Observed usage: provider singleton construction in `bot/features/intel_scheduler.py`
   - Risk if missing: mock provider is used
+- Name: `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED`, `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`, `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH`
+  - Purpose: enable Dashboard-backed 5-minute news delivery, set poll interval, and cap article count per batch
+  - Required vs optional: optional with defaults
+  - Observed usage: `bot/features/intel_scheduler.py`
+  - Risk if missing: defaults apply; the delivery loop still requires Dashboard base URL, internal token, and per-guild news forum route to send
 - Name: `NAVER_NEWS_*`, `MARKETAUX_*`, `INTEL_API_TIMEOUT_SECONDS`, `INTEL_API_RETRY_COUNT`
   - Purpose: configure news provider credentials, queries, limits, and request behavior
   - Required vs optional: optional, but credentials are required for live provider modes

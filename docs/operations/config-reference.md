@@ -64,6 +64,9 @@
   - `NEWS_PROVIDER_KIND`
   - `STOCK_DASHBOARD_API_BASE_URL`
   - `STOCK_DASHBOARD_INTERNAL_TOKEN`
+  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED`
+  - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`
+  - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH`
 - Watch:
   - `WATCH_FEATURE_ENABLED`
   - `WATCH_POLL_ENABLED`
@@ -102,6 +105,9 @@
   - `NEWS_BRIEFING_TIME = "07:30"`
   - `NEWS_BRIEFING_TRADING_DAYS_ONLY = False`
   - `NEWS_PROVIDER_KIND = "mock"`
+  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED = True`
+  - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS = 300`
+  - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH = 6`
 - Watch:
   - `WATCH_FEATURE_ENABLED = False`
   - `WATCH_POLL_ENABLED = False`
@@ -134,6 +140,7 @@
   - `NEWS_PROVIDER_KIND = "naver"` -> `NaverNewsProvider` or `ErrorNewsProvider` when credentials are missing
   - `NEWS_PROVIDER_KIND = "marketaux"` -> `MarketauxNewsProvider` or `ErrorNewsProvider` when the token is missing
   - `NEWS_PROVIDER_KIND = "hybrid"` -> `HybridNewsProvider` combining Naver for domestic and Marketaux for global, or `ErrorNewsProvider` when either credential set is missing
+  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/news` and post unsent important articles to the configured news forum every `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`.
 - Market data provider selection:
   - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`
   - `MARKET_DATA_PROVIDER_KIND = "kis"` -> `KisMarketDataProvider` or `ErrorMarketDataProvider` when KIS credentials are missing

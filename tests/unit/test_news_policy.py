@@ -14,6 +14,7 @@ def _make_item(region: str, index: int) -> NewsItem:
         source=f"{region}-source-{index}.example.com",
         published_at=datetime(2026, 3, 19, 7, 30, tzinfo=KST),
         region=region,
+        summary=f"{region} 시장에 영향을 주는 핵심 요약 {index}",
     )
 
 
@@ -26,7 +27,8 @@ def test_build_news_body_stays_within_discord_limit():
     assert len(body) <= policy.DISCORD_MESSAGE_LIMIT
     assert "[국내]" in body
     assert "[해외]" in body
-    assert body.count("\n- ") + body.startswith("- ") < 40
+    assert "**domestic 시장 핵심 뉴스" in body
+    assert "> domestic 시장에 영향을 주는 핵심 요약" in body
 
 
 def test_build_news_body_keeps_placeholders_when_empty():
@@ -44,6 +46,7 @@ def test_build_region_body_stays_within_discord_limit():
     assert len(body) <= policy.DISCORD_MESSAGE_LIMIT
     assert "[국내]" in body
     assert "[해외]" not in body
+    assert "https://example.com/domestic/article/" in body
 
 
 def test_build_region_title_uses_region_label(monkeypatch):

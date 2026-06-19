@@ -89,6 +89,7 @@ async def test_dashboard_news_provider_reads_dashboard_delivery_payload():
                     "title": "삼성전자 반도체 투자 확대",
                     "url": "https://news.example.com/samsung",
                     "source": "news.example.com",
+                    "summary": "반도체 설비투자 확대가 국내 수급 기대를 높였습니다.",
                     "publishedAt": "2026-06-15T08:10:00+09:00",
                     "market": "국장",
                 },
@@ -116,6 +117,7 @@ async def test_dashboard_news_provider_reads_dashboard_delivery_payload():
     assert len(items) == 2
     assert items[0].region == "domestic"
     assert items[0].title == "삼성전자 반도체 투자 확대"
+    assert items[0].summary == "반도체 설비투자 확대가 국내 수급 기대를 높였습니다."
     assert items[1].region == "global"
     assert items[1].source == "global.example.com"
 

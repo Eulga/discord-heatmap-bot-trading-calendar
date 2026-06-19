@@ -395,6 +395,7 @@ class NewsItem:
     source: str
     published_at: datetime
     region: str  # domestic | global
+    summary: str = ""
 
     def dedup_key(self) -> str:
         base = f"{self.region}|{self.source}|{self.title.strip().lower()}|{self.link.strip()}"
@@ -576,6 +577,7 @@ class DashboardNewsProvider:
         title = str(raw_item.get("title") or "").strip()
         link = str(raw_item.get("url") or raw_item.get("link") or "").strip()
         source = str(raw_item.get("source") or "").strip()
+        summary = str(raw_item.get("summary") or raw_item.get("description") or "").strip()
         published_at_text = str(raw_item.get("publishedAt") or raw_item.get("createdAt") or "").strip()
         market = str(raw_item.get("market") or "").strip()
         region = str(raw_item.get("region") or "").strip().lower()
@@ -604,6 +606,7 @@ class DashboardNewsProvider:
             source=source or _source_from_link(link),
             published_at=published_at,
             region=region,
+            summary=summary,
         )
 
 
@@ -714,6 +717,7 @@ class MarketauxNewsProvider:
         title = str(raw_item.get("title") or "").strip()
         link = str(raw_item.get("url") or "").strip()
         source = str(raw_item.get("source") or "").strip()
+        summary = str(raw_item.get("description") or raw_item.get("summary") or "").strip()
         published_at_text = str(raw_item.get("published_at") or "").strip()
         if not title or not link or not published_at_text:
             return None
@@ -732,6 +736,7 @@ class MarketauxNewsProvider:
             source=source or _source_from_link(link),
             published_at=published_at,
             region="global",
+            summary=summary,
         )
 
 
@@ -999,6 +1004,7 @@ class NaverNewsProvider:
                 source=_source_from_link(link),
                 published_at=published_at,
                 region=region,
+                summary=description,
             ),
             score=score,
             bucket=bucket,
