@@ -35,6 +35,7 @@ from bot.forum.repository import (
 logger = logging.getLogger(__name__)
 
 MAX_SELECT_OPTIONS = 25
+PERSONAL_ROLE_VIEW_TIMEOUT_SECONDS = 1800
 ROLE_SYNC_JOB_KEY = "stock_role_sync"
 STALE_ROLE_PREFIX = "미사용 "
 LEGACY_STOCK_ROLE_PREFIXES = ("종목",)
@@ -275,6 +276,8 @@ class PersonalStockRoleSelect(discord.ui.Select):
             await interaction.response.send_message("서버 안에서만 사용할 수 있습니다.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         member = interaction.user
         if not isinstance(member, discord.Member):
             member = await guild.fetch_member(interaction.user.id)
@@ -286,6 +289,7 @@ class PersonalStockRoleSelect(discord.ui.Select):
         added: list[str] = []
         removed: list[str] = []
         missing: list[str] = []
+        failed: list[str] = []
         selected_keys = set(self.values)
 
         for target in self.targets:
@@ -302,12 +306,16 @@ class PersonalStockRoleSelect(discord.ui.Select):
 
             is_selected = target.key in selected_keys
             has_role = role in member.roles
-            if is_selected and not has_role:
-                await member.add_roles(role, reason="관심종목 알림 역할 부여")
-                added.append(role.name)
-            elif not is_selected and has_role:
-                await member.remove_roles(role, reason="관심종목 알림 역할 해제")
-                removed.append(role.name)
+            try:
+                if is_selected and not has_role:
+                    await member.add_roles(role, reason="관심종목 알림 역할 부여")
+                    added.append(role.name)
+                elif not is_selected and has_role:
+                    await member.remove_roles(role, reason="관심종목 알림 역할 해제")
+                    removed.append(role.name)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failed.append(role.name)
+                logger.exception("[stock-role] 관심종목 역할 변경 실패 guild=%s member=%s role=%s: %s", guild.id, member.id, role.id, exc)
 
         lines = []
         if added:
@@ -316,13 +324,15 @@ class PersonalStockRoleSelect(discord.ui.Select):
             lines.append("구독 해제: " + ", ".join(removed))
         if missing:
             lines.append("역할을 찾지 못한 종목이 있습니다. 잠시 후 다시 시도해주세요.")
+        if failed:
+            lines.append("권한 문제로 변경하지 못한 종목: " + ", ".join(failed))
 
-        await interaction.response.send_message("\n".join(lines) if lines else "변경된 구독이 없습니다.", ephemeral=True)
+        await interaction.followup.send("\n".join(lines) if lines else "변경된 구독이 없습니다.", ephemeral=True)
 
 
 class PersonalStockRoleView(discord.ui.View):
     def __init__(self, targets: list[StockRoleTarget], member: discord.Member) -> None:
-        super().__init__(timeout=300)
+        super().__init__(timeout=PERSONAL_ROLE_VIEW_TIMEOUT_SECONDS)
         member_role_ids = _member_role_ids(member)
         for index, chunk in enumerate(chunk_stock_role_targets(targets)):
             selectable = [target for target in chunk if target.role_id is not None]
