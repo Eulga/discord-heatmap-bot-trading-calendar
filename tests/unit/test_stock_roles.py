@@ -6,6 +6,7 @@ from bot.features.stock_roles.service import (
     stock_role_mentions_for_text,
     stock_role_name,
 )
+from bot.forum.repository import get_guild_stock_role_ids, set_guild_stock_role_id
 
 
 def test_stock_role_key_uses_market_prefix():
@@ -84,3 +85,12 @@ def test_stock_role_name_keeps_symbol_for_disambiguation():
     role_name = stock_role_name(target)
     assert "제주반도체" in role_name
     assert "080220" in role_name
+
+
+def test_set_guild_stock_role_id_persists_into_state():
+    state = {"commands": {}, "guilds": {"1": {}}}
+
+    set_guild_stock_role_id(state, 1, "KRX:080220", 123)
+
+    assert state["guilds"]["1"]["stock_role_ids"] == {"KRX:080220": 123}
+    assert get_guild_stock_role_ids(state, 1) == {"KRX:080220": 123}

@@ -285,14 +285,12 @@ def get_guild_stock_role_ids(state: AppState, guild_id: int) -> dict[str, int]:
     raw_role_ids = cfg.setdefault("stock_role_ids", {})
     if not isinstance(raw_role_ids, dict):
         raw_role_ids = {}
-        cfg["stock_role_ids"] = raw_role_ids
 
     cleaned: dict[str, int] = {}
     for key, role_id in raw_role_ids.items():
         if isinstance(key, str) and isinstance(role_id, int):
             cleaned[key] = role_id
-    if cleaned != raw_role_ids:
-        cfg["stock_role_ids"] = cleaned
+    cfg["stock_role_ids"] = cleaned
     return cleaned
 
 

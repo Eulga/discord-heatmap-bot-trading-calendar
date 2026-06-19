@@ -188,6 +188,7 @@ class StockRoleSelect(discord.ui.Select):
 
         state = load_state()
         role_ids = get_guild_stock_role_ids(state, guild.id)
+        role_targets = get_guild_stock_role_targets(state, guild.id)
 
         added: list[str] = []
         removed: list[str] = []
@@ -195,6 +196,11 @@ class StockRoleSelect(discord.ui.Select):
 
         for target_key in self.values:
             role_id = role_ids.get(target_key)
+            if not isinstance(role_id, int):
+                role_target = role_targets.get(target_key)
+                if isinstance(role_target, dict):
+                    fallback_role_id = role_target.get("role_id")
+                    role_id = fallback_role_id if isinstance(fallback_role_id, int) else None
             role = guild.get_role(role_id) if isinstance(role_id, int) else None
             if role is None:
                 missing.append(target_key)
