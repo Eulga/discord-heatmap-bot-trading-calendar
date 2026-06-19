@@ -117,6 +117,8 @@ def test_build_help_embed_lists_supported_commands():
     assert "/종목" in embed.description
     assert "/뉴스" in embed.description
     assert "/일정" in embed.description
+    assert "일부만 입력" in embed.description
+    assert "자동완성" in embed.description
 
 
 def test_theme_normalizer_ignores_punctuation_and_case():

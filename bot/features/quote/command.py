@@ -284,11 +284,14 @@ def _build_schedule_embed(payload: dict[str, Any]) -> discord.Embed:
 def _build_help_embed() -> discord.Embed:
     description = "\n".join(
         [
-            "`/시세 테마:반도체` - 같은 테마 관심종목 시세를 한 카드로 조회",
+            "`/시세 테마:반도체` - 같은 테마 관심종목 시세 조회",
             "`/종목 종목:삼성전자` - 단일 관심종목 시세와 최신 뉴스 조회",
             "`/뉴스 테마:반도체` - 테마 관련 최신 뉴스 조회",
             "`/일정 기간:오늘` - 어닝/경제 일정 조회",
             "`/도움말` - 사용 가능한 명령 확인",
+            "",
+            "테마는 일부만 입력해도 비슷한 항목을 찾습니다. 예: `ai반도체`, `빅테크`",
+            "입력창 자동완성에 현재 등록된 테마와 종목 수가 표시됩니다.",
         ]
     )
     return discord.Embed(title="Drumstick 명령어", description=description, color=QUOTE_EMBED_COLOR)

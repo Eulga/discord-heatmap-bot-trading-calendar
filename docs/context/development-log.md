@@ -2063,3 +2063,14 @@
 - Next:
 1. 운영 Discord에서 news forum route와 Dashboard internal token이 맞는지 live 발송으로 확인한다.
 - Status: done
+
+## 2026-06-19
+- Context: Stock Dashboard 관심종목 명령어 도움말이 실제 테마 자동완성/유사 입력 동작을 충분히 설명하지 못했다.
+- Change:
+1. `/도움말`에 테마 일부 입력과 자동완성 표시 기준을 추가했다.
+2. 도움말 단위 테스트에 일부 입력/자동완성 안내 문구 검증을 추가했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\unit\test_quote_command.py -q`
+- Next:
+1. 운영 Discord에서 slash command 설명 갱신이 필요한 경우 command sync 상태를 확인한다.
+- Status: done
