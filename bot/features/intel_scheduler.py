@@ -888,7 +888,6 @@ def _build_dashboard_news_delivery_embed(items: list[dict[str, Any]], now: datet
         if url:
             lines.append(f"[원문 보기]({url})")
         embed.add_field(name=field_name, value="\n".join(lines)[:1024] or "원문 링크를 확인하세요.", inline=False)
-    embed.set_footer(text="Stock Dashboard · article_key 기준 중복 방지")
     return embed
 
 
