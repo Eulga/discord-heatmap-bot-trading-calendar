@@ -176,6 +176,7 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     async def fake_upsert_daily_post(**kwargs):
         assert kwargs["command_key"] == "dashboard-news-delivery"
         assert kwargs["forum_channel_id"] == 123
+        assert kwargs["post_title"] == "📰 2026-06-19 뉴스"
         return Thread(), "created"
 
     async def fake_fetch_news():
@@ -186,7 +187,7 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
                 "publishedAt": "2026-06-18T22:15:00Z",
                 "region": "global",
                 "source": "reuters.com",
-                "summary": "연준 발언 이후 금리 민감 업종 변동성이 커졌습니다.",
+                "summary": "연준 발언 이후 금리 민감 업종 변동성이 커졌습니다. 미국 10년물 흐름을 같이 확인해야 합니다.",
                 "title": "Fed commentary moves rates",
                 "url": "https://example.com/fed",
             }
@@ -208,8 +209,9 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     assert len(sent_messages) == 1
     embed = sent_messages[0]["embed"]
     assert embed.title == "시장 뉴스"
-    assert embed.fields[0].name == "[해외] Fed commentary moves rates"
-    assert "연준 발언 이후" in embed.fields[0].value
+    assert embed.fields[0].name == "🌐 [해외] Fed commentary moves rates"
+    assert "1. 연준 발언 이후" in embed.fields[0].value
+    assert "2. 미국 10년물" in embed.fields[0].value
     assert "[원문 보기](https://example.com/fed)" in embed.fields[0].value
     assert recorded_results[0][0] == "news"
     assert recorded_results[0][1][0]["deliveryId"] == "gdelt:fed-1"

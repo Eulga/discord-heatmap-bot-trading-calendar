@@ -364,7 +364,7 @@ async def test_runner_includes_partial_failure_in_body(monkeypatch):
         return Thread(), "updated"
 
     async def fake_resolve(*_args, **_kwargs):
-        return object()
+        return type("Forum", (), {"id": 123})()
 
     monkeypatch.setattr(runner, "load_state", lambda: state)
     monkeypatch.setattr(runner, "save_state", lambda _: None)

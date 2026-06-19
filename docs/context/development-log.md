@@ -2074,3 +2074,15 @@
 - Next:
 1. 운영 Discord에서 slash command 설명 갱신이 필요한 경우 command sync 상태를 확인한다.
 - Status: done
+
+## 2026-06-19
+- Context: Dashboard 뉴스 속보 스레드 제목과 Discord 카드가 길고 운영자 관점 문구에 가까웠다.
+- Change:
+1. Dashboard 뉴스 속보 스레드 제목을 `📰 YYYY-MM-DD 뉴스` 형식으로 바꿨다.
+2. 뉴스 카드 제목에 속보/매크로/기업/해외/중요 아이콘 분류를 붙였다.
+3. 뉴스 요약은 최대 3개 번호 문장과 출처, 원문 링크만 보이도록 정리했다.
+- Verification:
+1. `.\.venv\Scripts\python.exe -m pytest tests\integration\test_intel_scheduler_logic.py -q`
+- Next:
+1. 운영 Discord에서 실제 기사 요약 길이와 분류 아이콘이 과하거나 부족하지 않은지 하루 정도 모니터링한다.
+- Status: done

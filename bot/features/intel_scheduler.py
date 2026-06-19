@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -860,12 +861,47 @@ def _dashboard_news_source_text(item: dict[str, Any]) -> str:
     return " · ".join(part for part in [source, time_text] if part)
 
 
+def _dashboard_news_card_prefix(item: dict[str, Any]) -> str:
+    title = str(item.get("title") or "").strip()
+    importance = str(item.get("importance") or "").strip().lower()
+    category = str(item.get("category") or item.get("topic") or item.get("theme") or "").strip().lower()
+    region_label = _dashboard_news_region_label(item)
+    has_symbols = bool(item.get("symbols") or item.get("tickers") or item.get("relatedSymbols"))
+
+    if "속보" in title or importance in {"breaking", "critical", "urgent"}:
+        return "🔊 [속보]"
+    if any(keyword in category for keyword in ["macro", "econom", "금리", "환율", "물가", "원자재"]):
+        return "📊 [매크로]"
+    if has_symbols or any(keyword in category for keyword in ["stock", "company", "기업", "종목"]):
+        return "🏢 [기업]"
+    if region_label == "해외":
+        return "🌐 [해외]"
+    return "📌 [중요]"
+
+
+def _dashboard_news_summary_lines(item: dict[str, Any], *, max_lines: int = 3) -> list[str]:
+    summary = str(item.get("summary") or item.get("marketReason") or "").strip()
+    if not summary:
+        return []
+
+    normalized = " ".join(summary.split())
+    sentences = [
+        part.strip(" -")
+        for part in re.split(r"(?<=[.!?。])\s+|(?<=다\.)\s+|(?<=요\.)\s+|(?<=음\.)\s+", normalized)
+        if part.strip(" -")
+    ]
+    if not sentences:
+        sentences = [normalized]
+
+    return [_short_text(sentence, 170) for sentence in sentences[:max_lines]]
+
+
 def _dashboard_news_delivery_post_title(now: datetime) -> str:
-    return f"뉴스 속보 {date_key(now)}"
+    return f"📰 {date_key(now)} 뉴스"
 
 
 def _dashboard_news_delivery_starter_body(now: datetime) -> str:
-    return f"{timestamp_text(now)} 기준 주요 뉴스"
+    return f"{timestamp_text(now)} 기준"
 
 
 def _build_dashboard_news_delivery_embed(items: list[dict[str, Any]], now: datetime) -> discord.Embed:
@@ -875,15 +911,14 @@ def _build_dashboard_news_delivery_embed(items: list[dict[str, Any]], now: datet
         color=DASHBOARD_NEWS_COLOR,
     )
     for item in items:
-        title = _short_text(str(item.get("title") or "뉴스").strip(), 210)
-        region_label = _dashboard_news_region_label(item)
-        field_name = _short_text(f"[{region_label}] {title}", 256)
-        summary = str(item.get("summary") or item.get("marketReason") or "").strip()
+        title = _short_text(str(item.get("title") or "뉴스").strip(), 220)
+        field_name = _short_text(f"{_dashboard_news_card_prefix(item)} {title}", 256)
+        summary_lines = _dashboard_news_summary_lines(item)
         source_text = _dashboard_news_source_text(item)
         url = str(item.get("url") or item.get("link") or "").strip()
         lines = []
-        if summary:
-            lines.append(_short_text(summary, 360))
+        for index, summary_line in enumerate(summary_lines, start=1):
+            lines.append(f"{index}. {summary_line}")
         if source_text:
             lines.append(source_text)
         if url:
