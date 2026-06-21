@@ -781,6 +781,14 @@ def _is_dashboard_stock_alert(alert: dict[str, Any]) -> bool:
     return str(alert.get("type") or "").strip() == "stock"
 
 
+def _is_dashboard_stock_alert_suppressed_for_session(alert: dict[str, Any], now: datetime) -> bool:
+    if not _is_dashboard_stock_alert(alert):
+        return False
+
+    session = dashboard_market_session(str(alert.get("market") or ""), now)
+    return session.basis_label == "최근 종가 기준" or session.session_label in {"휴장", "장마감"}
+
+
 def _is_dashboard_schedule_alert(alert: dict[str, Any]) -> bool:
     return str(alert.get("type") or "").strip() == "event"
 
@@ -1425,7 +1433,29 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
             skipped += 1
             continue
 
-        stock_alerts = [alert for alert in new_alerts if _is_dashboard_stock_alert(alert)]
+        suppressed_stock_alerts = [
+            alert for alert in new_alerts if _is_dashboard_stock_alert_suppressed_for_session(alert, now)
+        ]
+        if suppressed_stock_alerts:
+            alert_ids = [str(alert.get("id") or "") for alert in suppressed_stock_alerts if str(alert.get("id") or "")]
+            _mark_dashboard_alerts_sent(state, guild_id, alert_ids)
+            delivery_results.extend(
+                _dashboard_delivery_result(
+                    alert,
+                    guild_id=guild_id,
+                    reason="market-session-closed",
+                    status="skipped",
+                    target="stock",
+                )
+                for alert in suppressed_stock_alerts
+                if str(alert.get("id") or "")
+            )
+
+        stock_alerts = [
+            alert
+            for alert in new_alerts
+            if _is_dashboard_stock_alert(alert) and not _is_dashboard_stock_alert_suppressed_for_session(alert, now)
+        ]
         schedule_alerts = [alert for alert in new_alerts if _is_dashboard_schedule_alert(alert)]
 
         if stock_alerts:

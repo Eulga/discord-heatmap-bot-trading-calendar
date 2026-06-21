@@ -161,6 +161,60 @@ async def test_dashboard_alert_delivery_posts_new_alerts_once(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_alert_delivery_skips_closed_market_stock_alerts(monkeypatch):
+    state = {"commands": {}, "guilds": {"1": {"watch_forum_channel_id": 123}}}
+    sent_messages: list[dict[str, object]] = []
+    recorded_results: list[dict[str, object]] = []
+
+    async def fake_upsert_daily_post(**_kwargs):
+        raise AssertionError("closed-market stock alerts must not open a Discord thread")
+
+    async def fake_fetch_alerts():
+        return [
+            {
+                "description": "AOSL +11.33%",
+                "id": "price-NAS:AOSL-up-11",
+                "market": "US",
+                "priority": "높음",
+                "source": "collector_projection",
+                "status": "up",
+                "ticker": "AOSL",
+                "title": "AOSL 변동성 확대",
+                "type": "stock",
+            }
+        ]
+
+    async def fake_record_results(results):
+        recorded_results.extend(results)
+
+    monkeypatch.setattr(intel_scheduler, "load_state", lambda: state)
+    monkeypatch.setattr(intel_scheduler, "save_state", lambda _: None)
+    monkeypatch.setattr(intel_scheduler, "_fetch_dashboard_alert_deliveries", fake_fetch_alerts)
+    monkeypatch.setattr(intel_scheduler, "_record_dashboard_alert_delivery_results", fake_record_results)
+    monkeypatch.setattr(intel_scheduler, "upsert_daily_post", fake_upsert_daily_post)
+
+    now = datetime(2026, 6, 22, 4, 15, tzinfo=KST)
+    await intel_scheduler._run_dashboard_alert_delivery(client=object(), now=now)  # type: ignore[arg-type]
+
+    assert sent_messages == []
+    assert recorded_results == [
+        {
+            "alertId": "price-NAS:AOSL-up-11",
+            "channelId": "",
+            "guildId": "1",
+            "messageId": "",
+            "reason": "market-session-closed",
+            "status": "skipped",
+            "target": "stock",
+            "threadId": "",
+            "title": "(AOSL) AOSL",
+        }
+    ]
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["price-NAS:AOSL-up-11"]
+    assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     state = {"commands": {}, "guilds": {"1": {"news_forum_channel_id": 123}}, "system": {}}
     sent_messages: list[dict[str, object]] = []

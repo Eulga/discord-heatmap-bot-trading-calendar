@@ -2120,3 +2120,12 @@
 - Next:
 1. 운영에서 리포트 전송 지연이 여전히 거슬리면 Dashboard 생성 직후 Discord delivery trigger API를 별도로 설계한다.
 - Status: done
+
+## 2026-06-22
+- Context: Dashboard 뉴스 속보와 별개로 남아 있던 기존 07:30 국내/해외 경제 뉴스 브리핑이 빈 데이터 스레드를 계속 만들고, 휴장 시간대 관심종목 추가 직후 최근 종가 기준 등락 알림이 Discord로 전송되는 문제를 정리했다.
+- Change:
+1. `NEWS_BRIEFING_ENABLED` 기본값과 `.env.example` 값을 `false`로 바꿔 기존 경제 뉴스 브리핑 스케줄러를 기본 미사용으로 전환했다.
+2. Dashboard 관심종목 알림 전달은 `휴장`, `장마감`, `최근 종가 기준` 상태에서는 Discord 전송을 건너뛰고 재전송되지 않도록 skipped 처리한다.
+- Verification:
+1. `tests/integration/test_intel_scheduler_logic.py`에 휴장 시간대 관심종목 알림이 Discord thread를 만들지 않는 회귀 테스트를 추가했다.
+- Status: done

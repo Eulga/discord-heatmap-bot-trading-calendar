@@ -106,7 +106,7 @@
   - `CACHE_TTL_SECONDS = 3600`
   - auto screenshot runs only on exact-minute checks hard-coded as `15:35` KST for Korea and `06:05` KST for US
 - News:
-  - `NEWS_BRIEFING_ENABLED = True`
+  - `NEWS_BRIEFING_ENABLED = False`
   - `NEWS_BRIEFING_TIME = "07:30"`
   - `NEWS_BRIEFING_TRADING_DAYS_ONLY = False`
   - `NEWS_PROVIDER_KIND = "mock"`
