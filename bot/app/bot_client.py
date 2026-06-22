@@ -11,6 +11,7 @@ from bot.app.settings import (
     EOD_TARGET_FORUM_ID,
     NEWS_TARGET_FORUM_ID,
     SCHEDULE_ALERT_CHANNEL_ID,
+    STOCK_DASHBOARD_ACCESS_ROLE_SYNC_ENABLED,
     WATCH_FEATURE_ENABLED,
 )
 from bot.common.logging import setup_logging
@@ -139,7 +140,7 @@ class BotApp:
     def __init__(self) -> None:
         intents = discord.Intents.default()
         intents.message_content = False
-        intents.members = True
+        intents.members = STOCK_DASHBOARD_ACCESS_ROLE_SYNC_ENABLED
 
         self.client = discord.Client(intents=intents)
         self.tree = app_commands.CommandTree(self.client)
