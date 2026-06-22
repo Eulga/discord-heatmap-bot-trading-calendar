@@ -28,6 +28,7 @@ from bot.forum.repository import (
 )
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
+from bot.features.dashboard_login.command import ensure_dashboard_login_panel, register as register_dashboard_login
 from bot.features.kheatmap.command import register as register_kheatmap
 from bot.features.quote.command import register as register_quote
 from bot.features.status.command import register as register_status
@@ -153,6 +154,7 @@ class BotApp:
             register_watch(self.tree, self.client)
         register_kheatmap(self.tree, self.client)
         register_usheatmap(self.tree, self.client)
+        register_dashboard_login(self.client)
 
         @self.client.event
         async def on_ready() -> None:
@@ -172,6 +174,7 @@ class BotApp:
                     record_command_sync("ok", f"{len(synced_commands)} commands synced")
                     self._synced = True
             await _bootstrap_guild_channel_routes_from_env(self.client)
+            await ensure_dashboard_login_panel(self.client)
             if WATCH_FEATURE_ENABLED:
                 _warn_legacy_watch_route_migration_needed()
             if self._scheduler_task is None or self._scheduler_task.done():

@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-06-22
+- Context: Stock Dashboard를 공개 도메인으로 열기 전에 Discord 채널 버튼 기반 로그인 진입이 필요했다.
+- Change:
+1. `STOCK_DASHBOARD_LOGIN_CHANNEL_ID` 설정을 추가했다.
+2. 봇 시작 시 로그인 채널에 `Stock Board 로그인` 패널을 생성하거나 기존 패널을 갱신하게 했다.
+3. 패널을 계정 등록 버튼과 로그인 버튼으로 분리했다. 등록 버튼은 Dashboard 계정을 생성하거나 기존 Discord 매칭 계정을 확인하고, 로그인 버튼은 등록된 사용자에게만 5분짜리 1회용 로그인 링크를 발급한다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe -m compileall bot\features\dashboard_login\command.py bot\app\bot_client.py bot\app\settings.py`
+2. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py collect`
+3. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py unit tests\unit\test_bot_client.py`
+- Status: done
+
 ## 2026-06-19
 - Context: Stock Dashboard에서 시장 리포트와 관심종목 리포트를 분리 저장하고, 각각 별도 Discord 포럼 채널로 전송해야 했다.
 - Change:

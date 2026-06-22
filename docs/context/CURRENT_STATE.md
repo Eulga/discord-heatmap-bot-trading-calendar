@@ -25,6 +25,7 @@
 ## Current System Snapshot
 - The repository currently implements a Discord bot that can post Korea/US heatmaps and also contains scheduled news, trend, watch-poll, and instrument-registry-refresh flows.
 - When Dashboard delivery env is configured, the scheduler can also poll Dashboard news deliveries every 5 minutes by default and post unsent important articles to the configured news forum.
+- When `STOCK_DASHBOARD_LOGIN_CHANNEL_ID` is configured, startup maintains a Dashboard login panel in that text channel. The registration button creates or reuses the Dashboard account for the clicking Discord user ID, and the login button issues a 5-minute one-time Dashboard login link to that user only.
 - When `INTERNAL_API_ENABLED=true`, the bot also starts a token-protected internal HTTP API for the stock dashboard to trigger fresh heatmap image capture without posting to Discord.
 - Per-guild mutable routing and runtime state use a selectable app-state backend:
   - default `STATE_BACKEND=file` stores `data/state/state.json`
