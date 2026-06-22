@@ -24,6 +24,7 @@ LOGIN_BUTTON_CUSTOM_ID = "stock_dashboard:login"
 REGISTER_BUTTON_CUSTOM_ID = "stock_dashboard:register"
 LOGIN_PANEL_TITLE = "Stock Board 로그인"
 LOGIN_EMBED_COLOR = 0x14B8A6
+EPHEMERAL_MESSAGE_DELETE_AFTER_SECONDS = 300
 
 
 class DashboardLoginError(RuntimeError):
@@ -124,6 +125,23 @@ def _build_login_url(token: str) -> str:
     return f"{_dashboard_public_base_url()}/login/claim?token={quote(token)}"
 
 
+async def _send_ephemeral(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> None:
+    try:
+        message = await interaction.followup.send(
+            *args,
+            ephemeral=True,
+            wait=True,
+            **kwargs,
+        )
+    except discord.HTTPException:
+        raise
+
+    try:
+        await message.delete(delay=EPHEMERAL_MESSAGE_DELETE_AFTER_SECONDS)
+    except discord.HTTPException:
+        logger.debug("[dashboard-login] ephemeral message delete scheduling failed", exc_info=True)
+
+
 class LoginLinkView(discord.ui.View):
     def __init__(self, url: str) -> None:
         super().__init__(timeout=300)
@@ -151,11 +169,11 @@ class DashboardLoginView(discord.ui.View):
                 getattr(interaction.user, "id", None),
                 exc,
             )
-            await interaction.followup.send(str(exc), ephemeral=True)
+            await _send_ephemeral(interaction, str(exc))
             return
         except Exception:
             logger.exception("[dashboard-login] unexpected registration failure user=%s", interaction.user.id)
-            await interaction.followup.send("계정을 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.", ephemeral=True)
+            await _send_ephemeral(interaction, "계정을 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.")
             return
 
         user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
@@ -166,7 +184,7 @@ class DashboardLoginView(discord.ui.View):
             if already_registered
             else f"{name}님 계정을 등록했습니다. 이제 로그인 버튼을 눌러 주세요."
         )
-        await interaction.followup.send(message, ephemeral=True)
+        await _send_ephemeral(interaction, message)
 
     @discord.ui.button(label="로그인", style=discord.ButtonStyle.primary, custom_id=LOGIN_BUTTON_CUSTOM_ID)
     async def login_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
@@ -185,11 +203,11 @@ class DashboardLoginView(discord.ui.View):
                 getattr(interaction.user, "id", None),
                 exc,
             )
-            await interaction.followup.send(str(exc), ephemeral=True)
+            await _send_ephemeral(interaction, str(exc))
             return
         except Exception:
             logger.exception("[dashboard-login] unexpected token issue failure user=%s", interaction.user.id)
-            await interaction.followup.send("로그인 링크를 발급하지 못했습니다. 잠시 후 다시 시도해 주세요.", ephemeral=True)
+            await _send_ephemeral(interaction, "로그인 링크를 발급하지 못했습니다. 잠시 후 다시 시도해 주세요.")
             return
 
         token = str(payload.get("token") or "")
@@ -202,7 +220,7 @@ class DashboardLoginView(discord.ui.View):
                 getattr(interaction.user, "id", None),
                 exc,
             )
-            await interaction.followup.send(str(exc), ephemeral=True)
+            await _send_ephemeral(interaction, str(exc))
             return
         user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
         name = str(user.get("name") or interaction.user.display_name)
@@ -216,10 +234,10 @@ class DashboardLoginView(discord.ui.View):
         embed.set_footer(text="이 링크는 1회만 사용할 수 있습니다.")
 
         try:
-            await interaction.followup.send(embed=embed, view=LoginLinkView(login_url), ephemeral=True)
+            await _send_ephemeral(interaction, embed=embed, view=LoginLinkView(login_url))
         except discord.HTTPException:
             logger.exception("[dashboard-login] login link button response failed user=%s", interaction.user.id)
-            await interaction.followup.send(f"로그인 링크를 버튼으로 표시하지 못했습니다.\n{login_url}", ephemeral=True)
+            await _send_ephemeral(interaction, f"로그인 링크를 버튼으로 표시하지 못했습니다.\n{login_url}")
 
 
 def _login_panel_embed() -> discord.Embed:
