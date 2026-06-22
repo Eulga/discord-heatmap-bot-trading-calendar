@@ -34,6 +34,18 @@ def _dashboard_base_url() -> str:
     return (STOCK_DASHBOARD_WEB_BASE_URL or STOCK_DASHBOARD_API_BASE_URL).rstrip("/")
 
 
+def _dashboard_public_base_url() -> str:
+    base_url = STOCK_DASHBOARD_WEB_BASE_URL.rstrip("/")
+
+    if not base_url:
+        raise DashboardLoginError("대시보드 공개 주소가 설정되어 있지 않습니다.")
+
+    if not base_url.startswith("https://"):
+        raise DashboardLoginError("대시보드 공개 주소는 https 주소로 설정해야 합니다.")
+
+    return base_url
+
+
 def _format_expires_at(expires_at: int | float | None) -> str:
     if not expires_at:
         return "5분 후"
@@ -109,7 +121,7 @@ def _issue_login_token_sync(discord_user_id: int, display_name: str, username: s
 
 
 def _build_login_url(token: str) -> str:
-    return f"{_dashboard_base_url()}/login/claim?token={quote(token)}"
+    return f"{_dashboard_public_base_url()}/login/claim?token={quote(token)}"
 
 
 class LoginLinkView(discord.ui.View):
@@ -182,7 +194,16 @@ class DashboardLoginView(discord.ui.View):
 
         token = str(payload.get("token") or "")
         expires_at = payload.get("expiresAt")
-        login_url = _build_login_url(token)
+        try:
+            login_url = _build_login_url(token)
+        except DashboardLoginError as exc:
+            logger.warning(
+                "[dashboard-login] public login url invalid user=%s reason=%s",
+                getattr(interaction.user, "id", None),
+                exc,
+            )
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
         user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
         name = str(user.get("name") or interaction.user.display_name)
         expires_text = _format_expires_at(expires_at if isinstance(expires_at, (int, float)) else None)
@@ -194,7 +215,11 @@ class DashboardLoginView(discord.ui.View):
         )
         embed.set_footer(text="이 링크는 1회만 사용할 수 있습니다.")
 
-        await interaction.followup.send(embed=embed, view=LoginLinkView(login_url), ephemeral=True)
+        try:
+            await interaction.followup.send(embed=embed, view=LoginLinkView(login_url), ephemeral=True)
+        except discord.HTTPException:
+            logger.exception("[dashboard-login] login link button response failed user=%s", interaction.user.id)
+            await interaction.followup.send(f"로그인 링크를 버튼으로 표시하지 못했습니다.\n{login_url}", ephemeral=True)
 
 
 def _login_panel_embed() -> discord.Embed:

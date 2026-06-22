@@ -151,7 +151,7 @@
   - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/news` and post unsent important articles to the configured news forum every `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`.
   - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/reports` and post unsent market/watchlist reports to `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID` and `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID` every `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS`.
   - Report delivery defaults to a shorter 60-second poll because market/watchlist reports can be generated a few seconds apart and should not wait for the 5-minute news cadence.
-  - `STOCK_DASHBOARD_WEB_BASE_URL` is used to build Dashboard links in Discord embeds and the Discord login response.
+  - `STOCK_DASHBOARD_WEB_BASE_URL` is used to build Dashboard links in Discord embeds and the Discord login response. Dashboard login requires this value to be a reachable `https://` URL.
   - `STOCK_DASHBOARD_LOGIN_CHANNEL_ID` points to the regular text channel where the bot maintains the Dashboard registration/login button panel.
 - Market data provider selection:
   - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`

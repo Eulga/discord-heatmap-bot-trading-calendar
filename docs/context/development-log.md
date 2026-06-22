@@ -10,6 +10,13 @@
 1. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe -m compileall bot\features\dashboard_login\command.py bot\app\bot_client.py bot\app\settings.py`
 2. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py collect`
 3. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe scripts\run_repo_checks.py unit tests\unit\test_bot_client.py`
+
+- Context: Discord 로그인 버튼이 로딩 상태에서 멈추는 운영 오류를 확인했다.
+- Change:
+1. 로그인 링크 버튼에는 `STOCK_DASHBOARD_WEB_BASE_URL`의 `https://` 공개 주소만 사용하게 했다.
+2. 공개 주소가 없거나 Discord 링크 버튼 전송이 실패하면 예외로 끝나지 않고 사용자에게 명확한 오류 또는 텍스트 링크를 반환하게 했다.
+- Verification:
+1. `$env:DISCORD_BOT_TOKEN='ci-placeholder-token'; .\.venv\Scripts\python.exe -m compileall bot\features\dashboard_login\command.py`
 - Status: done
 
 ## 2026-06-19
