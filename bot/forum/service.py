@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import discord
 
@@ -6,6 +7,65 @@ from bot.app.types import AppState
 from bot.common.clock import date_key
 from bot.common.errors import ForumChannelTypeError
 from bot.forum.repository import get_daily_posts_for_guild
+
+
+async def _find_thread_by_title(channel: discord.ForumChannel, post_title: str) -> discord.Thread | None:
+    seen_thread_ids: set[int] = set()
+
+    def matches(candidate: Any) -> bool:
+        thread_id = getattr(candidate, "id", None)
+        if not isinstance(thread_id, int) or thread_id in seen_thread_ids:
+            return False
+        seen_thread_ids.add(thread_id)
+        if getattr(candidate, "name", None) != post_title:
+            return False
+        parent_id = getattr(candidate, "parent_id", None)
+        return parent_id in {None, channel.id}
+
+    for candidate in getattr(channel, "threads", []):
+        if matches(candidate) and isinstance(candidate, discord.Thread):
+            return candidate
+
+    guild = getattr(channel, "guild", None)
+    for candidate in getattr(guild, "threads", []):
+        if matches(candidate) and isinstance(candidate, discord.Thread):
+            return candidate
+
+    archived_threads = getattr(channel, "archived_threads", None)
+    if not callable(archived_threads):
+        return None
+
+    try:
+        async for candidate in archived_threads(limit=100):
+            if matches(candidate) and isinstance(candidate, discord.Thread):
+                return candidate
+    except (discord.Forbidden, discord.HTTPException):
+        return None
+
+    return None
+
+
+async def _fetch_thread_starter_message(
+    thread: discord.Thread,
+    starter_message_id: int | None,
+) -> discord.Message | None:
+    message_ids = []
+    if isinstance(starter_message_id, int):
+        message_ids.append(starter_message_id)
+    thread_id = getattr(thread, "id", None)
+    if isinstance(thread_id, int) and thread_id not in message_ids:
+        message_ids.append(thread_id)
+
+    for message_id in message_ids:
+        try:
+            return await thread.fetch_message(message_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            continue
+
+    starter_message = getattr(thread, "starter_message", None)
+    if isinstance(starter_message, discord.Message):
+        return starter_message
+    return None
 
 
 async def upsert_daily_post(
@@ -38,6 +98,7 @@ async def upsert_daily_post(
 
     thread: discord.Thread | None = None
     starter_message: discord.Message | None = None
+    reused_by_title = False
 
     if isinstance(thread_id, int) and isinstance(starter_message_id, int):
         try:
@@ -55,12 +116,22 @@ async def upsert_daily_post(
 
     files = [discord.File(path, filename=path.name) for path in image_paths]
 
+    if thread is None or starter_message is None:
+        found_thread = await _find_thread_by_title(channel, post_title)
+        if found_thread is not None:
+            thread = found_thread
+            starter_message = await _fetch_thread_starter_message(found_thread, starter_message_id)
+            reused_by_title = True
+
     if thread is not None and starter_message is not None:
         if thread.name != post_title:
             await thread.edit(name=post_title)
         await starter_message.edit(content=body_text, attachments=files)
-        action = "updated"
+        action = "reused" if reused_by_title else "updated"
         message = starter_message
+    elif thread is not None:
+        message = await thread.send(body_text, files=files)
+        action = "reused"
     else:
         created = await channel.create_thread(name=post_title, content=body_text, files=files)
         thread = created.thread

@@ -39,6 +39,7 @@ class FakeThread:
         self._send_count = 0
         self._fail_on_send_number = fail_on_send_number
         self._missing_message_error = missing_message_error
+        self.parent_id = 123
 
     async def fetch_message(self, message_id: int):
         if message_id != self._message.id:
@@ -67,9 +68,13 @@ class FakeThread:
 
 
 class FakeForumChannel:
-    def __init__(self, existing_thread=None, created_thread=None):
+    def __init__(self, existing_thread=None, created_thread=None, threads=None):
+        self.id = 123
         self._existing_thread = existing_thread
         self._created_thread = created_thread
+        self.threads = threads or []
+        self.create_calls = 0
+        self.guild = type("Guild", (), {"threads": []})()
 
     def get_thread(self, thread_id: int):
         if self._existing_thread and self._existing_thread.id == thread_id:
@@ -77,6 +82,8 @@ class FakeForumChannel:
         return None
 
     async def create_thread(self, name, content, files):
+        self.create_calls += 1
+
         class Created:
             def __init__(self, thread, message):
                 self.thread = thread
@@ -164,6 +171,64 @@ async def test_upsert_creates_when_missing(monkeypatch, tmp_path):
     thread, action = await service.upsert_daily_post(client, state, 1, 123, "kheatmap", "title", "body", [image])
     assert action == "created"
     assert thread.id == 77
+
+
+@pytest.mark.asyncio
+async def test_upsert_reuses_same_title_thread_when_state_missing(monkeypatch):
+    monkeypatch.setattr(service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(service.discord, "Thread", FakeThread)
+
+    starter = FakeMessage(77)
+    thread = FakeThread(77, starter)
+    thread.name = "title"
+    channel = FakeForumChannel(threads=[thread])
+    client = FakeClient(channel)
+
+    state = {"commands": {"kheatmap": {"daily_posts_by_guild": {}, "last_images": {}}}, "guilds": {}}
+
+    reused_thread, action = await service.upsert_daily_post(client, state, 1, 123, "kheatmap", "title", "body", [])
+
+    assert action == "reused"
+    assert reused_thread.id == 77
+    assert channel.create_calls == 0
+    record = state["commands"]["kheatmap"]["daily_posts_by_guild"]["1"][service.date_key()]
+    assert record["thread_id"] == 77
+    assert record["starter_message_id"] == 77
+
+
+@pytest.mark.asyncio
+async def test_upsert_reuses_same_title_thread_when_saved_thread_is_stale(monkeypatch):
+    class FakeNotFound(Exception):
+        pass
+
+    monkeypatch.setattr(service.discord, "ForumChannel", FakeForumChannel)
+    monkeypatch.setattr(service.discord, "Thread", FakeThread)
+    monkeypatch.setattr(service.discord, "NotFound", FakeNotFound)
+
+    starter = FakeMessage(77)
+    thread = FakeThread(77, starter, missing_message_error=FakeNotFound)
+    thread.name = "title"
+    channel = FakeForumChannel(threads=[thread])
+    client = FakeClient(channel)
+
+    state = {
+        "commands": {
+            "kheatmap": {
+                "daily_posts_by_guild": {"1": {service.date_key(): {"thread_id": 22, "starter_message_id": 11}}},
+                "last_images": {},
+            }
+        },
+        "guilds": {},
+    }
+
+    reused_thread, action = await service.upsert_daily_post(client, state, 1, 123, "kheatmap", "title", "body", [])
+
+    assert action == "reused"
+    assert reused_thread.id == 77
+    assert channel.create_calls == 0
+    record = state["commands"]["kheatmap"]["daily_posts_by_guild"]["1"][service.date_key()]
+    assert record["thread_id"] == 77
+    assert record["starter_message_id"] == 77
 
 
 @pytest.mark.asyncio
