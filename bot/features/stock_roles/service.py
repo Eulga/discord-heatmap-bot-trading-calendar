@@ -35,7 +35,8 @@ from bot.forum.repository import (
 logger = logging.getLogger(__name__)
 
 MAX_SELECT_OPTIONS = 25
-PERSONAL_ROLE_VIEW_TIMEOUT_SECONDS = 1800
+EPHEMERAL_MESSAGE_DELETE_AFTER_SECONDS = 300
+PERSONAL_ROLE_VIEW_TIMEOUT_SECONDS = EPHEMERAL_MESSAGE_DELETE_AFTER_SECONDS
 ROLE_SYNC_JOB_KEY = "stock_role_sync"
 STALE_ROLE_PREFIX = "미사용 "
 LEGACY_STOCK_ROLE_PREFIXES = ("종목",)
@@ -249,6 +250,23 @@ def _member_role_ids(member: discord.Member) -> set[int]:
     return {role.id for role in member.roles}
 
 
+async def _send_ephemeral(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> None:
+    try:
+        message = await interaction.followup.send(
+            *args,
+            ephemeral=True,
+            wait=True,
+            **kwargs,
+        )
+    except discord.HTTPException:
+        raise
+
+    try:
+        await message.delete(delay=EPHEMERAL_MESSAGE_DELETE_AFTER_SECONDS)
+    except discord.HTTPException:
+        logger.debug("[stock-role] ephemeral message delete scheduling failed", exc_info=True)
+
+
 class PersonalStockRoleSelect(discord.ui.Select):
     def __init__(self, index: int, targets: list[StockRoleTarget], member_role_ids: set[int]) -> None:
         self.targets = targets
@@ -327,7 +345,7 @@ class PersonalStockRoleSelect(discord.ui.Select):
         if failed:
             lines.append("권한 문제로 변경하지 못한 종목: " + ", ".join(failed))
 
-        await interaction.followup.send("\n".join(lines) if lines else "변경된 구독이 없습니다.", ephemeral=True)
+        await _send_ephemeral(interaction, "\n".join(lines) if lines else "변경된 구독이 없습니다.")
 
 
 class PersonalStockRoleView(discord.ui.View):
@@ -350,9 +368,11 @@ class StockRoleManageButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("서버 안에서만 사용할 수 있습니다.", ephemeral=True)
+            await _send_ephemeral(interaction, "서버 안에서만 사용할 수 있습니다.")
             return
 
         member = interaction.user
@@ -362,14 +382,14 @@ class StockRoleManageButton(discord.ui.Button):
         state = load_state()
         targets = _stock_role_targets_from_state(state, guild.id)
         if not targets:
-            await interaction.response.send_message("구독할 관심종목이 없습니다.", ephemeral=True)
+            await _send_ephemeral(interaction, "구독할 관심종목이 없습니다.")
             return
 
         view = PersonalStockRoleView(targets, member)
-        await interaction.response.send_message(
+        await _send_ephemeral(
+            interaction,
             "체크된 종목은 현재 구독 중입니다. 구독할 종목만 선택한 뒤 저장하면 됩니다.",
             view=view,
-            ephemeral=True,
         )
 
 
