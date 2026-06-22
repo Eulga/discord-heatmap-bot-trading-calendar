@@ -28,6 +28,7 @@ from bot.forum.repository import (
 )
 from bot.features.auto_scheduler import auto_screenshot_scheduler
 from bot.features.admin.command import register as register_admin
+from bot.features.dashboard_access_sync.service import dashboard_access_role_scheduler
 from bot.features.dashboard_login.command import ensure_dashboard_login_panel, register as register_dashboard_login
 from bot.features.kheatmap.command import register as register_kheatmap
 from bot.features.quote.command import register as register_quote
@@ -138,6 +139,7 @@ class BotApp:
     def __init__(self) -> None:
         intents = discord.Intents.default()
         intents.message_content = False
+        intents.members = True
 
         self.client = discord.Client(intents=intents)
         self.tree = app_commands.CommandTree(self.client)
@@ -145,6 +147,7 @@ class BotApp:
         self._scheduler_task: asyncio.Task | None = None
         self._intel_task: asyncio.Task | None = None
         self._stock_role_task: asyncio.Task | None = None
+        self._dashboard_access_role_task: asyncio.Task | None = None
         self._internal_api_runner = None
 
         register_admin(self.tree, self.client)
@@ -186,6 +189,9 @@ class BotApp:
             if self._stock_role_task is None or self._stock_role_task.done():
                 self._stock_role_task = asyncio.create_task(stock_role_scheduler(self.client))
                 logger.info("Stock role scheduler started.")
+            if self._dashboard_access_role_task is None or self._dashboard_access_role_task.done():
+                self._dashboard_access_role_task = asyncio.create_task(dashboard_access_role_scheduler(self.client))
+                logger.info("Dashboard access role scheduler started.")
             if self._internal_api_runner is None:
                 self._internal_api_runner = await start_internal_api_server()
             logger.info("Logged in as %s (ID: %s)", self.client.user, self.client.user.id)
