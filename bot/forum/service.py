@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 from typing import Any
 
 import discord
@@ -7,6 +8,8 @@ from bot.app.types import AppState
 from bot.common.clock import date_key
 from bot.common.errors import ForumChannelTypeError
 from bot.forum.repository import get_daily_posts_for_guild
+
+logger = logging.getLogger(__name__)
 
 
 async def _find_thread_by_title(channel: discord.ForumChannel, post_title: str) -> discord.Thread | None:
@@ -125,8 +128,20 @@ async def upsert_daily_post(
 
     if thread is not None and starter_message is not None:
         if thread.name != post_title:
-            await thread.edit(name=post_title)
-        await starter_message.edit(content=body_text, attachments=files)
+            try:
+                await thread.edit(name=post_title)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("[forum] 기존 스레드 제목을 갱신하지 못했습니다 channel=%s thread=%s: %s", channel.id, thread.id, exc)
+        try:
+            await starter_message.edit(content=body_text, attachments=files)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning(
+                "[forum] 기존 스레드 시작 메시지를 갱신하지 못했지만 후속 전송은 계속합니다 channel=%s thread=%s message=%s: %s",
+                channel.id,
+                thread.id,
+                getattr(starter_message, "id", None),
+                exc,
+            )
         action = "reused" if reused_by_title else "updated"
         message = starter_message
     elif thread is not None:

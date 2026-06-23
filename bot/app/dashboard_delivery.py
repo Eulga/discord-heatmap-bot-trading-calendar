@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 def _post_dashboard_delivery_results_sync(kind: str, results: list[dict[str, Any]]) -> None:
-    if not results or not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+    if not results:
+        return
+
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        logger.warning("[dashboard-delivery] %s result save skipped: dashboard config missing", kind)
         return
 
     request = Request(
@@ -42,5 +46,6 @@ async def record_dashboard_delivery_results(kind: str, results: list[dict[str, A
 
     try:
         await asyncio.to_thread(_post_dashboard_delivery_results_sync, kind, results)
+        logger.info("[dashboard-delivery] %s result saved results=%s", kind, len(results))
     except Exception as exc:
         logger.warning("[dashboard-delivery] %s result save failed: %s", kind, exc)

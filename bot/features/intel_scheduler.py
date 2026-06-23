@@ -516,7 +516,11 @@ async def _fetch_dashboard_report_deliveries() -> list[dict[str, Any]]:
 
 
 def _post_dashboard_alert_delivery_results_sync(results: list[dict[str, Any]]) -> None:
-    if not results or not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+    if not results:
+        return
+
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        logger.warning("[intel] dashboard alert delivery result save skipped: dashboard config missing")
         return
 
     request = Request(
@@ -542,6 +546,7 @@ async def _record_dashboard_alert_delivery_results(results: list[dict[str, Any]]
 
     try:
         await asyncio.to_thread(_post_dashboard_alert_delivery_results_sync, results)
+        logger.info("[intel] dashboard alert delivery result saved results=%s", len(results))
     except Exception as exc:
         logger.warning("[intel] dashboard alert delivery result save failed: %s", exc)
 
