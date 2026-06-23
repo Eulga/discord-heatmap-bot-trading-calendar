@@ -5,8 +5,7 @@ Use it for larger changes that should move through clean analysis,
 implementation, review, test, and final-review sessions.
 
 The harness is an agent operating tool. It is not bot runtime behavior, not a
-current implementation spec, and not a replacement for the canonical docs in
-`docs/context/`.
+current implementation spec, and not a replacement for `docs/IMPLEMENTATION.md`.
 
 ## Flow
 
@@ -74,8 +73,8 @@ Every role must:
 
 - Read `AGENTS.md`, `state.json`, `requirements.md`, its prompt, the previous
   report, and the current repository state.
-- Treat `docs/context/CURRENT_STATE.md`, `session-handoff.md`, and `goals.md`
-  as the starting context for repo truth.
+- Treat `docs/IMPLEMENTATION.md` and `docs/operations/*` as the starting context
+  for repo truth.
 - Avoid relying on chat history from previous sessions.
 - Keep work inside its role boundary.
 - Write a report using the common report format.

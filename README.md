@@ -125,23 +125,12 @@ Live-only:
 
 ## Deeper Docs
 
-- Current state summary:
-  - `docs/context/CURRENT_STATE.md`
-- Latest active handoff:
-  - `docs/context/session-handoff.md`
-- Project operating rules:
-  - `docs/context/operating-rules.md`
+- Current implementation map:
+  - `docs/IMPLEMENTATION.md`
 - Runtime runbook:
   - `docs/operations/runtime-runbook.md`
 - Config boundary and env/state reference:
   - `docs/operations/config-reference.md`
-- Deep current implementation reference:
-  - `docs/specs/as-is-functional-spec.md`
-- Target/to-be external intel contract:
-  - `docs/specs/external-intel-api-spec.md`
-- Existing integration test references:
-  - `docs/specs/integration-test-cases.md`
-  - `docs/specs/integration-live-test-cases.md`
 
 ## Agent Workflow
 

@@ -21,8 +21,8 @@ Responsibilities:
 - Implement only the approved analysis scope.
 - Preserve unrelated user changes.
 - Add or update focused tests when needed.
-- Update the minimum required docs/logs under `docs/context/` or operations docs
-  when behavior or operator truth changes.
+- Update `docs/IMPLEMENTATION.md` or operations docs when behavior or operator
+  truth changes.
 - Record changed files, important decisions, and verification commands.
 
 Completion:

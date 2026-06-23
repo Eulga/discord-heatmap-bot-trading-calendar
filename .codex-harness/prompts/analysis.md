@@ -11,9 +11,9 @@ python3 .codex-harness/bin/harness.py heartbeat analysis
 Inputs:
 
 - `AGENTS.md`
-- `docs/context/CURRENT_STATE.md`
-- `docs/context/session-handoff.md`
-- `docs/context/goals.md`
+- `docs/IMPLEMENTATION.md`
+- `docs/operations/config-reference.md`
+- `docs/operations/runtime-runbook.md`
 - `.codex-harness/state.json`
 - `.codex-harness/requirements.md`
 - Current repository structure and relevant source files

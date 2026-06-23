@@ -1,146 +1,55 @@
-# Runtime Runbook
+# 운영 런북
 
-## Local Run
-- Local bootstrap currently requires Python `3.10+`.
-- On the current macOS host, `python3` is still `3.9.6`, so local bootstrap uses `/opt/homebrew/bin/python3.11`.
-- Bootstrap the virtual environment:
-  - Windows: `py -3 scripts/bootstrap_dev_env.py --with-playwright`
-  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --with-playwright`
-  - macOS/Linux alternate: any other `python3.10+` interpreter
-- If `.venv` was created on another OS or is no longer runnable:
-  - Windows: `py -3 scripts/bootstrap_dev_env.py --recreate --with-playwright`
-  - macOS/Linux: `python3.11 scripts/bootstrap_dev_env.py --recreate --with-playwright`
-  - macOS/Linux alternate: any other `python3.10+` interpreter
-- Optional shell activation after bootstrap:
-  - Windows: `.\.venv\Scripts\Activate.ps1`
-  - macOS/Linux: `source .venv/bin/activate`
-- Prepare configuration:
-  - copy `.env.example` to `.env`
-  - set the bot token and any feature-specific credentials you actually need
-- Start the bot:
-  - `python -m bot.main`
+## 실행
 
-## Standard Validation
-- Default local and CI validation entrypoint:
-  - Windows: `py -3 scripts/run_repo_checks.py`
-  - macOS/Linux: `python3 scripts/run_repo_checks.py`
-- CI note:
-  - `.github/workflows/pr-checks.yml` exports placeholder `DISCORD_BOT_TOKEN=ci-placeholder-token` because `bot.app.settings` requires a token at import time even for non-live test collection
-  - local validation still needs `.env` or an explicit `DISCORD_BOT_TOKEN` when no local env file is present
-- Narrower suites:
-  - Windows: `py -3 scripts/run_repo_checks.py unit`
-  - macOS/Linux: `python3 scripts/run_repo_checks.py unit`
-  - Windows: `py -3 scripts/run_repo_checks.py integration`
-  - macOS/Linux: `python3 scripts/run_repo_checks.py integration`
-  - Windows: `py -3 scripts/run_repo_checks.py collect`
-  - macOS/Linux: `python3 scripts/run_repo_checks.py collect`
-- Live-only tests:
-  - Windows: `py -3 scripts/run_repo_checks.py --include-live`
-  - macOS/Linux: `python3 scripts/run_repo_checks.py --include-live`
+로컬:
 
-## Docker Run
-- Start:
-  - `docker compose up -d --build`
-- Start with PostgreSQL state backend:
-  - set `STATE_BACKEND=postgres`
-  - set `DATABASE_URL=postgresql://discord_heatmap:discord_heatmap@postgres:5432/discord_heatmap`
-  - run `docker compose up -d --build`
-- View logs:
-  - `docker compose logs -f discord-bot`
-- View PostgreSQL logs:
-  - `docker compose logs -f postgres`
-- Stop:
-  - `docker compose down`
-- Docker-specific note:
-  - mounted `data/` directories are used so logs, state, and cached artifacts can survive container recreation
-  - the local PostgreSQL service uses the named Docker volume `postgres-data`
-  - the Docker image installs the Playwright Chromium browser at build time for heatmap capture
-  - when the stock dashboard must trigger heatmap generation, set `INTERNAL_API_ENABLED=true`, `INTERNAL_API_TOKEN`, and connect the bot container to the dashboard shared Docker network
-  - if local Python is older than `3.10`, Docker is the supported fallback for validation commands such as `docker compose run --rm --build -v ${PWD}:/app discord-bot python scripts/run_repo_checks.py collect`
+```bash
+python -m bot.main
+```
 
-## State Backend
-- Default state backend:
-  - `STATE_BACKEND=file`
-  - runtime state is `data/state/state.json`
-- PostgreSQL state backend:
-  - `STATE_BACKEND=postgres`
-  - `DATABASE_URL` is required
-  - `POSTGRES_STATE_KEY` defaults to `default`
-  - the bot creates table `bot_app_state` on first use
-  - the full app-state document is stored in `state JSONB`
-  - when no database row exists, first load seeds from `data/state/state.json` if present
-- PostgreSQL failures are fail-closed. If the backend is selected and the database is unavailable, the bot raises instead of silently replacing state with an empty document.
+Docker:
 
-## Discord Setup
-- Confirm the bot is present in the target server and application commands are visible.
-- Configure per-guild routes through the slash commands intended for forum routing.
-- Configure schedule/event delivery with `/setschedulechannel` or bootstrap `SCHEDULE_ALERT_CHANNEL_ID` when earnings and economic calendar alerts should go to a text channel.
-- When features beyond the base heatmap flow are enabled, configure their specific target channels/forums as needed.
-- The bot must be able to use application commands and post/send in the configured Discord resources.
-- Code-confirmed command boundary:
-  - `/setforumchannel`, `/setnewsforum`, `/seteodforum`, `/setschedulechannel`, `/autoscreenshot` require guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS`
-  - optional `/setwatchforum` requires guild owner, guild administrator, or a user ID listed in `DISCORD_GLOBAL_ADMIN_USER_IDS` when `WATCH_FEATURE_ENABLED=true`
-  - `/kheatmap` and `/usheatmap` require guild context
-  - optional `/watch *` requires guild context but is not admin-gated when `WATCH_FEATURE_ENABLED=true`
-  - `/health`, `/last-run`, and `/source-status` do not currently apply a visible authorization gate in code
-- Watch-specific operator note:
-  - the Discord watch flow is disabled by default; enable both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true` before using it
-  - configure `/setwatchforum` before using `/watch add`
-  - watch notifications now come from per-symbol forum-thread comments, so users need to follow the relevant thread if they want Discord notifications
-  - `마감가 알림` is created only on KST due-minute poll ticks: `KRX:*` at 16:00 KST and `NAS:*`/`NYS:*`/`AMS:*` at 07:00 KST
-  - if the runtime misses the due minute, close finalization is left pending until the next due minute; later regular-session current-price and band updates still continue
-  - if a preserved pending close target has aged past the immediately adjacent trading session, the bot drops that pending retry state instead of retrying forever with an unresolvable snapshot
+```bash
+docker compose up -d --build discord-bot
+docker compose logs -f discord-bot
+```
 
-## Logs and State Paths
-- Main mutable state, file backend:
-  - `data/state/state.json`
-- Main mutable state, PostgreSQL backend:
-  - `bot_app_state.state` JSONB row identified by `POSTGRES_STATE_KEY`
-- Optional runtime registry override:
-  - `data/state/instrument_registry.json`
-- Runtime logs:
-  - `data/logs/bot.log`
-- Cached heatmap artifacts:
-  - `data/heatmaps/kheatmap/`
-  - `data/heatmaps/usheatmap/`
-- Internal API:
-  - `POST /internal/heatmaps/generate` refreshes cached heatmap image files for the dashboard when enabled
-  - protect requests with `X-Internal-Token: <INTERNAL_API_TOKEN>`
-- Deep state/config behavior reference:
-  - `../specs/as-is-functional-spec.md`
+## 검증
 
-## Basic Operator Checks
-- After startup, confirm the bot connected and command sync completed in logs or status surfaces.
-- Confirm the expected slash commands are visible in Discord.
-- Set the required forum routes for the guild before expecting posts or alerts.
-- Use the status commands to inspect recent job/provider state when debugging.
-- If scheduler behavior looks wrong, also check for duplicate running bot processes and stale local/container state.
-- For change validation before shipping, prefer `scripts/run_repo_checks.py` through the active interpreter over ad hoc `pytest` commands so local and CI behavior stay aligned.
+```bash
+python scripts/run_repo_checks.py
+```
 
-## Troubleshooting
-- Commands not visible:
-  - check bot presence in the guild
-  - check application-command permissions
-  - allow for global command propagation delay
-- Forum posting or watch-thread delivery fails:
-  - verify the relevant guild route is configured
-  - verify the bot can post/send in the target resource
-  - inspect `data/logs/bot.log` and the configured app-state backend
-- Watch thread behavior looks wrong:
-  - verify `watch_forum_channel_id` exists in the configured app-state backend
-  - check `commands.watchpoll.symbol_threads_by_guild` and `system.watch_session_alerts`
-  - confirm the bot can create forum threads and send/edit thread comments in the configured watch forum
-- Render or capture problems:
-  - retry after cached artifacts expire or are intentionally refreshed
-  - verify Playwright/browser setup
-- Unexpected scheduler behavior:
-  - inspect latest run state via status commands or `data/state/state.json`
-  - when using PostgreSQL, inspect `bot_app_state` for the selected `POSTGRES_STATE_KEY`
-  - check whether multiple bot instances are running
-  - use `../specs/as-is-functional-spec.md` as the current deep reference for exact scheduler semantics
+맥미니에서 재기동:
 
-## Shutdown / Cleanup
-- Stop local or Docker bot processes before starting another instance with the same token.
-- Check for duplicate local/background sessions when debugging repeated or unexpected behavior.
-- Keep `data/state/`, `data/logs/`, and `data/heatmaps/` if you need file-backend continuity across restarts.
-- Keep the `postgres-data` Docker volume if you need PostgreSQL-backend continuity across container recreation.
+```bash
+docker compose up -d --build discord-bot
+docker compose logs --tail=100 discord-bot
+```
+
+## 자주 보는 문제
+
+### 메시지가 안 감
+
+1. 채널 ID가 맞는지 확인한다.
+2. 봇 role에 채널 보기, 메시지 보내기, 스레드 만들기, embed 링크 권한이 있는지 확인한다.
+3. 대시보드 delivery API 호출 실패 로그를 확인한다.
+4. 전송 실패 로그가 운영 화면에 남는지 확인한다.
+
+### 로그인 링크가 이상함
+
+1. `STOCK_DASHBOARD_BASE_URL` 값을 확인한다.
+2. 공개 URL이 바뀌었으면 bot을 재기동한다.
+3. 토큰 만료 시간이 지나지 않았는지 확인한다.
+
+### 역할 부여가 안 됨
+
+1. 봇 role에 역할 관리 권한이 있는지 확인한다.
+2. 봇 role이 지급하려는 종목 role보다 위에 있는지 확인한다.
+3. 역할 선택 메시지를 다시 동기화한다.
+
+### 관심종목 알림 스레드가 여러 개 생김
+
+같은 일자 스레드를 재사용해야 한다.
+채널/스레드 검색 권한 또는 상태 저장 실패를 먼저 확인한다.

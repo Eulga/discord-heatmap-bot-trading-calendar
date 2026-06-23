@@ -1,190 +1,22 @@
-# Config Reference
+# 설정 기준
 
-## Scope
-- This document summarizes the configuration boundary used by the current project structure.
-- It is not a deep runtime spec and does not attempt to restate every provider query list or heuristic constant.
-- For current implementation details, use `../specs/as-is-functional-spec.md`.
+주요 환경변수만 정리한다.
 
-## Secret vs Non-Secret Boundary
-- Secrets, tokens, and credentials belong in env.
-- Mutable per-guild routing and other operational state belong in the configured app-state backend.
-- The default app-state backend is `data/state/state.json`; `STATE_BACKEND=postgres` stores the same state document in PostgreSQL.
-- Bootstrap/default channel IDs may exist in env, but they are not the primary runtime source of truth in the inspected runtime paths.
+| 변수 | 용도 |
+| --- | --- |
+| `DISCORD_TOKEN` | 봇 토큰 |
+| `DATABASE_URL` | 봇 상태 DB |
+| `STOCK_DASHBOARD_BASE_URL` | 사용자가 접속할 대시보드 URL |
+| `STOCK_DASHBOARD_INTERNAL_BASE_URL` | 봇이 내부에서 호출할 대시보드 URL |
+| `STOCK_DASHBOARD_INTERNAL_TOKEN` | 대시보드 내부 API 호출 토큰 |
+| `DISCORD_LOGIN_CHANNEL_ID` | 로그인 버튼 채널 |
+| `DISCORD_ROLE_ASSIGN_CHANNEL_ID` | 관심종목 역할 선택 채널 |
+| `DISCORD_WATCH_ALERT_CHANNEL_ID` | 관심종목 알림 채널 |
+| `DISCORD_NEWS_CHANNEL_ID` | 뉴스 채널 |
+| `DISCORD_SCHEDULE_CHANNEL_ID` | 일정/어닝 알림 채널 |
+| `DISCORD_MARKET_REPORT_CHANNEL_ID` | 시장 리포트 채널 |
+| `DISCORD_WATCH_REPORT_CHANNEL_ID` | 관심종목 리포트 채널 |
+| `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS` | 리포트 전송 후보 조회 주기 |
 
-## Required Secrets
-- Always required:
-  - `DISCORD_BOT_TOKEN`
-- Conditionally required when the related live feature path is selected:
-  - `NAVER_NEWS_CLIENT_ID`, `NAVER_NEWS_CLIENT_SECRET`
-    - required when `NEWS_PROVIDER_KIND` is `naver` or `hybrid`
-  - `MARKETAUX_API_TOKEN`
-    - required when `NEWS_PROVIDER_KIND` is `marketaux` or `hybrid`
-  - `STOCK_DASHBOARD_API_BASE_URL`, `STOCK_DASHBOARD_INTERNAL_TOKEN`
-    - required when `NEWS_PROVIDER_KIND` is `dashboard`
-  - `KIS_APP_KEY`, `KIS_APP_SECRET`
-    - required when `MARKET_DATA_PROVIDER_KIND` is `kis`
-  - `DART_API_KEY`
-    - required only when instrument registry refresh actually runs a live rebuild
-  - `DATABASE_URL`
-    - required only when `STATE_BACKEND` is `postgres` or `postgresql`
-  - `INTERNAL_API_TOKEN`
-    - required only when `INTERNAL_API_ENABLED=true`
-- Optional provider/status envs with narrower current roles:
-  - `MASSIVE_API_KEY` or legacy `POLYGON_API_KEY`
-    - optional US quote fallback only when `MARKET_DATA_PROVIDER_KIND` is `kis`
-  - `TWELVEDATA_API_KEY`
-    - currently only affects `/source-status` default rows
-  - `OPENFIGI_API_KEY`
-    - currently only affects `/source-status` default rows
-  - `ADMIN_STATUS_CHANNEL_ID`
-    - parsed from env but no direct runtime use was found in current bot code
-
-## Bootstrap-only Env Vars
-- The inspected runtime docs currently treat these as bootstrap/default route IDs rather than the primary runtime routing source:
-  - `DEFAULT_FORUM_CHANNEL_ID`
-  - `NEWS_TARGET_FORUM_ID`
-  - `EOD_TARGET_FORUM_ID`
-  - `SCHEDULE_ALERT_CHANNEL_ID`
-- Startup copies these IDs into per-guild state only when the channel is accessible, the type matches, a guild context exists, and state does not already have that route.
-- Runtime routing should be checked in the configured app-state backend when validating actual behavior.
-- `SCHEDULE_ALERT_CHANNEL_ID` must point to a regular text channel; event-type dashboard alerts such as earnings and economic calendar items are delivered there.
-- Watch routing no longer has an env bootstrap/default channel; current code requires per-guild `watch_forum_channel_id` in state.
-
-## Active Runtime Request Knobs
-- Shared live-provider request behavior:
-  - `INTEL_API_TIMEOUT_SECONDS`
-  - `INTEL_API_RETRY_COUNT`
-- These are active runtime envs used by current live provider construction for news and market-data paths.
-
-## Feature Toggles
-- News:
-  - `NEWS_BRIEFING_ENABLED`
-  - `NEWS_BRIEFING_TIME`
-  - `NEWS_BRIEFING_TRADING_DAYS_ONLY`
-  - `NEWS_PROVIDER_KIND`
-  - `STOCK_DASHBOARD_API_BASE_URL`
-  - `STOCK_DASHBOARD_INTERNAL_TOKEN`
-  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED`
-  - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`
-  - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH`
-  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED`
-  - `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS`
-  - `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID`
-  - `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID`
-  - `STOCK_DASHBOARD_WEB_BASE_URL`
-  - `STOCK_DASHBOARD_LOGIN_CHANNEL_ID`
-- Watch:
-  - `WATCH_FEATURE_ENABLED`
-  - `WATCH_POLL_ENABLED`
-  - `WATCH_POLL_INTERVAL_SECONDS`
-  - `WATCH_ALERT_THRESHOLD_PCT`
-  - `MARKET_DATA_PROVIDER_KIND`
-- EOD:
-  - `EOD_SUMMARY_ENABLED`
-  - `EOD_SUMMARY_TIME`
-- Registry refresh:
-  - `INSTRUMENT_REGISTRY_REFRESH_ENABLED`
-  - `INSTRUMENT_REGISTRY_REFRESH_TIME`
-- Logging:
-  - `LOG_FILE_PATH`
-  - `LOG_RETENTION_DAYS`
-  - `LOG_CONSOLE_ENABLED`
-- Internal API:
-  - `INTERNAL_API_ENABLED`
-  - `INTERNAL_API_HOST`
-  - `INTERNAL_API_PORT`
-  - `INTERNAL_API_TOKEN`
-- State persistence:
-  - `STATE_BACKEND`
-  - `DATABASE_URL`
-  - `POSTGRES_STATE_KEY`
-
-## Code-Confirmed Defaults
-- Shared live-provider request behavior:
-  - `INTEL_API_TIMEOUT_SECONDS = 5`
-  - `INTEL_API_RETRY_COUNT = 1`
-- Cache and auto screenshot:
-  - `CACHE_TTL_SECONDS = 3600`
-  - auto screenshot runs only on exact-minute checks hard-coded as `15:35` KST for Korea and `06:05` KST for US
-- News:
-  - `NEWS_BRIEFING_ENABLED = False`
-  - `NEWS_BRIEFING_TIME = "07:30"`
-  - `NEWS_BRIEFING_TRADING_DAYS_ONLY = False`
-  - `NEWS_PROVIDER_KIND = "mock"`
-  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED = True`
-  - `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS = 300`
-  - `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH = 6`
-  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED = True`
-  - `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS = 60`
-- Watch:
-  - `WATCH_FEATURE_ENABLED = False`
-  - `WATCH_POLL_ENABLED = False`
-  - `WATCH_POLL_INTERVAL_SECONDS = 60`
-  - `WATCH_ALERT_THRESHOLD_PCT = 3.0`
-  - `MARKET_DATA_PROVIDER_KIND = "mock"`
-- EOD:
-  - `EOD_SUMMARY_ENABLED = False`
-  - `EOD_SUMMARY_TIME = "16:20"`
-- Registry refresh:
-  - `INSTRUMENT_REGISTRY_REFRESH_ENABLED = False`
-  - `INSTRUMENT_REGISTRY_REFRESH_TIME = "06:20"`
-- Logging:
-  - `LOG_RETENTION_DAYS = 7`
-  - `LOG_CONSOLE_ENABLED = True`
-- Internal API:
-  - `INTERNAL_API_ENABLED = False`
-  - `INTERNAL_API_HOST = "0.0.0.0"`
-  - `INTERNAL_API_PORT = 8090`
-  - `INTERNAL_API_TOKEN` has no default
-- State persistence:
-  - `STATE_BACKEND = "file"`
-  - `POSTGRES_STATE_KEY = "default"`
-  - `DATABASE_URL` has no default and is required only for the PostgreSQL backend
-
-## Code-Confirmed Provider Wiring
-- News provider selection:
-  - `NEWS_PROVIDER_KIND = "mock"` -> `MockNewsProvider`
-  - `NEWS_PROVIDER_KIND = "dashboard"` -> `DashboardNewsProvider`, reading `GET /api/discord/deliveries/news` from the stock dashboard
-  - `NEWS_PROVIDER_KIND = "naver"` -> `NaverNewsProvider` or `ErrorNewsProvider` when credentials are missing
-  - `NEWS_PROVIDER_KIND = "marketaux"` -> `MarketauxNewsProvider` or `ErrorNewsProvider` when the token is missing
-  - `NEWS_PROVIDER_KIND = "hybrid"` -> `HybridNewsProvider` combining Naver for domestic and Marketaux for global, or `ErrorNewsProvider` when either credential set is missing
-  - `STOCK_DASHBOARD_NEWS_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/news` and post unsent important articles to the configured news forum every `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS`.
-  - `STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED=true` makes the scheduler poll Dashboard `GET /api/discord/deliveries/reports` and post unsent market/watchlist reports to `STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID` and `STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID` every `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS`.
-  - Report delivery defaults to a shorter 60-second poll because market/watchlist reports can be generated a few seconds apart and should not wait for the 5-minute news cadence.
-  - `STOCK_DASHBOARD_WEB_BASE_URL` is used to build Dashboard links in Discord embeds and the Discord login response. Dashboard login requires this value to be a reachable `https://` URL.
-  - `STOCK_DASHBOARD_LOGIN_CHANNEL_ID` points to the regular text channel where the bot maintains the Dashboard registration/login button panel.
-- Market data provider selection:
-  - `MARKET_DATA_PROVIDER_KIND = "mock"` -> `MockMarketDataProvider`
-  - `MARKET_DATA_PROVIDER_KIND = "kis"` -> `KisMarketDataProvider` or `ErrorMarketDataProvider` when KIS credentials are missing
-  - when `MARKET_DATA_PROVIDER_KIND = "kis"` and `MASSIVE_API_KEY` or `POLYGON_API_KEY` is present, a `MassiveSnapshotMarketDataProvider` is attached as a US-only fallback through `RoutedMarketDataProvider`
-  - the optional watch path consumes normalized `WatchSnapshot` data via `get_watch_snapshot(...)`, not text-channel quote alerts
-- Watch feature wiring:
-  - `WATCH_FEATURE_ENABLED=false` keeps `/watch` and `/setwatchforum` out of the registered command tree and skips legacy watch-route startup warnings.
-  - `WATCH_FEATURE_ENABLED=true` enables watch command registration.
-  - scheduler polling requires both `WATCH_FEATURE_ENABLED=true` and `WATCH_POLL_ENABLED=true`.
-- EOD wiring:
-  - the scheduler currently uses `MockEodSummaryProvider()` unconditionally when EOD is enabled
-- Internal API wiring:
-  - `POST /internal/heatmaps/generate` is available only when `INTERNAL_API_ENABLED=true` and `INTERNAL_API_TOKEN` is set
-  - the endpoint captures fresh Korea/US heatmap image files and updates command `last_images`; it does not post or update Discord forum threads
-- Status-only provider rows:
-  - `twelvedata_reference` and `openfigi_mapping` are currently status rows, not active runtime providers in the inspected bot code
-
-## Runtime State Paths
-- Main mutable app state when `STATE_BACKEND=file`:
-  - `data/state/state.json`
-- Main mutable app state when `STATE_BACKEND=postgres` or `postgresql`:
-  - PostgreSQL table `bot_app_state`
-  - row key from `POSTGRES_STATE_KEY`
-  - full `AppState` document stored in `state JSONB`
-- Optional runtime registry artifact:
-  - `data/state/instrument_registry.json`
-- Logs:
-  - `data/logs/bot.log`
-- Cached heatmap data:
-  - `data/heatmaps/kheatmap/`
-  - `data/heatmaps/usheatmap/`
-
-## Known Ambiguities
-- A provider env var appearing in settings or status output still does not prove that the related job is enabled or actively running.
-- This document confirms core defaults and current provider wiring, but not every future/planned provider slot described in historical reports or target-contract docs.
+운영 URL은 `.env`에서만 관리한다.
+디스코드 메시지에 잘못된 한글 도메인처럼 보이는 URL이 뜨면 `STOCK_DASHBOARD_BASE_URL` 값부터 확인한다.

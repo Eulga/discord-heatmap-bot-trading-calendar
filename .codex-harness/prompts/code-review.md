@@ -11,7 +11,7 @@ python3 .codex-harness/bin/harness.py heartbeat code-review
 Inputs:
 
 - `AGENTS.md`
-- `docs/context/review-rules.md`
+- `docs/IMPLEMENTATION.md`
 - `.codex-harness/state.json`
 - `.codex-harness/requirements.md`
 - `.codex-harness/reports/01-analysis.md`
