@@ -191,7 +191,7 @@ def _dashboard_targets_from_payload(payload: dict[str, Any]) -> dict[str, StockR
 
 
 def fetch_dashboard_stock_role_targets() -> list[StockRoleTarget]:
-    targets = _dashboard_targets_from_payload(_fetch_dashboard_quotes(""))
+    targets = _dashboard_targets_from_payload(_fetch_dashboard_quotes("", limit="all"))
 
     if not targets:
         theme_payload = _fetch_dashboard_themes()
@@ -203,13 +203,25 @@ def fetch_dashboard_stock_role_targets() -> list[StockRoleTarget]:
                 theme_name = str(raw_theme.get("name") or "").strip()
                 if not theme_name:
                     continue
-                targets.update(_dashboard_targets_from_payload(_fetch_dashboard_quotes(theme_name)))
+                targets.update(_dashboard_targets_from_payload(_fetch_dashboard_quotes(theme_name, limit="all")))
 
     return sorted(targets.values(), key=lambda target: (target.category, target.market, target.name, target.symbol))
 
 
 def chunk_stock_role_targets(targets: list[StockRoleTarget]) -> list[list[StockRoleTarget]]:
     return [targets[index : index + MAX_SELECT_OPTIONS] for index in range(0, len(targets), MAX_SELECT_OPTIONS)]
+
+
+def group_stock_role_targets_by_category(targets: list[StockRoleTarget]) -> dict[str, list[StockRoleTarget]]:
+    groups: dict[str, list[StockRoleTarget]] = {}
+    for target in targets:
+        category = target.category.strip() or "기타"
+        groups.setdefault(category, []).append(target)
+
+    return {
+        category: sorted(group_targets, key=lambda target: (target.market, target.name, target.symbol))
+        for category, group_targets in sorted(groups.items(), key=lambda item: item[0])
+    }
 
 
 def _option_label(target: StockRoleTarget) -> str:
@@ -226,6 +238,10 @@ def _option_description(target: StockRoleTarget) -> str | None:
 def _subscription_option_label(target: StockRoleTarget, subscribed: bool) -> str:
     prefix = "✅ " if subscribed else "▫ "
     return f"{prefix}{_option_label(target)}"[:100]
+
+
+def _category_option_label(category: str, count: int) -> str:
+    return f"{category} · {count}종목"[:100]
 
 
 def _stock_role_targets_from_state(state: dict[str, Any], guild_id: int) -> list[StockRoleTarget]:
@@ -267,8 +283,57 @@ async def _send_ephemeral(interaction: discord.Interaction, *args: Any, **kwargs
         logger.debug("[stock-role] ephemeral message delete scheduling failed", exc_info=True)
 
 
+class PersonalStockCategorySelect(discord.ui.Select):
+    def __init__(
+        self,
+        grouped_targets: dict[str, list[StockRoleTarget]],
+        selected_category: str,
+    ) -> None:
+        categories = list(grouped_targets.items())[:MAX_SELECT_OPTIONS]
+        options = [
+            discord.SelectOption(
+                label=_category_option_label(category, len(targets)),
+                value=category,
+                default=category == selected_category,
+            )
+            for category, targets in categories
+        ]
+        super().__init__(
+            custom_id="stock-role-personal-category-select",
+            placeholder="카테고리 선택",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not self.values:
+            return
+
+        view = self.view
+        if not isinstance(view, PersonalStockRoleView):
+            await interaction.response.send_message("구독창을 다시 열어주세요.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("서버 안에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            member = await guild.fetch_member(interaction.user.id)
+
+        selected_category = self.values[0]
+        await interaction.response.edit_message(
+            content=f"{selected_category} 구독 관리",
+            view=PersonalStockRoleView(view.targets, member, selected_category=selected_category),
+        )
+
+
 class PersonalStockRoleSelect(discord.ui.Select):
-    def __init__(self, index: int, targets: list[StockRoleTarget], member_role_ids: set[int]) -> None:
+    def __init__(self, index: int, category: str, targets: list[StockRoleTarget], member_role_ids: set[int]) -> None:
+        self.category = category
         self.targets = targets
         options = [
             discord.SelectOption(
@@ -280,9 +345,10 @@ class PersonalStockRoleSelect(discord.ui.Select):
             for target in targets
             if target.role_id is not None
         ]
+        placeholder = f"{category} 구독 종목" if index == 0 else f"{category} 구독 종목 {index + 1}"
         super().__init__(
             custom_id=f"stock-role-personal-select-{index}",
-            placeholder=f"구독 종목 선택 {index + 1}",
+            placeholder=placeholder[:100],
             min_values=0,
             max_values=max(1, min(len(options), MAX_SELECT_OPTIONS)),
             options=options,
@@ -349,13 +415,21 @@ class PersonalStockRoleSelect(discord.ui.Select):
 
 
 class PersonalStockRoleView(discord.ui.View):
-    def __init__(self, targets: list[StockRoleTarget], member: discord.Member) -> None:
+    def __init__(self, targets: list[StockRoleTarget], member: discord.Member, selected_category: str | None = None) -> None:
         super().__init__(timeout=PERSONAL_ROLE_VIEW_TIMEOUT_SECONDS)
+        self.targets = targets
         member_role_ids = _member_role_ids(member)
-        for index, chunk in enumerate(chunk_stock_role_targets(targets)):
+        grouped_targets = group_stock_role_targets_by_category(targets)
+        if not grouped_targets:
+            return
+
+        category = selected_category if selected_category in grouped_targets else next(iter(grouped_targets))
+        self.add_item(PersonalStockCategorySelect(grouped_targets, category))
+
+        for index, chunk in enumerate(chunk_stock_role_targets(grouped_targets[category])[:4]):
             selectable = [target for target in chunk if target.role_id is not None]
             if selectable:
-                self.add_item(PersonalStockRoleSelect(index, selectable, member_role_ids))
+                self.add_item(PersonalStockRoleSelect(index, category, selectable, member_role_ids))
 
 
 class StockRoleManageButton(discord.ui.Button):
@@ -379,6 +453,11 @@ class StockRoleManageButton(discord.ui.Button):
         if not isinstance(member, discord.Member):
             member = await guild.fetch_member(interaction.user.id)
 
+        try:
+            await _sync_stock_role_targets_for_guild(guild)
+        except Exception as exc:
+            logger.exception("[stock-role] 구독 관리 열기 전 역할 동기화 실패 guild=%s: %s", guild.id, exc)
+
         state = load_state()
         targets = _stock_role_targets_from_state(state, guild.id)
         if not targets:
@@ -388,7 +467,7 @@ class StockRoleManageButton(discord.ui.Button):
         view = PersonalStockRoleView(targets, member)
         await _send_ephemeral(
             interaction,
-            "체크된 종목은 현재 구독 중입니다. 구독할 종목만 선택한 뒤 저장하면 됩니다.",
+            "카테고리 구독 관리",
             view=view,
         )
 
@@ -489,6 +568,50 @@ async def cleanup_stale_stock_roles(guild: discord.Guild) -> StockRoleCleanupRes
     return StockRoleCleanupResult(deleted=len(deleted_names), missing=missing, failed=failed, names=deleted_names)
 
 
+async def _sync_stock_role_targets_for_guild(guild: discord.Guild) -> tuple[int, int]:
+    state = load_state()
+    bot_member = guild.me
+
+    if bot_member is None:
+        raise RuntimeError("bot-member-unavailable")
+    if not bot_member.guild_permissions.manage_roles:
+        raise RuntimeError("missing-manage-roles-permission")
+
+    fetched_targets = await asyncio.to_thread(fetch_dashboard_stock_role_targets)
+    role_ids = get_guild_stock_role_ids(state, guild.id)
+    previous_targets = dict(get_guild_stock_role_targets(state, guild.id))
+    synced_targets: list[StockRoleTarget] = []
+    for target in fetched_targets:
+        try:
+            role = await _ensure_role(guild, target, role_ids.get(target.key))
+        except Exception as exc:
+            logger.exception("[stock-role] 역할 생성 실패 guild=%s symbol=%s: %s", guild.id, target.symbol, exc)
+            continue
+        set_guild_stock_role_id(state, guild.id, target.key, role.id)
+        synced_targets.append(
+            StockRoleTarget(
+                key=target.key,
+                symbol=target.symbol,
+                name=target.name,
+                market=target.market,
+                category=target.category,
+                role_id=role.id,
+            )
+        )
+
+    active_keys = {target.key for target in synced_targets}
+    stale_targets = stale_stock_role_targets(previous_targets, role_ids, active_keys)
+    marked_stale_targets = await _mark_stale_stock_roles(guild, stale_targets)
+    set_guild_stock_role_stale_targets(state, guild.id, marked_stale_targets)
+    set_guild_stock_role_targets(
+        state,
+        guild.id,
+        {target.key: target.to_state() for target in synced_targets},
+    )
+    save_state(state)
+    return len(synced_targets), len(marked_stale_targets)
+
+
 def _role_message_embed(target_count: int) -> discord.Embed:
     description = (
         "`구독 관리` 버튼을 누르면 본인에게만 보이는 종목 선택창이 열립니다.\n"
@@ -528,46 +651,17 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
         return
 
     try:
-        fetched_targets = await asyncio.to_thread(fetch_dashboard_stock_role_targets)
+        target_count, stale_count = await _sync_stock_role_targets_for_guild(guild)
     except Exception as exc:
         set_job_last_run(state, ROLE_SYNC_JOB_KEY, "failed", str(exc))
         save_state(state)
         logger.exception("[stock-role] 관심종목 역할 동기화 대상 조회 실패: %s", exc)
         return
 
-    role_ids = get_guild_stock_role_ids(state, guild.id)
-    previous_targets = dict(get_guild_stock_role_targets(state, guild.id))
-    synced_targets: list[StockRoleTarget] = []
-    for target in fetched_targets:
-        try:
-            role = await _ensure_role(guild, target, role_ids.get(target.key))
-        except Exception as exc:
-            logger.exception("[stock-role] 역할 생성 실패 guild=%s symbol=%s: %s", guild.id, target.symbol, exc)
-            continue
-        set_guild_stock_role_id(state, guild.id, target.key, role.id)
-        synced_targets.append(
-            StockRoleTarget(
-                key=target.key,
-                symbol=target.symbol,
-                name=target.name,
-                market=target.market,
-                category=target.category,
-                role_id=role.id,
-            )
-        )
-
-    active_keys = {target.key for target in synced_targets}
-    stale_targets = stale_stock_role_targets(previous_targets, role_ids, active_keys)
-    marked_stale_targets = await _mark_stale_stock_roles(guild, stale_targets)
-    set_guild_stock_role_stale_targets(state, guild.id, marked_stale_targets)
-    set_guild_stock_role_targets(
-        state,
-        guild.id,
-        {target.key: target.to_state() for target in synced_targets},
-    )
-
-    view = StockRoleView(len(synced_targets))
-    embed = _role_message_embed(len(synced_targets))
+    state = load_state()
+    set_guild_stock_role_channel_id(state, guild.id, channel.id)
+    view = StockRoleView(target_count)
+    embed = _role_message_embed(target_count)
     message_id = get_guild_stock_role_message_id(state, guild.id)
     message: discord.Message | None = None
     if message_id is not None:
@@ -586,10 +680,10 @@ async def sync_stock_roles_once(client: discord.Client) -> None:
         state,
         ROLE_SYNC_JOB_KEY,
         "ok",
-        f"targets={len(synced_targets)} stale={len(marked_stale_targets)} channel={channel.id}",
+        f"targets={target_count} stale={stale_count} channel={channel.id}",
     )
     save_state(state)
-    logger.info("[stock-role] 관심종목 역할 동기화 완료 guild=%s targets=%s", guild.id, len(synced_targets))
+    logger.info("[stock-role] 관심종목 역할 동기화 완료 guild=%s targets=%s", guild.id, target_count)
 
 
 async def stock_role_scheduler(client: discord.Client) -> None:

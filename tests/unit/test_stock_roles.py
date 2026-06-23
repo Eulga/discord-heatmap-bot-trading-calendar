@@ -3,6 +3,8 @@ from bot.features.stock_roles.service import (
     _stock_role_targets_from_state,
     _subscription_option_label,
     chunk_stock_role_targets,
+    fetch_dashboard_stock_role_targets,
+    group_stock_role_targets_by_category,
     legacy_unused_stock_role_names,
     stock_role_key,
     stock_role_mentions_for_items,
@@ -28,6 +30,51 @@ def test_chunk_stock_role_targets_splits_discord_select_limit():
     chunks = chunk_stock_role_targets(targets)
 
     assert [len(chunk) for chunk in chunks] == [25, 5]
+
+
+def test_group_stock_role_targets_by_category_sorts_groups_and_items():
+    targets = [
+        StockRoleTarget(key="US:AAPL", symbol="AAPL", name="Apple", market="미장", category="빅테크"),
+        StockRoleTarget(key="KRX:005930", symbol="005930", name="삼성전자", market="국장", category="반도체"),
+        StockRoleTarget(key="US:NVDA", symbol="NVDA", name="NVIDIA", market="미장", category="반도체"),
+    ]
+
+    groups = group_stock_role_targets_by_category(targets)
+
+    assert list(groups) == ["반도체", "빅테크"]
+    assert [target.symbol for target in groups["반도체"]] == ["005930", "NVDA"]
+
+
+def test_fetch_dashboard_stock_role_targets_requests_all_quotes(monkeypatch):
+    items = [
+        {
+            "category": "직접 추가",
+            "market": "미장",
+            "name": f"Test Stock {index}",
+            "symbol": f"TST{index:02d}",
+        }
+        for index in range(20)
+    ]
+    items.append(
+        {
+            "category": "반도체",
+            "market": "미장",
+            "name": "ALPHA & OMEGA SEMICONDUCTOR Ltd",
+            "symbol": "AOSL",
+        }
+    )
+    calls = []
+
+    def fake_fetch_dashboard_quotes(theme: str, *, limit: str | None = None):
+        calls.append((theme, limit))
+        return {"items": items, "theme": theme, "total": len(items)}
+
+    monkeypatch.setattr("bot.features.stock_roles.service._fetch_dashboard_quotes", fake_fetch_dashboard_quotes)
+
+    targets = fetch_dashboard_stock_role_targets()
+
+    assert calls == [("", "all")]
+    assert any(target.symbol == "AOSL" for target in targets)
 
 
 def test_stock_role_mentions_match_symbol_and_name():

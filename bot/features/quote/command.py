@@ -318,8 +318,11 @@ def _fetch_dashboard_api(path: str, params: dict[str, str]) -> dict[str, Any]:
     return data
 
 
-def _fetch_dashboard_quotes(theme: str) -> dict[str, Any]:
-    return _fetch_dashboard_api("/api/discord/quotes", {"theme": theme})
+def _fetch_dashboard_quotes(theme: str, *, limit: str | None = None) -> dict[str, Any]:
+    params = {"theme": theme}
+    if limit:
+        params["limit"] = limit
+    return _fetch_dashboard_api("/api/discord/quotes", params)
 
 
 def _fetch_dashboard_stock(query: str) -> dict[str, Any]:
