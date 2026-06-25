@@ -49,6 +49,7 @@ from bot.app.settings import (
     STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID,
     STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED,
     STOCK_DASHBOARD_REPORT_GENERATION_ENABLED,
+    STOCK_DASHBOARD_REPORT_GENERATION_TIMEOUT_SECONDS,
     STOCK_DASHBOARD_REPORT_KOREA_CLOSE_TIME,
     STOCK_DASHBOARD_REPORT_MORNING_TIME,
     STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS,
@@ -535,7 +536,7 @@ def _post_dashboard_report_generation_sync(session: str) -> dict[str, Any]:
     )
 
     try:
-        with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+        with urlopen(request, timeout=STOCK_DASHBOARD_REPORT_GENERATION_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {401, 403}:
