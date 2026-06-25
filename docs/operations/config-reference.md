@@ -17,6 +17,8 @@
 | `DISCORD_MARKET_REPORT_CHANNEL_ID` | 시장 리포트 채널 |
 | `DISCORD_WATCH_REPORT_CHANNEL_ID` | 관심종목 리포트 채널 |
 | `STOCK_DASHBOARD_ALERT_POLL_INTERVAL_SECONDS` | 관심종목 알림 전송 후보 조회 주기 |
+| `STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS` | 뉴스 전송 후보 조회 주기. 기본 30초 |
+| `STOCK_DASHBOARD_NEWS_MAX_PER_BATCH` | 뉴스 1회 전송 최대 개수. 기본 10건 |
 | `STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS` | 리포트 전송 후보 조회 주기 |
 
 운영 URL은 `.env`에서만 관리한다.
