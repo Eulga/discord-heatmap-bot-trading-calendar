@@ -48,6 +48,9 @@ from bot.app.settings import (
     STOCK_DASHBOARD_NEWS_POLL_INTERVAL_SECONDS,
     STOCK_DASHBOARD_MARKET_REPORT_FORUM_ID,
     STOCK_DASHBOARD_REPORT_DELIVERY_ENABLED,
+    STOCK_DASHBOARD_REPORT_GENERATION_ENABLED,
+    STOCK_DASHBOARD_REPORT_KOREA_CLOSE_TIME,
+    STOCK_DASHBOARD_REPORT_MORNING_TIME,
     STOCK_DASHBOARD_REPORT_POLL_INTERVAL_SECONDS,
     STOCK_DASHBOARD_WATCHLIST_REPORT_FORUM_ID,
     STOCK_DASHBOARD_WEB_BASE_URL,
@@ -513,6 +516,44 @@ def _fetch_dashboard_report_deliveries_sync() -> list[dict[str, Any]]:
 
 async def _fetch_dashboard_report_deliveries() -> list[dict[str, Any]]:
     return await asyncio.to_thread(_fetch_dashboard_report_deliveries_sync)
+
+
+def _post_dashboard_report_generation_sync(session: str) -> dict[str, Any]:
+    if not STOCK_DASHBOARD_API_BASE_URL or not STOCK_DASHBOARD_INTERNAL_TOKEN:
+        raise RuntimeError("dashboard-report-generation-config-missing")
+
+    request = Request(
+        f"{STOCK_DASHBOARD_API_BASE_URL.rstrip('/')}/api/internal/reports/auto-generate",
+        data=json.dumps({"session": session}, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "discord-heatmap-bot/1.0",
+            "x-internal-token": STOCK_DASHBOARD_INTERNAL_TOKEN,
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=INTEL_API_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise RuntimeError(f"dashboard-report-generation-auth-failed:{exc.code}") from exc
+        raise RuntimeError(f"dashboard-report-generation-upstream-error:{exc.code}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dashboard-report-generation-invalid-response") from exc
+    except URLError as exc:
+        raise RuntimeError("dashboard-report-generation-unreachable") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+        raise RuntimeError("dashboard-report-generation-invalid-response")
+
+    return payload["data"]
+
+
+async def _post_dashboard_report_generation(session: str) -> dict[str, Any]:
+    return await asyncio.to_thread(_post_dashboard_report_generation_sync, session)
 
 
 def _post_dashboard_alert_delivery_results_sync(results: list[dict[str, Any]]) -> None:
@@ -1257,6 +1298,68 @@ async def _resolve_report_forum_channel(client: discord.Client, channel_id: int)
     if not isinstance(channel, discord.ForumChannel):
         return None
     return channel
+
+
+def _dashboard_report_generation_job_key(session: str) -> str:
+    return f"dashboard_report_generation_{session}"
+
+
+def _should_start_dashboard_report_generation(
+    state: dict,
+    now: datetime,
+    *,
+    session: str,
+    scheduled_hour: int,
+    scheduled_minute: int,
+) -> bool:
+    if now.hour < scheduled_hour or (now.hour == scheduled_hour and now.minute < scheduled_minute):
+        return False
+
+    job_key = _dashboard_report_generation_job_key(session)
+    status = _job_status_on_date(state, job_key, date_key(now))
+    if status == "ok":
+        return False
+
+    return not _job_attempted_in_minute(state, job_key, now)
+
+
+async def _run_dashboard_report_generation(now: datetime, *, session: str) -> None:
+    job_key = _dashboard_report_generation_job_key(session)
+
+    try:
+        payload = await _post_dashboard_report_generation(session)
+    except Exception as exc:
+        state = load_state()
+        set_job_last_run(state, job_key, "failed", str(exc))
+        set_provider_status(state, "dashboard_report_generation", False, str(exc))
+        save_state(state)
+        _log_job_result(job_key, "failed", str(exc))
+        logger.exception("[intel] 대시보드 리포트 자동 생성 실패 session=%s: %s", session, exc)
+        return
+
+    results = payload.get("results") if isinstance(payload, dict) else None
+    created = 0
+    failed = 0
+    skipped = 0
+    if isinstance(results, list):
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            status = row.get("status")
+            if status == "created":
+                created += 1
+            elif status == "failed":
+                failed += 1
+            elif status == "skipped":
+                skipped += 1
+
+    status = "ok" if failed == 0 else "failed"
+    detail = f"session={session} created={created} skipped={skipped} failed={failed}"
+    state = load_state()
+    set_job_last_run(state, job_key, status, detail)
+    set_provider_status(state, "dashboard_report_generation", failed == 0, detail)
+    save_state(state)
+    _log_job_result(job_key, status, detail)
 
 
 async def _run_dashboard_report_delivery(client: discord.Client, now: datetime) -> None:
@@ -2898,6 +3001,8 @@ async def intel_scheduler(client: discord.Client) -> None:
     news_h, news_m = _parse_time(NEWS_BRIEFING_TIME, 7, 30)
     eod_h, eod_m = _parse_time(EOD_SUMMARY_TIME, 16, 20)
     registry_h, registry_m = _parse_time(INSTRUMENT_REGISTRY_REFRESH_TIME, 6, 20)
+    report_morning_h, report_morning_m = _parse_time(STOCK_DASHBOARD_REPORT_MORNING_TIME, 7, 30)
+    report_close_h, report_close_m = _parse_time(STOCK_DASHBOARD_REPORT_KOREA_CLOSE_TIME, 16, 10)
     last_watch_run: datetime | None = None
     last_dashboard_alert_run: datetime | None = None
     last_dashboard_news_run: datetime | None = None
@@ -2947,6 +3052,26 @@ async def intel_scheduler(client: discord.Client) -> None:
                 scheduled_minute=eod_m,
             ):
                 await _run_eod_job(client, now)
+
+            if STOCK_DASHBOARD_REPORT_GENERATION_ENABLED:
+                if _should_start_dashboard_report_generation(
+                    state,
+                    now,
+                    session="morning",
+                    scheduled_hour=report_morning_h,
+                    scheduled_minute=report_morning_m,
+                ):
+                    await _run_dashboard_report_generation(now, session="morning")
+
+                state = load_state()
+                if _should_start_dashboard_report_generation(
+                    state,
+                    now,
+                    session="koreaClose",
+                    scheduled_hour=report_close_h,
+                    scheduled_minute=report_close_m,
+                ):
+                    await _run_dashboard_report_generation(now, session="koreaClose")
 
             if STOCK_DASHBOARD_ALERT_DELIVERY_ENABLED:
                 if (
