@@ -101,7 +101,7 @@ def schedule_icon(market: str, event_type: str, title: str = "") -> str:
         return "🌐"
     if normalized_type == "disclosure":
         return "📄"
-    if _kr_market(market):
+    if _is_kr_market(market):
         return "🇰🇷"
     if _is_us_market(market):
         return "🇺🇸"

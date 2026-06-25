@@ -110,6 +110,26 @@ def test_build_schedule_embed_lists_events():
     assert embed.footer.text == "KST 기준"
 
 
+def test_build_schedule_embed_handles_kr_earnings_event():
+    embed = quote_command._build_schedule_embed(
+        {
+            "range": "today",
+            "items": [
+                {
+                    "date": "2026-06-18",
+                    "eventType": "earnings",
+                    "market": "국장",
+                    "time": "08:00",
+                    "title": "삼성전자 실적 발표",
+                }
+            ],
+        }
+    )
+
+    assert "🇰🇷 국장 실적" in embed.description
+    assert "2026-06-18 08:00 · 삼성전자 실적 발표" in embed.description
+
+
 def test_build_help_embed_lists_supported_commands():
     embed = quote_command._build_help_embed()
 
