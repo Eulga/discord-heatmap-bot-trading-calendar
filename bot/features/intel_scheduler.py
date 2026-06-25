@@ -1570,17 +1570,6 @@ async def _run_dashboard_alert_delivery(client: discord.Client, now: datetime) -
                     guild_id,
                     [str(alert.get("id") or "") for alert in schedule_alerts if str(alert.get("id") or "")],
                 )
-                delivery_results.extend(
-                    _dashboard_delivery_result(
-                        alert,
-                        guild_id=guild_id,
-                        reason="schedule-channel-not-configured",
-                        status="skipped",
-                        target="schedule",
-                    )
-                    for alert in schedule_alerts
-                    if str(alert.get("id") or "")
-                )
             else:
                 try:
                     channel = await _resolve_guild_message_channel(client, guild_id, schedule_channel_id)
