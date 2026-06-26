@@ -470,9 +470,10 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
     assert embed.title == "🌐 미국 기준금리 발표 D-DAY"
-    assert embed.description == "**03:00** · 예상 4.1 · 이전 3.8 · 발표 4.1 · 판정 예상 부합 / 이전보다 개선 / 성장 우호"
+    assert embed.description == "🟢 **03:00** · 예상 4.1 · 이전 3.8 · 발표 4.1"
+    assert "판정" not in embed.description
     assert "https://example.com/earnings" not in embed.description
-    assert embed.color.value == 0xF59E0B
+    assert embed.color.value == 0x30D158
     assert embed.footer.text == "일정 알림 · KST 기준"
     assert recorded_results == [
         {

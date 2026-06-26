@@ -727,6 +727,52 @@ def _is_dashboard_alert_time_part(value: str) -> bool:
     return bool(separator) and hour.isdigit() and minute.isdigit() and len(minute) == 2
 
 
+def _dashboard_schedule_signal(text: str) -> str:
+    if any(keyword in text for keyword in ("우호", "완화", "개선", "강함")):
+        return "positive"
+    if any(keyword in text for keyword in ("부담", "악화", "둔화", "약화")):
+        return "negative"
+    if text.strip():
+        return "neutral"
+    return ""
+
+
+def _dashboard_schedule_signal_marker(signal: str) -> str:
+    if signal == "positive":
+        return "🟢"
+    if signal == "negative":
+        return "🔴"
+    if signal == "neutral":
+        return "⚪"
+    return ""
+
+
+def _dashboard_schedule_alert_color(alert: dict[str, Any]) -> int:
+    signal = _dashboard_schedule_signal(str(alert.get("description") or ""))
+    if signal == "positive":
+        return DASHBOARD_ALERT_COLOR_US_UP
+    if signal == "negative":
+        return DASHBOARD_ALERT_COLOR_US_DOWN
+    if signal == "neutral":
+        return DASHBOARD_ALERT_COLOR_NEUTRAL
+
+    priority = str(alert.get("priority") or "").strip()
+    return 0xF59E0B if priority == "높음" else 0x22D3EE
+
+
+def _dashboard_schedule_visible_parts(parts: list[str]) -> tuple[list[str], str]:
+    visible_parts: list[str] = []
+    judgment_parts: list[str] = []
+
+    for part in parts:
+        if part.startswith("판정 "):
+            judgment_parts.extend(item.strip() for item in part.replace("판정 ", "", 1).split("/") if item.strip())
+            continue
+        visible_parts.append(part)
+
+    return visible_parts, " / ".join(judgment_parts)
+
+
 def _format_dashboard_schedule_alert_description(alert: dict[str, Any]) -> str:
     raw_description = str(alert.get("description") or "").strip()
     if not raw_description:
@@ -744,11 +790,20 @@ def _format_dashboard_schedule_alert_description(alert: dict[str, Any]) -> str:
         return ""
 
     parts = [part.strip() for part in compact.split("·") if part.strip()]
-    if len(parts) >= 3 and _is_dashboard_alert_date_part(parts[0]) and _is_dashboard_alert_time_part(parts[1]):
-        return f"**{parts[1]}** · {' · '.join(parts[2:])}"
+    visible_parts, judgment_text = _dashboard_schedule_visible_parts(parts)
+    marker = _dashboard_schedule_signal_marker(_dashboard_schedule_signal(judgment_text))
+
+    if (
+        len(parts) >= 3
+        and _is_dashboard_alert_date_part(parts[0])
+        and _is_dashboard_alert_time_part(parts[1])
+    ):
+        content = " · ".join(visible_parts[2:])
+        return " ".join(part for part in [marker, f"**{parts[1]}**", f"· {content}" if content else ""] if part)
     if len(parts) >= 2 and _is_dashboard_alert_date_part(parts[0]):
-        return " · ".join(parts[1:])
-    return compact
+        content = " · ".join(visible_parts[1:])
+        return " ".join(part for part in [marker, content] if part)
+    return " ".join(part for part in [marker, " · ".join(visible_parts)] if part)
 
 
 def _build_dashboard_stock_alert_embed(alert: dict[str, Any], now: datetime | None = None) -> discord.Embed | None:
@@ -773,12 +828,10 @@ def _build_dashboard_schedule_alert_embed(alert: dict[str, Any], now: datetime |
     if str(alert.get("type") or "").strip() != "event":
         return None
 
-    priority = str(alert.get("priority") or "").strip()
-    color = 0xF59E0B if priority == "높음" else 0x22D3EE
     embed = discord.Embed(
         title=_format_dashboard_schedule_alert_title(alert),
         description=_format_dashboard_schedule_alert_description(alert),
-        color=color,
+        color=_dashboard_schedule_alert_color(alert),
     )
     embed.set_footer(text="일정 알림 · KST 기준")
     return embed

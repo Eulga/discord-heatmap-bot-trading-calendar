@@ -81,6 +81,34 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "\n…"
 
 
+def _schedule_memo_signal(text: str) -> str:
+    if any(keyword in text for keyword in ("우호", "완화", "개선", "강함")):
+        return "🟢"
+    if any(keyword in text for keyword in ("부담", "악화", "둔화", "약화")):
+        return "🔴"
+    if text.strip():
+        return "⚪"
+    return ""
+
+
+def _format_schedule_memo(memo: str) -> str:
+    parts = [part.strip() for part in memo.split("·") if part.strip()]
+    if not parts:
+        return ""
+
+    visible_parts: list[str] = []
+    judgment_parts: list[str] = []
+
+    for part in parts:
+        if part.startswith("판정 "):
+            judgment_parts.extend(item.strip() for item in part.replace("판정 ", "", 1).split("/") if item.strip())
+            continue
+        visible_parts.append(part)
+
+    marker = _schedule_memo_signal(" / ".join(judgment_parts))
+    return " ".join(part for part in [marker, " · ".join(visible_parts)] if part)
+
+
 def _normalize_theme_key(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
     return "".join(character for character in text if character.isalnum())
@@ -275,7 +303,7 @@ def _build_schedule_embed(payload: dict[str, Any]) -> discord.Embed:
         schedule_time = " ".join(part for part in [date, time] if part)
         line = f"• {schedule_time} · {event_title}".strip()
         if memo:
-            line = f"{line}\n  {memo}"
+            line = f"{line}\n  {_format_schedule_memo(memo)}"
         if url:
             line = f"{line}\n  [원문 보기]({url})"
         sections.setdefault(section, []).append(line)
