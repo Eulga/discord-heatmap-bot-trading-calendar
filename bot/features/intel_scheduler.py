@@ -985,7 +985,7 @@ def _dashboard_news_card_prefix(item: dict[str, Any]) -> str:
         return "🏢 [기업]"
     if region_label == "해외":
         return "🌐 [해외]"
-    return "📌 [중요]"
+    return ""
 
 
 def _dashboard_news_summary_lines(item: dict[str, Any], *, max_lines: int = 3) -> list[str]:
@@ -1016,12 +1016,13 @@ def _dashboard_news_delivery_starter_body(now: datetime) -> str:
 def _build_dashboard_news_delivery_embed(items: list[dict[str, Any]], now: datetime) -> discord.Embed:
     embed = discord.Embed(
         title="시장 뉴스",
-        description=f"{timestamp_text(now)} 기준 새 중요 뉴스 {len(items)}건",
+        description=f"{timestamp_text(now)} 기준 새 뉴스 {len(items)}건",
         color=DASHBOARD_NEWS_COLOR,
     )
     for item in items:
         title = _short_text(str(item.get("title") or "뉴스").strip(), 220)
-        field_name = _short_text(f"{_dashboard_news_card_prefix(item)} {title}", 256)
+        prefix = _dashboard_news_card_prefix(item)
+        field_name = _short_text(" ".join(part for part in [prefix, title] if part), 256)
         summary_lines = _dashboard_news_summary_lines(item)
         source_text = _dashboard_news_source_text(item)
         url = str(item.get("url") or item.get("link") or "").strip()

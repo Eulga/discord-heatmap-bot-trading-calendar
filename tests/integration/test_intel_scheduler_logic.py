@@ -272,6 +272,27 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     assert state["system"]["job_last_runs"]["dashboard_news_delivery"]["status"] == "skipped"
 
 
+def test_dashboard_news_delivery_omits_generic_important_badge():
+    embed = intel_scheduler._build_dashboard_news_delivery_embed(
+        [
+            {
+                "deliveryId": "news:generic-1",
+                "publishedAt": "2026-06-19T00:30:00Z",
+                "source": "Naver",
+                "summary": "기업 투자와 수주 흐름을 확인할 필요가 있습니다.",
+                "title": "마이크론 실적 이후 공급망 점검",
+                "url": "https://example.com/micron",
+            }
+        ],
+        datetime(2026, 6, 19, 9, 30, tzinfo=KST),
+    )
+
+    assert embed.description == "2026-06-19 09:30:00 기준 새 뉴스 1건"
+    assert embed.fields[0].name == "마이크론 실적 이후 공급망 점검"
+    assert "중요" not in embed.fields[0].name
+    assert "📌" not in embed.fields[0].name
+
+
 @pytest.mark.asyncio
 async def test_dashboard_report_delivery_posts_market_and_watchlist_reports(monkeypatch):
     state = {"commands": {}, "guilds": {}, "system": {}}
