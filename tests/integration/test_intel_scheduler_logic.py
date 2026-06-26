@@ -420,13 +420,14 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     async def fake_fetch_alerts():
         return [
             {
-                "description": "2026-06-18 · 03:00 · FOMC 정책금리 결정",
-                "id": "event-earnings-KRX:005930-2026-06-18",
-                "market": "국장",
+                "description": "2026-06-18 · 03:00 · 예상 4.1 · 이전 3.8 · 발표 4.1 · 판정 예상 부합 / 이전보다 개선 / 성장 우호",
+                "eventType": "economic",
+                "id": "event-economic-2026-06-18-fomc",
+                "market": "미장",
                 "priority": "높음",
-                "source": "earnings",
+                "source": "economic_calendar",
                 "status": "D-DAY",
-                "title": "삼성전자 실적 발표",
+                "title": "미국 기준금리 발표",
                 "type": "event",
                 "url": "https://example.com/earnings",
             }
@@ -447,14 +448,14 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
     assert len(sent_messages) == 1
     assert sent_messages[0]["content"] is None
     embed = sent_messages[0]["embed"]
-    assert embed.title == "🌐 삼성전자 실적 발표 D-DAY"
-    assert embed.description == "**03:00** · FOMC 정책금리 결정"
+    assert embed.title == "🌐 미국 기준금리 발표 D-DAY"
+    assert embed.description == "**03:00** · 예상 4.1 · 이전 3.8 · 발표 4.1 · 판정 예상 부합 / 이전보다 개선 / 성장 우호"
     assert "https://example.com/earnings" not in embed.description
     assert embed.color.value == 0xF59E0B
     assert embed.footer.text == "일정 알림 · KST 기준"
     assert recorded_results == [
         {
-            "alertId": "event-earnings-KRX:005930-2026-06-18",
+            "alertId": "event-economic-2026-06-18-fomc",
             "channelId": "456",
             "guildId": "1",
             "messageId": "889",
@@ -462,10 +463,10 @@ async def test_dashboard_alert_delivery_routes_event_alerts_to_schedule_channel(
             "status": "sent",
             "target": "schedule",
             "threadId": "",
-            "title": "🌐 삼성전자 실적 발표 D-DAY",
+            "title": "🌐 미국 기준금리 발표 D-DAY",
         }
     ]
-    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-earnings-KRX:005930-2026-06-18"]
+    assert state["system"]["dashboard_alert_sent_ids_by_guild"]["1"] == ["event-economic-2026-06-18-fomc"]
     assert state["system"]["job_last_runs"]["dashboard_alert_delivery"]["status"] == "ok"
 
 

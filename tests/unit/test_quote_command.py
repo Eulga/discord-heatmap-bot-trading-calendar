@@ -96,8 +96,10 @@ def test_build_schedule_embed_lists_events():
                     "date": "2026-06-18",
                     "eventType": "economic",
                     "market": "미장",
+                    "memo": "예상 4.1 · 이전 3.8 · 발표 4.1 · 판정 예상 부합 / 이전보다 개선 / 성장 우호",
                     "time": "03:00",
                     "title": "미국 기준금리 발표",
+                    "url": "https://example.com/calendar",
                 }
             ],
         }
@@ -106,6 +108,8 @@ def test_build_schedule_embed_lists_events():
     assert embed.title == "오늘 일정"
     assert "🌐 매크로 경제" in embed.description
     assert "2026-06-18 03:00 · 미국 기준금리 발표" in embed.description
+    assert "판정 예상 부합 / 이전보다 개선 / 성장 우호" in embed.description
+    assert "[원문 보기](https://example.com/calendar)" in embed.description
     assert "미국 기준금리 발표" in embed.description
     assert embed.footer.text == "KST 기준"
 

@@ -267,11 +267,17 @@ def _build_schedule_embed(payload: dict[str, Any]) -> discord.Embed:
         raw_event_type = str(item.get("eventType") or "earnings").strip()
         event_type = "경제" if raw_event_type == "economic" else "공시" if raw_event_type == "disclosure" else "실적"
         market = str(item.get("market") or "").strip()
+        memo = str(item.get("memo") or "").strip()
+        url = str(item.get("url") or "").strip()
         icon = schedule_icon(market, raw_event_type, event_title)
         market_label = "매크로" if raw_event_type == "economic" else market or "일정"
         section = f"{icon} {market_label} {event_type}".strip()
         schedule_time = " ".join(part for part in [date, time] if part)
         line = f"• {schedule_time} · {event_title}".strip()
+        if memo:
+            line = f"{line}\n  {memo}"
+        if url:
+            line = f"{line}\n  [원문 보기]({url})"
         sections.setdefault(section, []).append(line)
 
     blocks = [f"**{section}**\n" + "\n".join(lines) for section, lines in sections.items()]
