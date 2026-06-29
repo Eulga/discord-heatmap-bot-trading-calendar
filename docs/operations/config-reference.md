@@ -9,6 +9,8 @@
 | `STOCK_DASHBOARD_BASE_URL` | 사용자가 접속할 대시보드 URL |
 | `STOCK_DASHBOARD_INTERNAL_BASE_URL` | 봇이 내부에서 호출할 대시보드 URL |
 | `STOCK_DASHBOARD_INTERNAL_TOKEN` | 대시보드 내부 API 호출 토큰 |
+| `STOCK_DATA_CONTROLLER_API_BASE_URL` | 뉴스 피드백을 저장할 Collector API URL |
+| `STOCK_DATA_CONTROLLER_INTERNAL_TOKEN` | Collector 내부 API 호출 토큰. 비워두면 `STOCK_DASHBOARD_INTERNAL_TOKEN`을 사용 |
 | `DISCORD_LOGIN_CHANNEL_ID` | 로그인 버튼 채널 |
 | `DISCORD_ROLE_ASSIGN_CHANNEL_ID` | 관심종목 역할 선택 채널 |
 | `DISCORD_WATCH_ALERT_CHANNEL_ID` | 관심종목 알림 채널 |

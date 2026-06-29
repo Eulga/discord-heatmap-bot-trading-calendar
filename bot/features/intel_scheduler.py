@@ -65,6 +65,7 @@ from bot.features.eod.policy import build_body as build_eod_body
 from bot.features.eod.policy import build_post_title as build_eod_title
 from bot.features.news.policy import build_region_body as build_news_region_body
 from bot.features.news.policy import build_post_title as build_news_title
+from bot.features.news.feedback import build_news_feedback_view
 from bot.features.news.trend_policy import (
     build_trend_post_title,
     build_trend_region_messages,
@@ -1173,15 +1174,17 @@ async def _run_dashboard_news_delivery(client: discord.Client, now: datetime) ->
                 image_paths=[],
             )
             embed = _build_dashboard_news_delivery_embed(new_items, now)
+            feedback_view = build_news_feedback_view(new_items)
             role_mentions = stock_role_mentions_for_items(state, guild_id, new_items)
             if role_mentions:
                 message = await thread.send(
                     content=role_mentions,
                     embed=embed,
+                    view=feedback_view,
                     allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
                 )
             else:
-                message = await thread.send(embed=embed)
+                message = await thread.send(embed=embed, view=feedback_view)
             for item in new_items:
                 delivery_id = _dashboard_news_delivery_id(item)
                 mark_news_dedup_seen(state, f"{guild_id}:{delivery_id}", run_date)

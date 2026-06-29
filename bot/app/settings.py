@@ -132,6 +132,10 @@ NEWS_PROVIDER_KIND = os.getenv("NEWS_PROVIDER_KIND", "mock").strip().lower() or 
 MARKET_DATA_PROVIDER_KIND = os.getenv("MARKET_DATA_PROVIDER_KIND", "mock").strip().lower() or "mock"
 STOCK_DASHBOARD_API_BASE_URL = os.getenv("STOCK_DASHBOARD_API_BASE_URL", "").strip().rstrip("/")
 STOCK_DASHBOARD_INTERNAL_TOKEN = os.getenv("STOCK_DASHBOARD_INTERNAL_TOKEN", "").strip()
+STOCK_DATA_CONTROLLER_API_BASE_URL = os.getenv("STOCK_DATA_CONTROLLER_API_BASE_URL", "").strip().rstrip("/")
+STOCK_DATA_CONTROLLER_INTERNAL_TOKEN = (
+    os.getenv("STOCK_DATA_CONTROLLER_INTERNAL_TOKEN", "").strip() or STOCK_DASHBOARD_INTERNAL_TOKEN
+)
 DART_API_KEY = os.getenv("DART_API_KEY", "").strip()
 KIS_APP_KEY = os.getenv("KIS_APP_KEY", "").strip()
 KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "").strip()
