@@ -129,6 +129,55 @@ def record_news_feedback_sync(
         raise NewsFeedbackError("collector-feedback-unreachable") from exc
 
 
+async def _save_feedback_values(
+    interaction: discord.Interaction,
+    *,
+    feedback_action: str,
+    article_keys: list[str],
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    guild_id = str(getattr(interaction.guild, "id", "") or "")
+    channel_id = str(getattr(interaction.channel, "id", "") or "")
+    message_id = str(getattr(interaction.message, "id", "") or "")
+    thread_id = channel_id
+    user_id = str(getattr(interaction.user, "id", "") or "")
+
+    saved = 0
+    failed = 0
+    for article_key in article_keys:
+        try:
+            await asyncio.to_thread(
+                record_news_feedback_sync,
+                article_key=article_key,
+                discord_user_id=user_id,
+                action=feedback_action,
+                guild_id=guild_id,
+                channel_id=channel_id,
+                thread_id=thread_id,
+                message_id=message_id,
+            )
+        except Exception as exc:
+            failed += 1
+            logger.warning(
+                "[news-feedback] 저장 실패 user=%s article_key=%s action=%s reason=%s",
+                user_id,
+                article_key,
+                feedback_action,
+                exc,
+            )
+        else:
+            saved += 1
+
+    if saved and not failed:
+        await _send_ephemeral(interaction, f"피드백을 저장했습니다. ({saved}건)")
+        return
+    if saved and failed:
+        await _send_ephemeral(interaction, f"일부만 저장했습니다. 성공 {saved}건, 실패 {failed}건")
+        return
+    await _send_ephemeral(interaction, "피드백을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.")
+
+
 class NewsFeedbackSelect(discord.ui.Select):
     def __init__(self, action: str, options: list[NewsFeedbackOption], max_values: int | None = None) -> None:
         self.feedback_action = action
@@ -149,47 +198,46 @@ class NewsFeedbackSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await _save_feedback_values(
+            interaction,
+            feedback_action=self.feedback_action,
+            article_keys=list(self.values),
+        )
 
-        guild_id = str(getattr(interaction.guild, "id", "") or "")
-        channel_id = str(getattr(interaction.channel, "id", "") or "")
-        message_id = str(getattr(interaction.message, "id", "") or "")
-        thread_id = channel_id
-        user_id = str(getattr(interaction.user, "id", "") or "")
 
-        saved = 0
-        failed = 0
-        for article_key in self.values:
-            try:
-                await asyncio.to_thread(
-                    record_news_feedback_sync,
-                    article_key=article_key,
-                    discord_user_id=user_id,
-                    action=self.feedback_action,
-                    guild_id=guild_id,
-                    channel_id=channel_id,
-                    thread_id=thread_id,
-                    message_id=message_id,
+class NewsFeedbackDynamicSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"news-feedback:(?P<action>useful|noise|duplicate)"):
+    def __init__(self, item: discord.ui.Select, action: str) -> None:
+        self.feedback_action = action
+        super().__init__(item)
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Item, match) -> "NewsFeedbackDynamicSelect":
+        action = str(match.group("action"))
+        if isinstance(item, discord.ui.Select):
+            return cls(item, action)
+
+        fallback_item = discord.ui.Select(
+            custom_id=match.group(0),
+            placeholder=NEWS_FEEDBACK_ACTIONS[action],
+            min_values=1,
+            max_values=MAX_NEWS_FEEDBACK_OPTIONS,
+            options=[
+                discord.SelectOption(
+                    label=f"최근 뉴스 카드 {index}",
+                    value=f"placeholder-{index}",
+                    description="재기동 후 기존 뉴스 피드백을 처리하기 위한 등록값",
                 )
-            except Exception as exc:
-                failed += 1
-                logger.warning(
-                    "[news-feedback] 저장 실패 user=%s article_key=%s action=%s reason=%s",
-                    user_id,
-                    article_key,
-                    self.feedback_action,
-                    exc,
-                )
-            else:
-                saved += 1
+                for index in range(1, MAX_NEWS_FEEDBACK_OPTIONS + 1)
+            ],
+        )
+        return cls(fallback_item, action)
 
-        if saved and not failed:
-            await _send_ephemeral(interaction, f"피드백을 저장했습니다. ({saved}건)")
-            return
-        if saved and failed:
-            await _send_ephemeral(interaction, f"일부만 저장했습니다. 성공 {saved}건, 실패 {failed}건")
-            return
-        await _send_ephemeral(interaction, "피드백을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.")
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await _save_feedback_values(
+            interaction,
+            feedback_action=self.feedback_action,
+            article_keys=[str(value) for value in self.item.values],
+        )
 
 
 def build_news_feedback_view(items: list[dict[str, Any]]) -> discord.ui.View | None:
@@ -197,22 +245,11 @@ def build_news_feedback_view(items: list[dict[str, Any]]) -> discord.ui.View | N
     if not options:
         return None
 
-    view = discord.ui.View(timeout=NEWS_FEEDBACK_VIEW_TIMEOUT_SECONDS)
+    view = discord.ui.View(timeout=None)
     for action in NEWS_FEEDBACK_ACTIONS:
-        view.add_item(NewsFeedbackSelect(action, options))
+        view.add_item(NewsFeedbackDynamicSelect(NewsFeedbackSelect(action, options), action))
     return view
 
 
 def register_persistent_news_feedback_view(client: discord.Client) -> None:
-    placeholder_options = [
-        NewsFeedbackOption(
-            article_key=f"placeholder-{index}",
-            label=f"최근 뉴스 카드 {index}",
-            description="재기동 후 기존 뉴스 피드백을 처리하기 위한 등록값",
-        )
-        for index in range(1, MAX_NEWS_FEEDBACK_OPTIONS + 1)
-    ]
-    view = discord.ui.View(timeout=None)
-    for action in NEWS_FEEDBACK_ACTIONS:
-        view.add_item(NewsFeedbackSelect(action, placeholder_options, max_values=MAX_NEWS_FEEDBACK_OPTIONS))
-    client.add_view(view)
+    client.add_dynamic_items(NewsFeedbackDynamicSelect)

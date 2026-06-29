@@ -27,35 +27,25 @@ def test_build_news_feedback_view_uses_article_keys() -> None:
     assert view is not None
     assert len(view.children) == 3
     for child in view.children:
-        assert child.options[0].value == "naver:1"
-        assert child.options[0].label.startswith("1. 삼성전자")
-        assert child.placeholder in {"유용함", "불필요", "중복"}
+        assert isinstance(child, feedback.NewsFeedbackDynamicSelect)
+        assert child.item.options[0].value == "naver:1"
+        assert child.item.options[0].label.startswith("1. 삼성전자")
+        assert child.item.placeholder in {"유용함", "불필요", "중복"}
 
 
 def test_register_persistent_news_feedback_view_adds_restart_safe_selects() -> None:
     class FakeClient:
         def __init__(self) -> None:
-            self.views = []
+            self.dynamic_items = []
 
-        def add_view(self, view) -> None:
-            self.views.append(view)
+        def add_dynamic_items(self, *items) -> None:
+            self.dynamic_items.extend(items)
 
     client = FakeClient()
 
     feedback.register_persistent_news_feedback_view(client)
 
-    assert len(client.views) == 1
-    view = client.views[0]
-    assert view.timeout is None
-    assert len(view.children) == 3
-    assert {child.custom_id for child in view.children} == {
-        "news-feedback:duplicate",
-        "news-feedback:noise",
-        "news-feedback:useful",
-    }
-    assert all(child.placeholder in {"유용함", "불필요", "중복"} for child in view.children)
-    assert all(child.max_values == feedback.MAX_NEWS_FEEDBACK_OPTIONS for child in view.children)
-    assert all(len(child.options) == feedback.MAX_NEWS_FEEDBACK_OPTIONS for child in view.children)
+    assert client.dynamic_items == [feedback.NewsFeedbackDynamicSelect]
 
 
 def test_record_news_feedback_sync_posts_collector_payload(monkeypatch) -> None:
