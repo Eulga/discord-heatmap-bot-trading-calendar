@@ -17,6 +17,7 @@ from bot.app.settings import (
 logger = logging.getLogger(__name__)
 
 NEWS_FEEDBACK_VIEW_TIMEOUT_SECONDS = 3 * 24 * 60 * 60
+NEWS_FEEDBACK_EPHEMERAL_DELETE_AFTER_SECONDS = 60
 MAX_NEWS_FEEDBACK_OPTIONS = 25
 NEWS_FEEDBACK_ACTIONS = {
     "useful": "유용함",
@@ -34,6 +35,23 @@ class NewsFeedbackOption:
     article_key: str
     label: str
     description: str
+
+
+async def _send_ephemeral(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> None:
+    try:
+        message = await interaction.followup.send(
+            *args,
+            ephemeral=True,
+            wait=True,
+            **kwargs,
+        )
+    except discord.HTTPException:
+        raise
+
+    try:
+        await message.delete(delay=NEWS_FEEDBACK_EPHEMERAL_DELETE_AFTER_SECONDS)
+    except discord.HTTPException:
+        logger.debug("[news-feedback] ephemeral message delete scheduling failed", exc_info=True)
 
 
 def _short_text(text: str, max_chars: int) -> str:
@@ -112,7 +130,7 @@ def record_news_feedback_sync(
 
 
 class NewsFeedbackSelect(discord.ui.Select):
-    def __init__(self, action: str, options: list[NewsFeedbackOption]) -> None:
+    def __init__(self, action: str, options: list[NewsFeedbackOption], max_values: int | None = None) -> None:
         self.feedback_action = action
         select_options = [
             discord.SelectOption(
@@ -124,9 +142,9 @@ class NewsFeedbackSelect(discord.ui.Select):
         ]
         super().__init__(
             custom_id=f"news-feedback:{action}",
-            placeholder=f"{NEWS_FEEDBACK_ACTIONS[action]} 기사 선택",
+            placeholder=NEWS_FEEDBACK_ACTIONS[action],
             min_values=1,
-            max_values=max(1, min(len(select_options), MAX_NEWS_FEEDBACK_OPTIONS)),
+            max_values=max_values or max(1, min(len(select_options), MAX_NEWS_FEEDBACK_OPTIONS)),
             options=select_options,
         )
 
@@ -166,12 +184,12 @@ class NewsFeedbackSelect(discord.ui.Select):
                 saved += 1
 
         if saved and not failed:
-            await interaction.followup.send(f"피드백을 저장했습니다. ({saved}건)", ephemeral=True)
+            await _send_ephemeral(interaction, f"피드백을 저장했습니다. ({saved}건)")
             return
         if saved and failed:
-            await interaction.followup.send(f"일부만 저장했습니다. 성공 {saved}건, 실패 {failed}건", ephemeral=True)
+            await _send_ephemeral(interaction, f"일부만 저장했습니다. 성공 {saved}건, 실패 {failed}건")
             return
-        await interaction.followup.send("피드백을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.", ephemeral=True)
+        await _send_ephemeral(interaction, "피드백을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.")
 
 
 def build_news_feedback_view(items: list[dict[str, Any]]) -> discord.ui.View | None:
@@ -183,3 +201,18 @@ def build_news_feedback_view(items: list[dict[str, Any]]) -> discord.ui.View | N
     for action in NEWS_FEEDBACK_ACTIONS:
         view.add_item(NewsFeedbackSelect(action, options))
     return view
+
+
+def register_persistent_news_feedback_view(client: discord.Client) -> None:
+    placeholder_options = [
+        NewsFeedbackOption(
+            article_key=f"placeholder-{index}",
+            label=f"최근 뉴스 카드 {index}",
+            description="재기동 후 기존 뉴스 피드백을 처리하기 위한 등록값",
+        )
+        for index in range(1, MAX_NEWS_FEEDBACK_OPTIONS + 1)
+    ]
+    view = discord.ui.View(timeout=None)
+    for action in NEWS_FEEDBACK_ACTIONS:
+        view.add_item(NewsFeedbackSelect(action, placeholder_options, max_values=MAX_NEWS_FEEDBACK_OPTIONS))
+    client.add_view(view)

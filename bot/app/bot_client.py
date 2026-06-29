@@ -32,6 +32,7 @@ from bot.features.admin.command import register as register_admin
 from bot.features.dashboard_access_sync.service import dashboard_access_role_scheduler
 from bot.features.dashboard_login.command import ensure_dashboard_login_panel, register as register_dashboard_login
 from bot.features.kheatmap.command import register as register_kheatmap
+from bot.features.news.feedback import register_persistent_news_feedback_view
 from bot.features.quote.command import register as register_quote
 from bot.features.status.command import register as register_status
 from bot.features.usheatmap.command import register as register_usheatmap
@@ -159,6 +160,7 @@ class BotApp:
         register_kheatmap(self.tree, self.client)
         register_usheatmap(self.tree, self.client)
         register_dashboard_login(self.client)
+        register_persistent_news_feedback_view(self.client)
 
         @self.client.event
         async def on_ready() -> None:

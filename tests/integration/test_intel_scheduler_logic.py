@@ -223,8 +223,8 @@ async def test_dashboard_news_delivery_posts_new_articles_once(monkeypatch):
     class Thread:
         id = 777
 
-        async def send(self, content: str | None = None, *, embed=None):
-            sent_messages.append({"content": content, "embed": embed})
+        async def send(self, content: str | None = None, *, embed=None, view=None):
+            sent_messages.append({"content": content, "embed": embed, "view": view})
             return type("Message", (), {"id": 888})()
 
     async def fake_upsert_daily_post(**kwargs):
